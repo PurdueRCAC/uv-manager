@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+#
+# uv-wrapper — transparent, quota-safe, arch-aware launcher for `uv`/`uvx`
+# on a hybrid x86_64 (login) + aarch64 (compute) cluster.
+#
+# Deploy centrally, e.g.:
+#   /apps/external/uv/main/bin/{uv,uvx}   (uvx symlinked to uv)
+# Do NOT put this at ~/.local/bin/uv — that's the standalone installer's
+# default UV_INSTALL_DIR, and this would silently overwrite a user's own
+# real uv binary if one is already there. Keep this path disjoint and make
+# it opt-in (module load / explicit PATH addition), never default PATH.
+#
+# Real uv payload (binary, cache, tool venvs, managed pythons) never touches
+# home quota — it lives under $CLUSTER_SCRATCH/.uv/<arch>/ instead.
+
+set -euo pipefail
+
+# ---- identity: uv or uvx, decided purely by argv[0] ------------------------
+
+prog="$(basename -- "$0")"
+case "${prog}" in
+  uvx) mode="uvx" ;;
+  *)   mode="uv"  ;;
+esac
+
+# ---- arch-specific root on Lustre scratch ----------------------------------
+
+arch="$(uname -m)"
+scratch_root="${CLUSTER_SCRATCH:-/tmp/${USER:-$(id -un)}}"
+UV_ROOT="${scratch_root}/.uv/${arch}"
+UV_BIN_DIR="${UV_ROOT}/bin"
+UV_REAL_UV="${UV_BIN_DIR}/uv"
+UV_REAL_UVX="${UV_BIN_DIR}/uvx"
+
+# ---- lazy install (once per arch, guarded by an atomic mkdir-lock) --------
+
+install_uv() {
+  mkdir -p "${UV_ROOT}"
+  local lock="${UV_ROOT}/.install.lock"
+  local waited=0
+  until mkdir "${lock}" 2>/dev/null; do
+    waited=$((waited + 1))
+    if (( waited > 180 )); then
+      echo "uv-wrapper: timed out waiting for install lock: ${lock}" >&2
+      return 1
+    fi
+    sleep 1
+  done
+  # shellcheck disable=SC2064
+  trap "rmdir '${lock}' 2>/dev/null || true" RETURN
+
+  # Another process may have finished installing while we waited.
+  if [[ -x "${UV_REAL_UV}" && -z "${UV_WRAPPER_REFRESH:-}" ]]; then
+    return 0
+  fi
+
+  local ver="${UV_WRAPPER_PIN:-}"
+  local install_url="https://astral.sh/uv/install.sh"
+  [[ -n "${ver}" ]] && install_url="https://astral.sh/uv/${ver}/install.sh"
+
+  echo "uv-wrapper: installing uv (${ver:-latest}) for ${arch} -> ${UV_BIN_DIR}" >&2
+  if ! curl -LsSf "${install_url}" | env UV_UNMANAGED_INSTALL="${UV_BIN_DIR}" sh; then
+    echo "uv-wrapper: install failed — no egress from this node?" >&2
+    echo "uv-wrapper: pre-warm from a node of this arch (${arch}) with internet access first." >&2
+    return 1
+  fi
+}
+
+if [[ ! -x "${UV_REAL_UV}" ]] || [[ -n "${UV_WRAPPER_REFRESH:-}" ]]; then
+  install_uv || exit 1
+fi
+
+# ---- everything size-driving uv touches lives in scratch, per-arch --------
+
+# Deliberately NOT overriding XDG_CONFIG_HOME — that's where a user's own
+# ~/.config/uv/uv.toml (index URLs, auth, mirrors) lives, and hiding it would
+# silently change resolution behavior, not just storage location.
+export UV_CACHE_DIR="${UV_ROOT}/cache"
+export UV_TOOL_DIR="${UV_ROOT}/tools"
+export UV_TOOL_BIN_DIR="${UV_BIN_DIR}/shims"
+export UV_PYTHON_INSTALL_DIR="${UV_ROOT}/python"
+export UV_PYTHON_BIN_DIR="${UV_BIN_DIR}/python-shims"
+mkdir -p "${UV_CACHE_DIR}" "${UV_TOOL_DIR}" "${UV_TOOL_BIN_DIR}" \
+         "${UV_PYTHON_INSTALL_DIR}" "${UV_PYTHON_BIN_DIR}"
+
+export PATH="${UV_TOOL_BIN_DIR}:${PATH}"
+
+# ---- intercept `uv self update` and pivot to the wrapper's own refresh ----
+
+if [[ "${mode}" == "uv" && "${1:-}" == "self" && "${2:-}" == "update" ]]; then
+  shift 2
+  dry_run=""
+  target_version=""
+  for a in "$@"; do
+    case "${a}" in
+      --dry-run) dry_run=1 ;;
+      -*) : ;;                      # ignore other flags (e.g. -v, --allow-insecure-host)
+      *)  target_version="${a}" ;;  # positional TARGET_VERSION, if given
+    esac
+  done
+
+  if [[ -n "${dry_run}" ]]; then
+    echo "uv-wrapper: self update intercepted (dry-run) — would refresh ${UV_ROOT}"
+    [[ -n "${target_version}" ]] && echo "uv-wrapper: would pin to ${target_version}"
+    exit 0
+  fi
+
+  echo "uv-wrapper: intercepting 'uv self update' -> forced refresh of ${arch} install at ${UV_ROOT}" >&2
+  export UV_WRAPPER_REFRESH=1
+  [[ -n "${target_version}" ]] && export UV_WRAPPER_PIN="${target_version}"
+  install_uv || exit 1
+  exec "${UV_REAL_UV}" --version
+fi
+
+# ---- `uv status` — wrapper diagnostics (not a real uv subcommand) --------
+
+if [[ "${mode}" == "uv" && "${1:-}" == "status" ]]; then
+  echo "arch:              ${arch}"
+  echo "scratch root:      ${scratch_root}"
+  echo "uv root:           ${UV_ROOT}"
+  echo "real uv binary:    ${UV_REAL_UV} $( [[ -x "${UV_REAL_UV}" ]] && echo '[present]' || echo '[MISSING]' )"
+  echo "real uvx binary:   ${UV_REAL_UVX} $( [[ -x "${UV_REAL_UVX}" ]] && echo '[present]' || echo '[MISSING]' )"
+  if [[ -x "${UV_REAL_UV}" ]]; then
+    echo "resolved version:  $("${UV_REAL_UV}" --version 2>/dev/null || echo 'unknown')"
+  fi
+  echo "UV_CACHE_DIR:          ${UV_CACHE_DIR}"
+  echo "UV_TOOL_DIR:           ${UV_TOOL_DIR}"
+  echo "UV_TOOL_BIN_DIR:       ${UV_TOOL_BIN_DIR}"
+  echo "UV_PYTHON_INSTALL_DIR: ${UV_PYTHON_INSTALL_DIR}"
+  echo "UV_PYTHON_BIN_DIR:     ${UV_PYTHON_BIN_DIR}"
+  echo "XDG_CONFIG_HOME:       ${XDG_CONFIG_HOME:-<unset — user default: ~/.config>}"
+  echo "pin (UV_WRAPPER_PIN):  ${UV_WRAPPER_PIN:-<none — tracks latest>}"
+  exit 0
+fi
+
+# ---- dispatch on identity ---------------------------------------------------
+
+case "${mode}" in
+  uvx)
+    if [[ -x "${UV_REAL_UVX}" ]]; then
+      exec "${UV_REAL_UVX}" "$@"
+    else
+      exec "${UV_REAL_UV}" tool run "$@"
+    fi
+    ;;
+  *)
+    exec "${UV_REAL_UV}" "$@"
+    ;;
+esac
