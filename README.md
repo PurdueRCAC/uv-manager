@@ -108,8 +108,8 @@ that puts them in the right place. That is the whole scope of the project.
 
 ## What the wrapper does
 
-`bin/uv`, `bin/uvx` and `bin/uv-manager` are the same file. The latter two are symlinks, and the
-script picks its mode from `basename $0`, the same way real `uv` does.
+`bin/uv-manager` is the script. `bin/uv`, `bin/uvx` and `bin/uvm` are symlinks to it, and it
+picks its mode from `basename $0`, the same way real `uv` does.
 
 On every invocation it:
 
@@ -184,7 +184,8 @@ Everything is ordinary `uv`. The additions live under `uv-manager`:
 | `uv-manager env` | Print shell exports for the current node. |
 | `uv-manager clean [cache\|arch\|all] --yes` | Remove part of the tree. |
 
-`uv status` still works as a deprecated alias for `uv-manager status`.
+`uvm` is a short alias for `uv-manager`, so `uvm status` and `uvm doctor` work too. `uv status`
+also still works as a deprecated alias for `uv-manager status`.
 
 Three things worth putting in your site documentation:
 
@@ -213,14 +214,15 @@ wrapper cannot fully solve.
 ```
 /apps/external/uv/main/
 └── bin/
-    ├── uv                  the wrapper
-    ├── uvx -> uv           symlink
-    └── uv-manager -> uv    symlink
+    ├── uv-manager          the script
+    ├── uv  -> uv-manager
+    ├── uvx -> uv-manager
+    └── uvm -> uv-manager   short alias for uv-manager
 ```
 
 ```bash
 git clone https://github.com/purduercac/uv-manager /apps/external/uv/main
-chmod 0755 /apps/external/uv/main/bin/uv
+chmod 0755 /apps/external/uv/main/bin/uv-manager
 ```
 
 The symlinks have to survive deployment. `git clone` and `rsync -a` preserve them; `cp -r` without
@@ -424,7 +426,8 @@ Rationale for the choices that may look arbitrary.
 **Dispatch on `basename $0`.** Real `uv` does the same, so `uvx` needs no separate code path and
 stays correct if Astral changes what `uvx` means. It also gives wrapper-specific commands a home,
 `uv-manager`, without shadowing `uv`'s own namespace, which matters because `uv` keeps adding
-subcommands (`auth`, `format`, `check`, `audit` and `upgrade` are all recent).
+subcommands (`auth`, `format`, `check`, `audit` and `upgrade` are all recent). Adding a name is
+one symlink plus one pattern in the `case`; unrecognised names fall through to `uv` mode.
 
 **`exec`, not a subprocess.** Signals, exit codes and process accounting stay as they would be
 without the wrapper. An `srun uv run ...` has to forward `SIGTERM` correctly at walltime, and a
@@ -544,7 +547,8 @@ The first two would change dependency resolution. The rest are site or user poli
 ### Repository layout
 
 ```
-bin/uv, bin/uvx, bin/uv-manager   the wrapper (uvx and uv-manager are symlinks)
+bin/uv-manager                    the script
+bin/{uv,uvx,uvm}                  symlinks to it; mode is chosen by basename
 etc/uv-manager.conf.example       example site settings, heavily commented
 share/modulefiles/uv/main.lua     example Lmod modulefile
 ```

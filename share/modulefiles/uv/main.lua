@@ -5,7 +5,7 @@
 -- Install as, e.g.:
 --     /apps/modulefiles/standard/uv/main.lua
 -- pointing at a deployment at:
---     /apps/external/uv/main/bin/{uv,uvx,uv-manager}
+--     /apps/external/uv/main/bin/uv-manager   (with uv, uvx, uvm symlinked)
 --
 -- DESIGN NOTE — everything this modulefile exports is architecture-NEUTRAL.
 --
@@ -32,7 +32,7 @@ local pkg_version = myModuleVersion()
 
 -- ---------------------------------------------------------------- site knobs
 
--- Deployment prefix. Contains bin/{uv,uvx,uv-manager}.
+-- Deployment prefix. Contains bin/uv-manager plus the uv, uvx and uvm links.
 local prefix = "/apps/external/uv/" .. pkg_version
 
 -- Where per-user uv state lives. Edit the candidate list to match the
@@ -77,6 +77,7 @@ Usage
     uv-manager status         show where this wrapper is putting things
     uv-manager doctor         check for a purged or damaged environment
     uv-manager help           all wrapper commands
+                              ('uvm' is a short alias for 'uv-manager')
 
 First use on a given architecture downloads uv (a few seconds, needs outbound
 HTTPS). Compute nodes without egress will fail; run any uv command once on a
