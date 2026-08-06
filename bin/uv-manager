@@ -531,30 +531,34 @@ EOF
 
 # ---- uv-manager subcommands ------------------------------------------------
 
+# Emitted through a heredoc rather than a series of printfs so that closing
+# stdout early (`uv-manager status | head`) behaves like any other Unix filter.
+# bash's printf builtin reports EPIPE as "write error: Broken pipe"; `cat` just
+# dies on SIGPIPE.
 uvm_status() {
-  local cur=""
-  [[ -L "${uvm_current}" ]] && cur="$(readlink -- "${uvm_current}" 2>/dev/null || true)"
-  printf 'uv-manager:            %s\n' "${uvm_version}"
-  printf 'wrapper:               %s\n' "$(abspath "$0")"
-  printf 'architecture:          %s\n' "${arch}"
-  printf 'state root:            %s  (from %s)\n' "${uvm_base}" "${uvm_base_origin}"
-  printf 'arch root:             %s\n' "${uvm_root}"
-  printf 'selected version:      %s\n' "${cur:-<none>}"
-  printf 'real uv:               %s %s\n' "${real_uv}" \
-      "$( [[ -x "${real_uv}" ]] && echo '[present]' || echo '[MISSING]' )"
-  printf 'real uvx:              %s %s\n' "${real_uvx}" \
-      "$( [[ -x "${real_uvx}" ]] && echo '[present]' || echo '[MISSING]' )"
-  [[ -x "${real_uv}" ]] && printf 'resolved version:      %s\n' \
-      "$("${real_uv}" --version 2>/dev/null || echo unknown)"
-  printf 'installed versions:    %s\n' "$(uvm_list_versions | tr '\n' ' ')"
-  printf 'UV_CACHE_DIR:          %s\n' "${uvm_root}/cache"
-  printf 'UV_TOOL_DIR:           %s\n' "${uvm_root}/tools"
-  printf 'UV_TOOL_BIN_DIR:       %s\n' "${uvm_root}/bin/shims"
-  printf 'UV_PYTHON_INSTALL_DIR: %s\n' "${uvm_root}/python"
-  printf 'UV_PYTHON_BIN_DIR:     %s\n' "${uvm_root}/bin/python-shims"
-  printf 'trampoline dir:        %s\n' "${uvm_neutral_bin}"
-  printf 'XDG_CONFIG_HOME:       %s\n' "${XDG_CONFIG_HOME:-<unset — user default: ~/.config>}"
-  printf 'pin:                   %s\n' "${pin:-<none — tracks latest>}"
+  local cur resolved
+  cur="$( [[ -L "${uvm_current}" ]] && readlink -- "${uvm_current}" 2>/dev/null || true )"
+  resolved="$( [[ -x "${real_uv}" ]] && "${real_uv}" --version 2>/dev/null || echo 'n/a' )"
+  cat <<EOF
+uv-manager:            ${uvm_version}
+invoked as:            ${prog}  ($(abspath "$0"))
+architecture:          ${arch}
+state root:            ${uvm_base}  (from ${uvm_base_origin})
+arch root:             ${uvm_root}
+selected version:      ${cur:-<none>}
+real uv:               ${real_uv} $( [[ -x "${real_uv}" ]] && echo '[present]' || echo '[MISSING]' )
+real uvx:              ${real_uvx} $( [[ -x "${real_uvx}" ]] && echo '[present]' || echo '[MISSING]' )
+resolved version:      ${resolved}
+installed versions:    $(uvm_list_versions | tr '\n' ' ')
+UV_CACHE_DIR:          ${uvm_root}/cache
+UV_TOOL_DIR:           ${uvm_root}/tools
+UV_TOOL_BIN_DIR:       ${uvm_root}/bin/shims
+UV_PYTHON_INSTALL_DIR: ${uvm_root}/python
+UV_PYTHON_BIN_DIR:     ${uvm_root}/bin/python-shims
+trampoline dir:        ${uvm_neutral_bin}
+XDG_CONFIG_HOME:       ${XDG_CONFIG_HOME:-<unset — user default: ~/.config>}
+pin:                   ${pin:-<none — tracks latest>}
+EOF
 }
 
 uvm_list_versions() {
@@ -566,13 +570,17 @@ uvm_list_versions() {
   done
 }
 
+# %q rather than a plain heredoc so a path containing spaces still evals
+# correctly; routed through cat for the same SIGPIPE reason as uvm_status.
 uvm_env() {
-  printf 'export UV_CACHE_DIR=%q\n'          "${uvm_root}/cache"
-  printf 'export UV_TOOL_DIR=%q\n'           "${uvm_root}/tools"
-  printf 'export UV_TOOL_BIN_DIR=%q\n'       "${uvm_root}/bin/shims"
-  printf 'export UV_PYTHON_INSTALL_DIR=%q\n' "${uvm_root}/python"
-  printf 'export UV_PYTHON_BIN_DIR=%q\n'     "${uvm_root}/bin/python-shims"
-  printf 'export PATH=%q:"$PATH"\n'          "${uvm_neutral_bin}"
+  cat <<< "$(
+    printf 'export UV_CACHE_DIR=%q\n'          "${uvm_root}/cache"
+    printf 'export UV_TOOL_DIR=%q\n'           "${uvm_root}/tools"
+    printf 'export UV_TOOL_BIN_DIR=%q\n'       "${uvm_root}/bin/shims"
+    printf 'export UV_PYTHON_INSTALL_DIR=%q\n' "${uvm_root}/python"
+    printf 'export UV_PYTHON_BIN_DIR=%q\n'     "${uvm_root}/bin/python-shims"
+    printf 'export PATH=%q:"$PATH"\n'          "${uvm_neutral_bin}"
+  )"
 }
 
 # Scratch purges are per-file on access time, so a tree can be removed

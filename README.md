@@ -225,8 +225,9 @@ git clone https://github.com/purduercac/uv-manager /apps/external/uv/main
 chmod 0755 /apps/external/uv/main/bin/uv-manager
 ```
 
-The symlinks have to survive deployment. `git clone` and `rsync -a` preserve them; `cp -r` without
-`-a` does not, and a `uvx` that is a copy of the script will silently run in `uv` mode.
+Use `git clone` or `rsync -a` so the symlinks stay symlinks. `cp -r` without `-a` dereferences
+them into four independent copies, which still dispatch correctly (mode comes from the invoked
+name, not from whether it is a symlink) but will drift apart on the next update.
 
 Do not install this as `~/.local/bin/uv`. That is the standalone installer's default
 `UV_INSTALL_DIR`, so the wrapper would overwrite, or be overwritten by, a user's own real `uv`.
