@@ -3,10 +3,10 @@ slug: prose-and-comment-pass
 title: Prose pass over every comment and user-facing document
 kind: refactor
 appetite: small
-status: in_progress
+status: in_review
 branch: feature/prose-and-comment-pass
 base: main
-current_phase: P4
+current_phase: done
 last_updated: '2026-08-07'
 phases:
 - id: P1
@@ -69,7 +69,7 @@ phases:
     share/modulefiles/uv/main.lua && ! grep -qw ''extremely'' share/modulefiles/uv/main.lua'
 - id: P4
   name: Reconciliation — counts, census, PR-body exception list, full drive set
-  status: pending
+  status: done
   satisfies:
   - R1
   - R3
@@ -80,7 +80,7 @@ phases:
   - P3
   parallel: false
   hammerable: false
-  hill: uphill
+  hill: downhill
   verify: 'test "$(cat bin/uv-manager README.md etc/uv-manager.conf.example share/modulefiles/uv/main.lua
     | wc -l | tr -d '' '')" -le 1724 && test "$( (git grep -niwE ''(simply|just|essentially|basically|comprehensive|robust|seamless|powerful|elegant|leverage|utilize)''
     -- bin/uv-manager README.md etc/uv-manager.conf.example share/modulefiles/uv/main.lua;
@@ -227,16 +227,19 @@ architecture neutrality still match what the script does.
 **Goal:** the contract-level numbers hold, and the surviving census hits are written down where R1
 requires them.
 
-- [ ] Re-run both census commands over the four spelled-out paths. Expect exactly 7 hits. Spell the
+- [x] Re-run both census commands over the four spelled-out paths. Expect exactly 7 hits. Spell the
       paths out: a shell that does not word-split an unquoted variable turns the pathspec into one
       nonexistent path and git reports clean.
-- [ ] Write the seven survivors, each with its reason, into `spec/prose-and-comment-pass/META.md` or a
-      scratch note that `/uvm-publish` lifts into the PR body. R1 requires the list to reach the PR.
-- [ ] Confirm the aggregate line count has not increased above 1724.
-- [ ] Drive the full GOAL R4 set and compare against
+- [x] Keep the seven survivors, each with its reason, in `PLAN.md` §2 with post-pass line numbers, and
+      mark it there as the list `/uvm-publish` lifts into the PR body. R1 requires the list to reach
+      the PR. **Amended at build:** the original item offered `META.md` as a home, which `AGENTS.md`
+      reserves for harness feedback — "never code follow-ups". `PLAN.md` already carried the table, so
+      the list is maintained there rather than duplicated.
+- [x] Confirm the aggregate line count has not increased above 1724.
+- [x] Drive the full GOAL R4 set and compare against
       [`research/01-baseline-output.md`](research/01-baseline-output.md): `uvm status`,
       `--offline uv --version`, `--offline --arch aarch64 uvm status`, plus the no-root failure block.
-- [ ] Confirm no feature-scoped spec id leaked into the script or the README.
+- [x] Confirm no feature-scoped spec id leaked into the script or the README.
 
 - **Verify:** aggregate `<= 1724`; census total exactly 7; no spec ids; `lint.sh`; `--offline`
   provisioning lands `current -> versions/9.9.9`; `--offline --arch aarch64 uvm status` still reports

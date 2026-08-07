@@ -35,17 +35,18 @@ text, not the number.
 
 ### Census hits retained (seven) — the R1 exception list
 
-All seven are `just` meaning *merely* or *equally*, where deletion changes the claim. These go in the
-PR body verbatim:
+All seven are `just` meaning *merely* or *equally*, where deletion changes the claim. **This is the R1
+exception list; `/uvm-publish` lifts it into the PR body verbatim.** Line numbers here are post-pass,
+confirmed against the landed tree at P4:
 
 | Where | Text | Why it stays |
 |-------|------|--------------|
 | `bin/uv-manager:136` | "should override it and keep it just as cheap" | "just as cheap" = *equally cheap*. |
 | `bin/uv-manager:178` | "Release on signals too, not just on a normal return." | *not only*. |
-| `bin/uv-manager:391` | "would change resolution behaviour, not just storage location" | *not merely*. |
-| `bin/uv-manager:599` | "bash's printf builtin reports EPIPE…; `cat` just dies on SIGPIPE" | *merely dies*, which is the whole contrast. |
-| `README.md:267` | "would change dependency resolution, not just storage" | *not merely*. |
-| `README.md:394` | "Partial loss happens in practice, not just in principle." | *not merely*. |
+| `bin/uv-manager:389` | "would change resolution behaviour, not just storage location" | *not merely*. |
+| `bin/uv-manager:597` | "bash's printf builtin reports EPIPE…; `cat` just dies on SIGPIPE" | *merely dies*, which is the whole contrast. |
+| `README.md:268` | "would change dependency resolution, not just storage" | *not merely*. |
+| `README.md:395` | "Partial loss happens in practice, not just in principle." | *not merely*. |
 | `share/modulefiles/uv/main.lua:144` | "would change dependency resolution, not just storage location" | *not merely*. |
 
 ### Factual and grammatical defects (three)

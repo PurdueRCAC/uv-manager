@@ -19,6 +19,14 @@
   carried an internal contradiction — its *Outcome* said "every document in the repository," its
   criteria sketch named four files — and the instruction to treat draft R-IDs as input rather than as
   the contract is what surfaced that as a question for the human instead of a silent guess.
+- Capturing the pre-pass user-facing output as a committed `research/` artifact turned "did this lose
+  information a stuck operator needs?" from a judgment call into a `diff`. For a cycle whose contract
+  is *behavior unchanged*, the baseline is cheaper to take at plan time than to reconstruct later, and
+  `uvm-build` P1 and P4 both closed against it in seconds. Worth doing whenever an R-ID says "same as
+  before".
+- `uvm-build` Step 4's instruction to re-run a new gate under `/bin/sh` caught nothing this cycle, but
+  it is what makes the green trustworthy: every gate here was authored in zsh and four of them use
+  process-substitution-free constructions only because that instruction exists.
 
 ## Friction findings
 
