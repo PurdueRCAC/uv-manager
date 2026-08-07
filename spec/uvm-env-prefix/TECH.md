@@ -6,7 +6,7 @@ appetite: small
 status: in_progress
 branch: feature/uvm-env-prefix
 base: main
-current_phase: P3
+current_phase: P4
 last_updated: '2026-08-07'
 phases:
 - id: P1
@@ -48,7 +48,7 @@ phases:
     status >/dev/null 2>err; test $? -ne 0 && grep -q keep.per-user err'''
 - id: P3
   name: 'Site-facing artifacts: README, conf example, modulefile'
-  status: pending
+  status: done
   satisfies:
   - R5
   depends_on:
@@ -169,20 +169,20 @@ the software is correct; everything remaining is text.
 **Satisfies:** R5 · **Depends on:** P2
 **Goal:** everything a site operator reads names the variables the script actually honors.
 
-- [ ] `README.md` (25 occurrences). Five passages are transcripts or copy-pasteable commands and must
+- [x] `README.md` (25 occurrences). Five passages are transcripts or copy-pasteable commands and must
       match real output: the sample `status` block, the modulefile excerpt, the `flock` probe
       one-liner, the `worker_init` example, and the troubleshooting paraphrase of the no-root message.
       Leave the quoted versions 0.2.0 and 0.12.2 alone — no bump this cycle.
-- [ ] Add the three-sentence design note to README § *Design notes* recording why the wrapper's own
+- [x] Add the three-sentence design note to README § *Design notes* recording why the wrapper's own
       knobs are `UVM_*` while the five exported ones stay `UV_*`. Draft in
       [`research/04-docs-surface.md`](research/04-docs-surface.md); justification in PLAN's deviation
       table. Keep it to three sentences.
-- [ ] `etc/uv-manager.conf.example` (13). Rewrite the header sentence rather than substituting it — it
+- [x] `etc/uv-manager.conf.example` (13). Rewrite the header sentence rather than substituting it — it
       already claims something false, that the wrapper reads *only* `UV_MANAGER_*` variables.
-- [ ] `share/modulefiles/uv/main.lua` (4), including the design-note comment block and the
+- [x] `share/modulefiles/uv/main.lua` (4), including the design-note comment block and the
       commented-out `setenv("UV_MANAGER_PIN", …)` example. The comment block is column-aligned: pad to
       the existing 19-wide field rather than retightening. Confirm nothing architecture-bearing moves.
-- [ ] Refill paragraphs that now wrap raggedly. Every affected line only shrinks, so nothing overflows.
+- [x] Refill paragraphs that now wrap raggedly. Every affected line only shrinks, so nothing overflows.
 - **Verify:** none of the three files contains `UV_MANAGER_`; README carries the literal
   `(from UVM_ROOT)`; the modulefile sets `UVM_ROOT`; and a live `status` drive prints the same origin
   line the README claims it does.

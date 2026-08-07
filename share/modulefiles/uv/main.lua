@@ -19,7 +19,7 @@
 -- So this file exports only paths with no architecture component:
 --
 --   PATH               <prefix>/bin          the wrapper itself
---   UV_MANAGER_ROOT    <scratch>/.uv         base of the per-user state tree
+--   UVM_ROOT           <scratch>/.uv         base of the per-user state tree
 --   PATH               <scratch>/.uv/bin     trampolines that re-resolve
 --                                            `uname -m` at exec time
 --
@@ -37,8 +37,8 @@ local prefix = "/apps/external/uv/" .. pkg_version
 
 -- Where per-user uv state lives. Edit the candidate list to match the
 -- variable your site actually exports. The wrapper applies an equivalent
--- cascade of its own when UV_MANAGER_ROOT is unset, so setting it here is
--- for visibility in `module show uv`, not for correctness.
+-- cascade of its own when UVM_ROOT is unset, so setting it here is for
+-- visibility in `module show uv`, not for correctness.
 local scratch = os.getenv("CLUSTER_SCRATCH")
              or os.getenv("RCAC_SCRATCH")
              or os.getenv("SCRATCH")
@@ -116,7 +116,7 @@ prepend_path("PATH", pathJoin(prefix, "bin"))
 -- cascade and, failing that, refuses to run with an actionable message.
 if scratch ~= nil then
     local root = pathJoin(scratch, ".uv")
-    setenv("UV_MANAGER_ROOT", root)
+    setenv("UVM_ROOT", root)
 
     -- Architecture-neutral trampolines for anything `uv tool install` or
     -- `uv python install` puts on PATH. Each one re-resolves `uname -m` when
@@ -126,7 +126,7 @@ end
 
 -- Pin the uv version this module provides. Strongly recommended for anything
 -- automation depends on; roll it forward by cutting a new module version.
--- setenv("UV_MANAGER_PIN", "0.12.2")
+-- setenv("UVM_PIN", "0.12.2")
 
 -- ---------------------------------------------------------------- notes
 --
