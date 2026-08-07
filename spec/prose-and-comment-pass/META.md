@@ -129,7 +129,7 @@ is skipped by the parser:
 - **Confidence:** med · **Effort:** small
 
 ## F5 — the subagent fallback is written as availability, but the blocker is often policy
-`origin=uvm-plan:step-3 severity=low category=instruction status=open target=.agents/factory/portability.md`
+`origin=uvm-plan:step-3 severity=low category=instruction status=applied target=.agents/factory/portability.md`
 - **What happened:** the fan-out fallback is gated on "**No subagents in your harness?**" and
   `portability.md` frames the same escape hatch as a capability question. Here subagents existed and
   worked; the session instructed me not to spawn them unasked. I took the fallback and did the research

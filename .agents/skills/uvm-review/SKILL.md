@@ -30,8 +30,8 @@ Operating manual: [`review-rubric.md`](../../factory/review-rubric.md) and
 
 **Harness portability.** Runs on any harness — see [`portability.md`](../../factory/portability.md).
 Fallbacks: run the *Current state* commands yourself if not auto-injected; ask in plain text and STOP
-if `AskUserQuestion` is unavailable; **if subagents are unavailable, perform the correctness pass
-yourself in a clean context** (you lose delegated blindness — compensate with executed evidence, per
+if `AskUserQuestion` is unavailable; **if subagents are unavailable or the session disallows them,
+perform the correctness pass yourself in a clean context** (you lose delegated blindness — compensate with executed evidence, per
 the rubric); skip `ReportFindings` (`REVIEW.md` is the durable record).
 
 ## User Instructions

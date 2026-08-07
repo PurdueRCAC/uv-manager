@@ -25,8 +25,9 @@ Reference: [`methodology.md`](../../factory/methodology.md),
 
 **Harness portability.** Runs on any harness — see [`portability.md`](../../factory/portability.md).
 Fallbacks: if the *Current state* block is not auto-injected, run those commands yourself in Step 1;
-ask in plain text and STOP if `AskUserQuestion` is unavailable; and **if subagents are unavailable, do
-the research fan-out sequentially yourself** (Step 3 gives the fallback).
+ask in plain text and STOP if `AskUserQuestion` is unavailable; and **if subagents are unavailable or
+the session disallows them, do the research fan-out sequentially yourself** (Step 3 gives the
+fallback).
 
 ## User Instructions
 
@@ -109,7 +110,8 @@ neutrality. If the GOAL is fundamentally at odds with an invariant, STOP and esc
     It must not edit tracked files.
   - Scale count to appetite. Log what you fan out.
   - **Consume each agent's returned summary; never read its transcript sidecar** — it floods context.
-    **No subagents in your harness?** Do the research yourself, sequentially, writing the same files.
+    **No fan-out available?** Whether the harness lacks subagents or the session disallows spawning
+    them, do the research yourself, sequentially, writing the same files. The deliverable is the same.
 - Read the returned briefs and synthesize **`spec/{slug}/research/00-digest.md`** — the consolidated
   decisions, resolving any cross-brief contradiction with a single recommendation each.
 
