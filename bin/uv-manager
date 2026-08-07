@@ -46,6 +46,9 @@ abspath() {
   local p="$1" d b
   d="$(dirname -- "${p}")"
   b="$(basename -- "${p}")"
+  # The empty CDPATH prefix is deliberate: with CDPATH set, `cd` prints the
+  # directory it chose, which would end up in the output.
+  # shellcheck disable=SC1007
   printf '%s/%s\n' "$(CDPATH= cd -- "${d}" 2>/dev/null && pwd -P)" "${b}"
 }
 

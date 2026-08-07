@@ -1,0 +1,17 @@
+# The security lane: unremediated findings and their remediation index. Published
+# as fixes when they ship; the standing inventory of what is still open never is,
+# because that is an attacker's work plan. See AGENTS.md.
+.security/
+
+# Scratch space for work that is not meant to be committed.
+.local/
+
+# Agent harness runtime state (.claude is a symlink to .agents).
+.agents/settings.local.json
+.agents/worktrees/
+
+# The factory's Python helpers are run through `uv run`, which caches bytecode here.
+__pycache__/
+*.pyc
+
+.DS_Store
