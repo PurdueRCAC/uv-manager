@@ -138,3 +138,67 @@ all four contract observables is what the verdict rests on. Logged as a harness 
 ## Optional completeness sub-pass (separate reviewer; may see TECH.md)
 
 Not run — `/uvm-review` was invoked without the `completeness` argument.
+
+---
+
+## Review cycle 2 — approved (2026-08-07)
+
+- **Reviewed commit:** d916d9438621a9358a7af0d23e75e6eb94b645ae  ·  **Base:** `main`
+- **Mode:** *scoped remediation verification*, at the human's instruction — not a fresh blind pass.
+  The cycle-1 correctness pass is not re-run, and its verdict on the code carries forward. What
+  justifies that is the delta: `git diff --stat 6fc4124..HEAD` is one prose sentence in
+  `issues/test-harness.md` plus the three `spec/` artifacts. No file under `bin/`, `etc/`, `share/`
+  or `.agents/` changed, so nothing cycle 1 executed could have come out differently.
+
+### The cycle-1 finding
+
+**[LOW/CONFIRMED] A live seed still describes the pre-branch, narrower sandbox scrub** —
+`issues/test-harness.md:21`. **Resolved.**
+
+The sentence now reads the same scope as its normative sibling, so the two cannot disagree:
+
+```
+$ git grep -n 'scrubs every inherited' -- . ':!spec/'
+AGENTS.md:73:megabytes. `temp_root.sh` scrubs every inherited `UV_*`, `UVM_*` and scratch variable, points the
+issues/test-harness.md:21:  a temp directory, scrubs every inherited `UV_*`, `UVM_*` and scratch variable, and removes it on
+```
+
+The reflow is sound — line 21 is 98 columns against a file maximum of 104, and no line grew past its
+neighbors.
+
+### The retuned gate
+
+The finding's real cause was that P4's gate searched only for the old prefix, so a checklist item
+about *scope* was invisible to it. The commit retuned the gate. A gate never observed failing is not
+a gate, so it was driven both ways, in a detached worktree at the pre-remediation commit, under
+`/bin/sh` with `/usr/bin/grep` — the interactive shell here wraps `grep` in a function over `ugrep`,
+which is `META.md` F6 and would have made an interactive result untrustworthy:
+
+| Gate | at `6fc4124` (pre-fix) | at `d916d94` (HEAD) |
+|------|------------------------|---------------------|
+| cycle-1 form (`! git grep -q UV_MANAGER_ …`) | rc 0 — **blind to the defect** | rc 0 |
+| retuned form (adds the two scrub-scope clauses) | **rc 1 — catches it** | rc 0 |
+
+The `-ge 2` clause is what stops the check passing by matching nothing; both matching lines are shown
+above.
+
+### Gates and contract observables, re-run at HEAD
+
+- `bash -n bin/uv-manager` → rc 0 under GNU bash 3.2.57 (arm64-apple-darwin25), the portability floor.
+- `.agents/factory/bin/lint.sh` → rc 0.
+- P4 `verify:` verbatim from the frontmatter → rc 0; also rc 0 re-run under `/bin/sh`.
+- All five tracked symlinks (`CLAUDE.md`, `.claude`, `bin/{uv,uvx,uvm}`) still git mode `120000` — the
+  guard against a bulk edit replacing a symlink with a regular file.
+- **R6:** `UVM_PIN=1.2.3 temp_root.sh uvm status` → `pin: <none — tracks latest>`; the inherited knob
+  did not reach the drive. `temp_root.sh --offline sh -c 'UVM_FIXTURE_VERSION=6.6.6 uv --version'` →
+  `uv 6.6.6 (fixture)`; the scrub did not overshoot.
+- **R7:** `git grep -n UV_MANAGER_ -- . ':(exclude)spec/' ':(exclude)issues/uvm-env-prefix.md'` → no
+  output. The three historical records still carry the old prefix deliberately (11, 11 and 4
+  occurrences), which is what the GOAL asks for.
+
+### Verdict
+
+**Approved.** No CONFIRMED findings outstanding, no PLAUSIBLE findings raised, no human-gate trigger —
+the remediation touches one sentence in a seed file and one `verify:` string, neither a
+high-blast-radius region nor a §1/§2/§6 invariant. All seven R-IDs remain verified; none is taken on
+trust. Next step is `/uvm-publish`.
