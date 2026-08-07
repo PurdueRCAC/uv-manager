@@ -22,7 +22,7 @@
 ## Friction findings
 
 ## F1 — GOAL template has no escape hatch for a criterion that is not drive-verifiable
-`origin=uvm-feature:step-4 severity=low category=template status=open target=.agents/factory/templates/GOAL.md`
+`origin=uvm-feature:step-4 severity=low category=template status=applied target=.agents/factory/templates/GOAL.md`
 - **What happened:** the template requires every criterion to be observable from a `temp_root.sh`
   drive, and offers exactly one exception — "if one genuinely requires a real cluster, say so in the
   criterion." A rename cycle's documentation criteria (R5, R7 here) are verifiable by `git grep` and by

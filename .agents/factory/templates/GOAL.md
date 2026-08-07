@@ -29,8 +29,10 @@ unambiguous prose is acceptable where EARS would be forced.
 
 Each criterion must be observable from a sandbox drive
 (`.agents/factory/bin/temp_root.sh …`): an exit status, a path, a symlink target, a line on stderr, an
-environment variable in the child process. If one genuinely requires a real cluster, say so in the
-criterion.
+environment variable in the child process. Two kinds of criterion cannot be, and each declares its
+departure where it is written: one that genuinely requires a real cluster says so; one satisfied by
+the text of the repository rather than by its behavior — a documentation sweep, a rename's eradication
+of the old name — carries its own check inline (`git grep -n …`).
 
 - **R1** — WHEN <trigger>, the <component> SHALL <observable response>.
 - **R2** — WHILE <state>, the <component> SHALL <response>.
