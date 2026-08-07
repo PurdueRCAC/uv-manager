@@ -56,7 +56,7 @@ is skipped by the parser:
 <!-- Real findings are appended below this line by the lifecycle skills. -->
 
 ## F1 — Step 7 stages a `ROADMAP.md` edit that Step 4 never asks for
-`origin=uvm-feature:step-4 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-feature/SKILL.md`
+`origin=uvm-feature:step-4 severity=medium category=missing-guidance status=applied target=.agents/skills/uvm-feature/SKILL.md`
 - **What happened:** Step 4 specifies the promotion edit precisely for one file — "leave the `issues/`
   file in place and set its `status:` to `adopted:{slug}`" — and says nothing about `ROADMAP.md`. Step 7
   then stages `ROADMAP.md` in the same `git add`. Following the two steps literally commits an

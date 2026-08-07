@@ -138,10 +138,18 @@ draft R-IDs — and its body mirrors this template, so promotion is a move-and-f
 - **`declined` / `accepted-behaviour`** — terminal records, not candidates. STOP and show the human
   the recorded reasoning before doing anything.
 
-When the GOAL lands, leave the `issues/` file in place and set its `status:` to `adopted:{slug}`. The
-seed stays accurate until the branch actually lands, so a cycle that bounces at review or is abandoned
-still has the evidence that justified it; `/uvm-roadmap` retires the file and its `ROADMAP.md` entry
-once the work reaches `main`. Commit that edit alongside the GOAL.
+When the GOAL lands, leave the `issues/` file in place, set its `status:` to `adopted:{slug}`, and
+update that seed's `ROADMAP.md` entry in the same commit. The seed stays accurate until the branch
+actually lands, so a cycle that bounces at review or is abandoned still has the evidence that
+justified it; `/uvm-roadmap` retires both once the work reaches `main`. The roadmap entry has two
+halves — extend its **Seed:** line with the adoption marker, and rewrite the entry body to the scope
+shaping settled, since an entry still posing the question the human just answered sends the next
+reader to a stale index:
+
+    **Seed:** [`issues/{slug}.md`](issues/{slug}.md) · `{kind}` · appetite {appetite} ·
+    **adopted** as [`spec/{slug}/`](spec/{slug}/GOAL.md)
+
+Commit both edits alongside the GOAL.
 
 An issue promoted out of `.security/issues/` keeps its evidence in the hidden lane: the public
 `GOAL.md` states the **observable hardening outcome** and points at `.security/` for detail. It never
@@ -186,7 +194,7 @@ finding as a section **outside** any code fence:
 ### Step 7 — Commit
 ```
 git add spec/{slug}/GOAL.md          # add spec/{slug}/META.md too if you recorded a meta-note
-git add issues/{slug}.md ROADMAP.md  # only when promoting: status -> adopted:{slug}
+git add issues/{slug}.md ROADMAP.md  # only when promoting: the two Step 4 edits
 git commit -m "[{category}] Shape {slug} goal"
 ```
 `{category}` is the `AGENTS.md` commit category matching the work — normally `{kind}` itself
