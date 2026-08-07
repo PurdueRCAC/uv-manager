@@ -3,7 +3,7 @@ slug: prose-and-comment-pass
 title: Prose pass over every comment and user-facing document
 kind: refactor
 appetite: small
-status: in_review
+status: blocked
 branch: feature/prose-and-comment-pass
 base: main
 current_phase: done
@@ -92,10 +92,10 @@ phases:
     grep -qx ''versions/9.9.9'' && .agents/factory/bin/temp_root.sh --offline --arch
     aarch64 uvm status | grep -qE ''^architecture: +aarch64$'''
 review:
-  last_reviewed_commit: ''
-  verdict: none
-  blocked_reason: ''
-  cycle: 0
+  last_reviewed_commit: 7b0c0d9c2a4792ffc5f935089d2c5c2e2fb82c14
+  verdict: changes-requested
+  blocked_reason: 'R1: filler ''just'' survives at bin/uv-manager:597'
+  cycle: 1
 ---
 # TECH.md — Prose pass over every comment and user-facing document
 

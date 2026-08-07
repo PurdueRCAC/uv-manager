@@ -157,3 +157,21 @@ is skipped by the parser:
   and say that `kind` is a fallback when no prior branch commit exists. Alternatively record the
   category once in `TECH.md` frontmatter at plan time so both skills read one field.
 - **Confidence:** high · **Effort:** small
+
+## F7 — the prose exception is scoped to the diff hunk, which is the wrong surface for a prose cycle
+`origin=uvm-review:step-2 severity=medium category=instruction status=open target=.agents/factory/review-rubric.md`
+- **What happened:** the rubric's one exception to "no style nits" says to flag prose that violates the
+  voice rules **in a diff hunk** and to "scope it to the hunk, not to the file". The only finding this
+  review produced sits at `bin/uv-manager:597`, a line the diff never touched. Followed literally, the
+  rubric suppresses it. It survives only because this cycle's `GOAL.md` makes a whole-file census the
+  graded criterion, so I reached it through R1 instead — and had to notice that collision myself rather
+  than being told how to resolve it.
+- **Skill cause:** the hunk-scoping rule is written for a feature or fix cycle, where the file's
+  untouched prose is somebody else's problem and a reviewer sweeping it manufactures gaps. In a prose
+  cycle the untouched text *is* the deliverable: the work is defined as the set of lines the pass chose
+  not to change, and grading only what moved cannot see an omission. The rubric never says which
+  reading wins.
+- **Recommended fix:** add a sentence to the exception — when the branch's `kind` is a prose or
+  documentation pass, or when a `GOAL.md` criterion is a whole-file census, the graded surface is the
+  file, not the hunk; the anti-gap-hunting rule still holds elsewhere.
+- **Confidence:** high · **Effort:** small
