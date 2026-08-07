@@ -11,7 +11,7 @@ $ module load uv
 $ uv --version
 uv 0.12.2
 $ uv-manager status
-uv-manager:            0.2.0
+uv-manager:            0.3.0
 architecture:          x86_64
 state root:            /anvil/scratch/x-glentner/.uv  (from UVM_ROOT)
 arch root:             /anvil/scratch/x-glentner/.uv/x86_64
