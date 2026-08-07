@@ -13,8 +13,8 @@ uv 0.12.2
 $ uv-manager status
 uv-manager:            0.3.0
 architecture:          x86_64
-state root:            /anvil/scratch/x-glentner/.uv  (from UVM_ROOT)
-arch root:             /anvil/scratch/x-glentner/.uv/x86_64
+state root:            /anvil/scratch/x-lentner/.uv  (from UVM_ROOT)
+arch root:             /anvil/scratch/x-lentner/.uv/x86_64
 selected version:      versions/0.12.2
 ...
 ```
