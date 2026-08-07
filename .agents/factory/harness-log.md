@@ -101,3 +101,111 @@ Read `origin`, `severity` and `category` from the finding in `META.md`; this led
   chore. The seed's `Seed:` link in `spec/uvm-env-prefix/GOAL.md` is deliberately left dangling —
   `spec/{slug}/` records what was true when written, and the dangling path is the signpost that makes
   `git log --diff-filter=D` a two-step recovery.
+
+## 2026-08-07 — prose-and-comment-pass F1: the ROADMAP edit was named only in the commit recipe
+`decision=applied commit=2d5c897 target=.agents/skills/uvm-feature/SKILL.md`
+- **Rationale:** Step 7 staged `ROADMAP.md` and Step 4 never mentioned it, so the steps followed
+  literally commit an unmodified file, and the convention had to be recovered from `640e2f8` by hand.
+  Moved both halves — the adoption marker and the rewritten entry body — into Step 4, with the marker
+  shown as an indented example rather than described. Urgency is real: `/uvm-roadmap` now deletes
+  retired entries, so the next promotion is the first with no prior example one `git log` away.
+
+## 2026-08-07 — prose-and-comment-pass F2: the criterion-check enumeration went stale in one cycle
+`decision=applied commit=d3c64ac target=.agents/factory/templates/GOAL.md`
+- **Rationale:** revises `132b214` rather than reverting it. That fix named a second departure from
+  sandbox-observability instead of relaxing the rule, and its "declares itself inline" principle is
+  kept intact here; only the closed set of two is replaced by the rule it was standing in for. A prose
+  criterion — checkable by neither a drive nor a command — was the third case, and the enumeration
+  would have needed a fourth revision on the next unanticipated one. `uvm-feature` Step 4 duplicates
+  the rule and moved in lockstep.
+
+## 2026-08-07 — prose-and-comment-pass F3: a gate was never checked for being able to fail
+`decision=applied commit=87473cc target=.agents/skills/uvm-plan/SKILL.md`
+- **Rationale:** extends `61574ec`, whose two read-back directions (contradiction, blindness) are both
+  about scope and neither catches an inert gate. Adds the control that plan time was missing: run each
+  `verify:` now, and a gate asserting an undelivered post-condition must come back red. The plan-time
+  analog of `c5f39f4`'s red-before/green-after at build time. Named the concrete trap — an interpolated
+  pathspec collapses under `zsh` — because the abstract rule is what failed to fire.
+
+## 2026-08-07 — prose-and-comment-pass F4: the blast-radius trigger read as adjacency, not behavior
+`decision=applied commit=6966001 target=.agents/skills/uvm-plan/SKILL.md`
+- **Rationale:** this **narrows a research trigger**, so it went to the human explicitly rather than on
+  the finding's say-so; the exception is not an `invariants.md` item or a hard gate, so Safety §3 did
+  not bind. Applied the conservative form: it still fires unless the change is *provably* confined to
+  comments, message strings or documentation, and message text in a §3 or §7 region keeps a mandatory
+  `research/` baseline, since a string those regions print is user-facing behavior. A future run
+  proposing to drop that carve-out should treat it as a re-litigation, not a new finding.
+
+## 2026-08-07 — prose-and-comment-pass F5: the fan-out fallback tested availability, not permission
+`decision=applied commit=4fe0252 target=.agents/factory/portability.md`
+- **Rationale:** subagents existed and worked; the session forbade spawning them unasked, a case the
+  condition as written did not cover. Widened at all four sites (`portability.md`, `uvm-plan` twice,
+  `uvm-review`) since an agent policy, cost ceiling or sandbox restriction hits every skill that fans
+  out. Added that the deliverable is identical either way — without it the fallback reads as a scope
+  cut, which is the reason an agent would resist taking it.
+
+## 2026-08-07 — prose-and-comment-pass F6: two skills gave different rules for the commit category
+`decision=applied commit=9228a75 target=.agents/skills/uvm-build/SKILL.md`
+- **Rationale:** `uvm-build` said `kind`, `uvm-plan` said the shape commit, so a prose cycle had to
+  adjudicate `[refactor]` against `[docs]`. `kind` is the lifecycle taxonomy and has no `docs` or
+  `harness` member. Took the deferral option over the finding's alternative of a new `TECH.md`
+  frontmatter field: the field would have meant touching `_fsm.py`'s `FIELD_ORDER`, `validate` and
+  `set_phase.py` to record something already legible in the branch's first commit. `uvm-review` Step 1
+  carried the same conflation and moved with it. `uvm-publish` leaves `{category}` undefined rather
+  than wrong, so it was left alone — widening to it would have been scope creep past the finding.
+
+## 2026-08-07 — prose-and-comment-pass F7: the prose exception was scoped to the diff hunk
+`decision=applied commit=5dd4c7d target=.agents/factory/review-rubric.md`
+- **Rationale:** hunk scoping is right for a feature cycle, where untouched prose is somebody else's
+  problem and a sweeping reviewer manufactures gaps. It inverts when the prose *is* the deliverable:
+  the work is defined as the lines the pass chose not to change, so grading only what moved cannot see
+  an omission. The rubric now says which reading wins and keeps the anti-gap-hunting rule everywhere
+  else; the `uvm-review` Safety Principles summary points at it.
+
+## 2026-08-07 — prose-and-comment-pass F8: remediation was written as local to one phase
+`decision=applied commit=1a83475 target=.agents/skills/uvm-build/SKILL.md`
+- **Rationale:** a near miss, not a hypothetical — a one-word fix moved a census total from 7 to 6 and
+  a `done` reconciliation phase's gate still hardcoded 7. `next_phase.py` never re-runs a gate, so a
+  stale assertion in a `done` phase is invisible to the FSM and the branch ships green over a gate that
+  fails on the tree it certifies. Scoped the re-run to `done` phases whose `depends_on` names the
+  reopened one, rather than all of them: this factory's plans routinely end in a count-snapshotting
+  phase, which is exactly the shape that breaks.
+
+## 2026-08-07 — prose-and-comment-pass F9: the mandatory /bin/sh drive had no supported command
+`decision=applied commit=2895fc1 target=.agents/factory/bin/run_verify.py`
+- **Rationale:** makes `c5f39f4` executable rather than changing it. Step 4 required the drive and left
+  the gate locked in folded YAML, so it was hand-reflowed twice via throwaway readers — and reflowing
+  is where a quoting error enters. The empty-string guard is the load-bearing part: `/bin/sh -c ''`
+  exits 0, so the first attempt's missing `pyyaml` produced an empty string that *satisfied* "confirm
+  it is red". Chose a fourth script over documenting a one-liner because the false green is what needed
+  to become impossible, not inconvenient. It `exec`s rather than spawning, so the gate's own status
+  reaches the caller — verified at 1, 42 and 0, and the empty gate at 2.
+
+## 2026-08-07 — prose-and-comment-pass F10: commit subjects leaked past the diff's pathspec
+`decision=applied commit=b5a9826 target=.agents/skills/uvm-review/SKILL.md`
+- **Rationale:** extends `a242486`, which closed the diff channel and handed the same information back
+  through the log in the next clause. `severity=high`, but like its predecessor it **strengthens**
+  blind-review integrity, so Safety §3's typed override did not apply. Two halves, because one pathspec
+  is not enough: review-cycle commits touch only `spec/` and vanish under it, but build subjects name
+  the remediated finding id, so cycle ≥ 1 drops subjects entirely. Verified by constructing a spec-only
+  review commit and watching it disappear from the filtered log.
+
+## 2026-08-07 — prose-and-comment-pass F11: a verification technique had nowhere blindness-safe to live
+`decision=applied commit=65fa2c6 target=.agents/factory/review-rubric.md`
+- **Rationale:** took the rubric option and **rejected the finding's alternative** of a
+  blindness-safe `REVIEW.md` section paste-forwarded by Step 2. That design makes every cycle judge
+  what is safe to carry across the blindness boundary, and the judgment is the risk; the rubric already
+  reaches every reviewer and carries no author intent. A future run proposing the `REVIEW.md` channel
+  should read this first. Added the `grep`-is-not-`grep` trap next to the `zsh` one — same class, and
+  both were reproduced live while applying this run, the `zsh` one by a detection loop written for this
+  very ledger entry.
+
+## 2026-08-07 — prose-and-comment-pass: the run's own commit-subject format does not fit
+`decision=applied commit=2d5c897 target=.agents/skills/uvm-harness/SKILL.md`
+- **Rationale:** noted, not fixed. `uvm-harness` Step 5 prescribes
+  `[harness] {summary} ({slug} F#)`, which spends 38 characters on overhead for a slug this long and
+  cannot fit `AGENTS.md`'s 72-character subject limit. Two subjects were amended after the fact this
+  run. Followed the repository's actual precedent instead — `61574ec`, `fef0ccc` and every prior
+  harness commit omit the suffix and let this ledger carry the finding linkage. Left as an observation
+  because `uvm-harness` never writes `META.md` findings (Safety §5) and a self-edit mid-run is the
+  meta-on-meta the same rule forbids.
