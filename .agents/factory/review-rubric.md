@@ -43,7 +43,7 @@ adopted. Flag it; do not rewrite the surrounding text that the diff did not touc
 - **Leave the tree clean.** Make no edits to tracked files. If you must instrument to reproduce a
   finding, revert it before returning — `git status --porcelain` must be empty when you hand back.
 - **Drive the script in a sandbox**, always: `.agents/factory/bin/temp_root.sh [--offline] [--arch K]
-  …`. Never against the developer's real `UV_MANAGER_ROOT`, and never a bare `bin/uvm install`, which
+  …`. Never against the developer's real `UVM_ROOT`, and never a bare `bin/uvm install`, which
   can download hundreds of megabytes into real storage.
 - The **Verdict & loop** section below is the *orchestrator's* job, executed after you return. Do not
   write `REVIEW.md`, call `ReportFindings`, or run `set_phase.py` yourself. Your deliverable is the

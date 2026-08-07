@@ -20,12 +20,12 @@ turn out not to be, and the groundwork already exists in `.agents/factory/bin/`:
 - **Filesystem.** The wrapper's entire state tree hangs off one variable. `temp_root.sh` points it at
   a temp directory, scrubs every inherited `UV_*` and scratch candidate, and removes it on exit. No
   mocking layer is needed; the design already has the seam.
-- **Network.** `uvm_fetch` uses `curl`, and `curl` speaks `file://`. Pointing `UV_MANAGER_INSTALL_URL`
+- **Network.** `uvm_fetch` uses `curl`, and `curl` speaks `file://`. Pointing `UVM_INSTALL_URL`
   at a local directory drives the *whole* provisioning path — lock, fetch, install, version detection,
   atomic rename, `current` swap — with no egress. `.agents/factory/fixtures/uv-install/install.sh` is
   that fixture, and it already asserts the installer-environment scrub (`invariants.md` §6) on every
   run.
-- **Architecture.** `UV_MANAGER_PLATFORM` lets one sandbox hold several architectures, so the
+- **Architecture.** `UVM_PLATFORM` lets one sandbox hold several architectures, so the
   heterogeneous-cluster behavior the project exists for is reachable on a laptop. This is how the
   trampoline defect in `issues/trampoline-ignores-platform-override.md` was found.
 

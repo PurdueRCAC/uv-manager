@@ -48,3 +48,19 @@
 - **Recommended fix:** Step 6 sets `status: planned`; `/uvm-build` flips it to `in_progress` on its
   first phase, alongside the phase-status change it already makes.
 - **Confidence:** high · **Effort:** small
+
+## F3 — a phase's `verify:` contradicted a checklist item in the same phase
+`origin=uvm-build:P3 severity=low category=missing-guidance status=open target=.agents/skills/uvm-plan/SKILL.md`
+- **What happened:** P3's gate is `! git grep -q UV_MANAGER_ -- README.md …`, and P3's own checklist
+  says to add a design note whose approved draft (`research/04-docs-surface.md` §2) argues its point
+  by naming `UV_MANAGER_*` literally. Executing the checklist turned the gate red. Resolved by
+  rewording the note, since the contract outranks the draft, but the conflict was written into the
+  plan and only surfaced at the gate.
+- **Skill cause:** an eradication gate (`! git grep OLD`) is in standing tension with any prose the
+  same cycle adds that has to *discuss* the old name — a rename's rationale usually does. Nothing in
+  `uvm-plan` asks whether a phase's `verify:` can survive that phase's own checklist, and nothing
+  asks whether a drafted passage would trip a gate written elsewhere in the same file.
+- **Recommended fix:** in `uvm-plan`'s roadmap step, add one check — read each phase's `verify:`
+  against its own checklist items and against any text the phase quotes from `research/`, and
+  reconcile before writing. Cheapest at plan time; at build time it costs a red gate and a rewrite.
+- **Confidence:** high · **Effort:** small

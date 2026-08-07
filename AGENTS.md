@@ -69,9 +69,9 @@ bash -n bin/uv-manager                       # syntax check (fastest gate)
 tool this project wraps supplies its own linter. `lint.sh` does this for you.
 
 **Never drive the wrapper without `temp_root.sh`.** A bare `bin/uvm install` writes into the
-developer's real `UV_MANAGER_ROOT` (or resolves one from `$SCRATCH`) and can download hundreds of
-megabytes. `temp_root.sh` scrubs every inherited `UV_*` and scratch variable, points the root at a
-temp directory, and removes it on exit.
+developer's real `UVM_ROOT` (or resolves one from `$SCRATCH`) and can download hundreds of
+megabytes. `temp_root.sh` scrubs every inherited `UV_*`, `UVM_*` and scratch variable, points the
+root at a temp directory, and removes it on exit.
 
 ## Repository map
 
@@ -116,7 +116,7 @@ The curated, enumerated form of this list is
 [`.agents/factory/invariants.md`](.agents/factory/invariants.md), kept **in lockstep with this file**
 — if the two drift, this file wins. Summarized here:
 
-**Architecture is resolved at exec time, on the executing node.** `UV_MANAGER_ROOT` is
+**Architecture is resolved at exec time, on the executing node.** `UVM_ROOT` is
 architecture-*neutral*; the wrapper appends `<arch>`. A modulefile is evaluated on an `x86_64` login
 node and copied verbatim to `aarch64` compute nodes by `sbatch --export=ALL`, so no
 architecture-bearing path may ever be exported from outside the wrapper. This is the whole reason the
@@ -131,13 +131,13 @@ a re-download on every node of every job, an egress requirement everywhere, and 
 vanish at job end. When nothing resolves, the wrapper prints every candidate it tried and why each
 failed, then exits non-zero.
 
-**A pin is authoritative.** `UV_MANAGER_PIN` selects which version `current` points at — not merely
+**A pin is authoritative.** `UVM_PIN` selects which version `current` points at — not merely
 which version to download when nothing is present.
 
 **The provisioning lock is `mkdir`.** Atomic on Lustre, GPFS and NFS; needs no helper binary; does not
 depend on `flock`, which `uv` itself requires but which is not enabled on every parallel filesystem.
 It must release on `EXIT`, `INT` and `TERM` (a leaked lock blocks that user until someone removes it
-by hand), break itself when abandoned past `UV_MANAGER_LOCK_STALE`, and its early-out must test **the
+by hand), break itself when abandoned past `UVM_LOCK_STALE`, and its early-out must test **the
 version this call was asked for** — testing "is some uv present" hands a pinned caller whatever
 another process happened to be installing.
 
@@ -200,20 +200,20 @@ There is no test suite yet — building one is planned work, tracked in `ROADMAP
 change is proven by driving the real script in a sandbox, and the factory's `verify:` commands are
 written that way.
 
-`.agents/factory/bin/temp_root.sh` is the substrate. It scrubs the inherited environment (every `UV_*`
-and every scratch candidate `uvm_resolve_root` consults), points `UV_MANAGER_ROOT` at a temp
-directory, puts the working tree's `bin/` first on `PATH`, runs from inside the sandbox, and removes
-it on any exit path.
+`.agents/factory/bin/temp_root.sh` is the substrate. It scrubs the inherited environment (every
+`UV_*` and `UVM_*` variable, and every scratch candidate `uvm_resolve_root` consults), points
+`UVM_ROOT` at a temp directory, puts the working tree's `bin/` first on `PATH`, runs from inside the
+sandbox, and removes it on any exit path.
 
 Two mocking techniques make this cover the paths that would otherwise need a cluster:
 
 - **The network.** `uvm_fetch` uses `curl`/`wget`, and `curl` speaks `file://`. Pointing
-  `UV_MANAGER_INSTALL_URL` at a local directory exercises the entire provisioning path — lock, fetch,
+  `UVM_INSTALL_URL` at a local directory exercises the entire provisioning path — lock, fetch,
   install, version detection, atomic rename, `current` swap — with no egress. `temp_root.sh --offline`
   wires this to `.agents/factory/fixtures/uv-install/`. The fixture also **asserts** that
   `UV_INSTALL_DIR` and `CARGO_DIST_FORCE_INSTALL_DIR` were scrubbed, so that invariant is checked on
   every offline drive.
-- **The architecture.** `UV_MANAGER_PLATFORM` overrides the platform key, so one temp root can hold
+- **The architecture.** `UVM_PLATFORM` overrides the platform key, so one temp root can hold
   several architectures and the heterogeneous-cluster behavior is testable on one machine.
   `temp_root.sh --arch <key>`.
 

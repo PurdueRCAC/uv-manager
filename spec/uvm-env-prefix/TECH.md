@@ -3,10 +3,10 @@ slug: uvm-env-prefix
 title: Rename the UV_MANAGER_* environment prefix to UVM_*
 kind: refactor
 appetite: small
-status: in_progress
+status: in_review
 branch: feature/uvm-env-prefix
 base: main
-current_phase: P4
+current_phase: done
 last_updated: '2026-08-07'
 phases:
 - id: P1
@@ -62,7 +62,7 @@ phases:
     UVM_ROOT'''
 - id: P4
   name: Factory documents, live seeds, and the closing sweep
-  status: pending
+  status: done
   satisfies:
   - R7
   depends_on:
@@ -193,18 +193,18 @@ the software is correct; everything remaining is text.
 **Goal:** no `UV_MANAGER_` remains anywhere outside the three historical records, and the repository's
 symlinks survived the bulk editing.
 
-- [ ] Normative factory documents: `AGENTS.md` (7), `.agents/factory/invariants.md` (6),
+- [x] Normative factory documents: `AGENTS.md` (7), `.agents/factory/invariants.md` (6),
       `methodology.md` (3), `ears.md` (2), `review-rubric.md` (1), and the three `SKILL.md` files (1
       each). `AGENTS.md:73` and `:203` describe the scrub's *scope*, not just its names, so they change
       with P1's behavior rather than by substitution.
-- [ ] `.agents/factory/templates/TECH.md:29` — a `verify:` example. Left stale it seeds a broken
+- [x] `.agents/factory/templates/TECH.md:29` — a `verify:` example. Left stale it seeds a broken
       command into every future TECH.md.
-- [ ] Live seeds: `issues/trampoline-ignores-platform-override.md` (13, including a runnable repro at
+- [x] Live seeds: `issues/trampoline-ignores-platform-override.md` (13, including a runnable repro at
       `:29-33`) and `issues/test-harness.md` (2). Both describe future work; a stale seed misleads the
       cycle that promotes it.
-- [ ] `ROADMAP.md` — **hand-edit, do not substitute.** Entry 1 argues that `UV_MANAGER_*` is wrong
+- [x] `ROADMAP.md` — **hand-edit, do not substitute.** Entry 1 argues that `UV_MANAGER_*` is wrong
       *because* it sits in `uv`'s namespace; substituting turns it into an argument against itself.
-- [ ] Leave the three historical records untouched: `issues/uvm-env-prefix.md` and
+- [x] Leave the three historical records untouched: `issues/uvm-env-prefix.md` and
       `spec/uvm-env-prefix/{GOAL,META}.md`. They describe what was true when written.
 - **Verify:** `git grep UV_MANAGER_` outside `spec/` and `issues/uvm-env-prefix.md` returns nothing;
   all five tracked symlinks (`CLAUDE.md`, `.claude`, `bin/{uv,uvx,uvm}`) are still mode `120000`;

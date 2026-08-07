@@ -26,7 +26,7 @@ phases:
     parallel: false
     hammerable: true
     hill: uphill
-    verify: ".agents/factory/bin/temp_root.sh --offline sh -c 'uv --version && test \"$(readlink \"$UV_MANAGER_ROOT/$(uname -m)/current\")\" = versions/9.9.9'"
+    verify: ".agents/factory/bin/temp_root.sh --offline sh -c 'uv --version && test \"$(readlink \"$UVM_ROOT/$(uname -m)/current\")\" = versions/9.9.9'"
 review:
   last_reviewed_commit: ""
   verdict: none

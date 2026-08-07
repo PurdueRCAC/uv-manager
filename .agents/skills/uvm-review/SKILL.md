@@ -64,7 +64,7 @@ Additional instructions provided with the invocation: $ARGUMENTS
   assertion-only findings.
 - **Every drive is sandboxed.** `.agents/factory/bin/temp_root.sh [--offline] [--arch KEY] …`. The
   reviewer must never run a bare `bin/uvm install` or otherwise touch the developer's real
-  `UV_MANAGER_ROOT`, cache or managed interpreters.
+  `UVM_ROOT`, cache or managed interpreters.
 - **Refute before reporting.** Try to disprove each candidate; classify `CONFIRMED` (reproduced) versus
   `PLAUSIBLE` (needs human triage). Default to dropping when uncertain.
 - **Scope is narrow:** correctness bugs, GOAL R-ID gaps, invariant violations (auto-CRITICAL), and
