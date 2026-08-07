@@ -312,7 +312,7 @@ Almost everything is one variable.
 
 ### The state root
 
-Set `UVM_ROOT` (be that from the modulefile, or from `/etc/profile.d/`, or from your `~/.bashrc`, etc).  This is one and preferred way teeing things off.
+Set `UVM_ROOT` (be that from the modulefile, or from `/etc/profile.d/`, or from your `~/.bashrc`, etc).  This is the preferred way of teeing things off.
 
 If `UVM_ROOT` is unset, the wrapper tries, in order:
 
