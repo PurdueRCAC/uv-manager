@@ -190,8 +190,11 @@ rides in this phase's atomic commit below.
 git add -A
 git commit -m "[{category}] Build {slug} {id}: {phase name}"
 ```
-`{category}` is the `TECH.md` `kind`, available from the Step 1 `next_phase.py` output. There is **no
-`WIP:` prefix**: every branch commit is squashed into the single PR-title commit at `/uvm-publish`, so
+`{category}` is the `AGENTS.md` category of this branch's **shape commit** — the oldest entry in the
+*Commits on branch* injection — which is what `/uvm-plan` follows too. Fall back to `kind` only when no
+prior branch commit exists. The two are different taxonomies: `kind` has no `docs` or `harness` member,
+and a documentation cycle, which the same-commit rule produces often, is exactly where they diverge.
+There is **no `WIP:` prefix**: every branch commit is squashed into the single PR-title commit at `/uvm-publish`, so
 subjects only need to read well in the PR's commits tab. For a remediation commit, keep the `{id}` and
 describe the fix, e.g. `[fix] Build {slug} P1: F1 — honor the platform override in trampolines (R4)`.
 Use the body for non-obvious decisions, for a `TECH.md` amendment, or to record what was removed. Keep

@@ -87,7 +87,9 @@ Additional instructions provided with the invocation: $ARGUMENTS
 
 ### Step 1 — Pre-flight
 Confirm a feature/fix branch; resolve `{slug}` from the branch; confirm `base` (defaults to `main`);
-read `kind` (the commit `{category}`) from `TECH.md`. Capture the head SHA (`git rev-parse HEAD`). If
+read `kind` from `TECH.md`. The commit `{category}` is the category of the branch's shape commit
+(`git log --oneline {base}..HEAD`, oldest entry), not `kind` — the two taxonomies differ. Capture the
+head SHA (`git rev-parse HEAD`). If
 `TECH.md` `status` is not `in_review`/`done`, note it — the build may be incomplete — and ask whether
 to proceed.
 

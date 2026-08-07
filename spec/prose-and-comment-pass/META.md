@@ -143,7 +143,7 @@ is skipped by the parser:
 - **Confidence:** high · **Effort:** small
 
 ## F6 — `uvm-build` derives the commit category from `kind`, which is a different taxonomy
-`origin=uvm-build:step-7 severity=low category=instruction status=open target=.agents/skills/uvm-build/SKILL.md`
+`origin=uvm-build:step-7 severity=low category=instruction status=applied target=.agents/skills/uvm-build/SKILL.md`
 - **What happened:** Step 7 says "`{category}` is the `TECH.md` `kind`", which here is `refactor`.
   `/uvm-plan` Step 8 says the opposite — "`{category}` is the same category as the shape commit" — which
   is `docs`, and the `TECH.md` conventions block I committed last cycle spells out `[docs]` with its
