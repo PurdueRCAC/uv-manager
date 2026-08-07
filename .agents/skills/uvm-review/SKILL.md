@@ -74,7 +74,9 @@ Additional instructions provided with the invocation: $ARGUMENTS
   scope creep. **No style nits, no speculative hardening** — a gap-hunting reviewer manufactures gaps.
   The one exception is prose: a diff hunk that violates `AGENTS.md` § *Prose and comments* is in scope
   as a §12 finding. Padding and marketing adjectives cost a reader's confidence in infrastructure that
-  has to be trusted to be adopted. Scope it to the hunk, not to the file.
+  has to be trusted to be adopted. Scope it to the hunk, not to the file — unless the prose is the
+  deliverable, on a documentation branch or against a whole-file-census criterion, where the file is
+  the graded surface. The rubric carries the full rule.
 - **Read-only session.** This skill makes no source edits. It writes `REVIEW.md` and updates the
   `TECH.md` `review` block via `set_phase.py`.
 - **Mandatory human gate** when any CONFIRMED finding touches a high-blast-radius region

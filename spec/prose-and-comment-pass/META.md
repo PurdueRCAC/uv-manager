@@ -159,7 +159,7 @@ is skipped by the parser:
 - **Confidence:** high · **Effort:** small
 
 ## F7 — the prose exception is scoped to the diff hunk, which is the wrong surface for a prose cycle
-`origin=uvm-review:step-2 severity=medium category=instruction status=open target=.agents/factory/review-rubric.md`
+`origin=uvm-review:step-2 severity=medium category=instruction status=applied target=.agents/factory/review-rubric.md`
 - **What happened:** the rubric's one exception to "no style nits" says to flag prose that violates the
   voice rules **in a diff hunk** and to "scope it to the hunk, not to the file". The only finding this
   review produced sits at `bin/uv-manager:597`, a line the diff never touched. Followed literally, the

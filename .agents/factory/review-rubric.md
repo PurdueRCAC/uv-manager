@@ -41,6 +41,12 @@ in scope as a §12 finding. A comment that restates the code, or a README senten
 marketing adjectives, costs a reader's confidence in infrastructure that has to be trusted to be
 adopted. Flag it; do not rewrite the surrounding text that the diff did not touch.
 
+The hunk scoping inverts when the prose *is* the deliverable. On a documentation or prose-pass branch,
+or against a `GOAL.md` criterion that is a whole-file census, the graded surface is the file: the work
+is defined as the set of lines the pass chose not to change, and grading only what moved cannot see an
+omission. Everywhere else the hunk still bounds it — a reviewer sweeping untouched prose on a feature
+branch manufactures gaps.
+
 ## Reviewer conduct (the subagent)
 
 - **Leave the tree clean.** Make no edits to tracked files. If you must instrument to reproduce a
