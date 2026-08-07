@@ -101,9 +101,6 @@ if mode() == "load" and not isDir(pathJoin(prefix, "bin")) then
               " -- this node may not mount the applications filesystem.\n")
 end
 
--- Users should have exactly one uv on PATH.
-conflict(pkg_name)
-
 -- ---------------------------------------------------------------- environment
 
 -- RCAC convention: every module advertises its install prefix and version.

@@ -137,7 +137,8 @@ On every invocation it:
    releases itself on signals and breaks itself when abandoned.
 
 4. **Exports the `UV_*` storage variables** and `exec`s the real binary. Because it `exec`s, exit
-   codes and signals are the real `uv`'s and the overhead is one `fork` of bash.
+   codes and signals are the real `uv`'s. The wrapper adds roughly 7ms per invocation on top of
+   `uv` itself, which matters only if you are calling it tens of thousands of times.
 
 5. **Intercepts `uv self update`**, which cannot work for an unmanaged install, turning it into a
    re-provision.
@@ -177,15 +178,11 @@ Everything is ordinary `uv`. The additions live under `uv-manager`:
 | `uv-manager status` | Every resolved path and the selected version. Useful in a support ticket. |
 | `uv-manager doctor` | Check for a partially purged or damaged tree. See below. |
 | `uv-manager versions` | List `uv` versions installed for this architecture. |
-| `uv-manager install [VER]` | Provision a version (default: latest). |
-| `uv-manager use VER` | Switch to an already-installed version. Instant. |
-| `uv-manager refresh` | Force re-provisioning from the network. |
+| `uv-manager install [VER]` | Select a version, downloading it if absent. With no version, re-resolve latest from the network. |
 | `uv-manager trampolines` | Regenerate the neutral executable shims. |
-| `uv-manager env` | Print shell exports for the current node. |
 | `uv-manager clean [cache\|arch\|all] --yes` | Remove part of the tree. |
 
-`uvm` is a short alias for `uv-manager`, so `uvm status` and `uvm doctor` work too. `uv status`
-also still works as a deprecated alias for `uv-manager status`.
+`uvm` is a short alias for `uv-manager`, so `uvm status` and `uvm doctor` work too.
 
 Three things worth putting in your site documentation:
 
@@ -222,7 +219,6 @@ wrapper cannot fully solve.
 
 ```bash
 git clone https://github.com/purduercac/uv-manager /apps/external/uv/main
-chmod 0755 /apps/external/uv/main/bin/uv-manager
 ```
 
 Use `git clone` or `rsync -a` so the symlinks stay symlinks. `cp -r` without `-a` dereferences
@@ -324,7 +320,7 @@ $CLUSTER_SCRATCH   $RCAC_SCRATCH   $SCRATCH   $PSCRATCH   $WORK   $PROJECT
 ```
 
 appending `/.uv` to the first that names an existing, writable directory. Adjust the
-`uvm_candidates` array near the top of `bin/uv` if your site uses something else:
+`uvm_candidates` array near the top of `bin/uv-manager` if your site uses something else:
 
 | Site | Variable |
 | --- | --- |
@@ -468,8 +464,8 @@ For that to work the wrapper has to survive an environment it did not choose:
 
 - **A UEP is not spawned from a login shell**, so whatever your site sets in `/etc/profile.d` may
   not be present. Set `UV_MANAGER_ROOT` explicitly in the endpoint configuration rather than
-  relying on inheritance. If it is missing, the wrapper now fails loudly with the exact fix instead
-  of quietly using node-local `/tmp`.
+  relying on inheritance. If it is missing, the wrapper fails with the exact fix rather than
+  falling back to node-local storage.
 - **`worker_init` runs on compute nodes**, so egress and pre-warming assumptions apply there.
 - **Pin the version.** `UV_MANAGER_PIN` is authoritative: it selects which installed version
   `current` points at, so pinning to an already-downloaded version costs milliseconds.
@@ -524,13 +520,10 @@ precedes its own install directory. That is the arrangement we want.
 | --- | --- |
 | `UV_MANAGER_ROOT` | Base for per-user state. Architecture-neutral; the wrapper appends `<arch>`. |
 | `UV_MANAGER_PIN` | `uv` version to provision and select. |
-| `UV_MANAGER_REFRESH` | Non-empty forces re-provisioning from the network. |
 | `UV_MANAGER_PLATFORM` | Override the architecture key. Default `uname -m`. |
 | `UV_MANAGER_INSTALL_URL` | Installer base URL, for mirrors. Default `https://astral.sh/uv`. |
 | `UV_MANAGER_LOCK_TIMEOUT` | Seconds to wait for the provisioning lock. Default 180. |
 | `UV_MANAGER_LOCK_STALE` | Seconds after which an untouched lock is broken. Default 600. |
-
-`UV_WRAPPER_PIN` and `UV_WRAPPER_REFRESH` are accepted as deprecated aliases.
 
 ### `uv` variables the wrapper sets
 
