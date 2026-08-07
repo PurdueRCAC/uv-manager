@@ -84,3 +84,37 @@
 - **Severity note:** `high` because the fix protects blind-review integrity, a non-negotiable gate —
   the pass has no other defense against plan-sycophancy.
 - **Confidence:** high · **Effort:** small
+
+## F5 — nothing checks that a phase's `verify:` can observe every item on its checklist
+`origin=uvm-build:P4 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-plan/SKILL.md`
+- **What happened:** P4's gate was `! git grep -q UV_MANAGER_ …`, which tests the *substitution* half
+  of the phase. Two of its checklist items were about scope descriptions — `AGENTS.md:73`/`:203`, and
+  the live seeds — which change with P1's behavior rather than by substitution. The gate could not
+  observe them, went green with `issues/test-harness.md:21` still describing the old, narrower scrub,
+  and `/uvm-review` caught it a cycle later.
+- **Skill cause:** `uvm-plan` requires a `verify:` per phase and requires it to assert a post-condition,
+  but never asks whether the gate's post-condition *covers the checklist*. A phase whose items are
+  heterogeneous — some mechanical, some judgment — gets a gate shaped by the mechanical ones, because
+  those are the ones that are easy to express as a command. This is the complement of F3: F3 is a gate
+  that contradicts a checklist item, F5 is a gate that is blind to one.
+- **Recommended fix:** in `uvm-plan`'s roadmap step, walk each checklist item against the phase's
+  `verify:` and mark any the gate cannot observe. Either extend the gate or state in the phase body
+  that the item is inspection-only, so `/uvm-review` knows to read it rather than trust the gate.
+- **Confidence:** high · **Effort:** small
+
+## F6 — `verify:` strings are authored in the agent's shell and executed in another
+`origin=uvm-build:P4 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-build/SKILL.md`
+- **What happened:** while retuning P4's gate I tested a candidate clause interactively and it reported
+  green on a tree where it should have been red. The agent shell's `grep` is a function wrapping
+  `ugrep`; the clause behaved correctly under `/bin/sh` with `/usr/bin/grep`. Had I trusted the
+  interactive result I would have committed a gate that passes unconditionally — the same class of
+  defect the cycle-1 finding already was.
+- **Skill cause:** Step 4 is emphatic that exit 0 is not a pass and the post-condition is the gate, but
+  it treats the *shell* as neutral. A `verify:` string is authored in the agent's interactive
+  environment and later executed by `next_phase.py` consumers, `lint.sh` and CI under plain `sh`, where
+  aliases, shell functions and GNU-vs-BSD utility differences all diverge. `AGENTS.md` already treats
+  that divergence as load-bearing for the wrapper (the `\?`-versus-`\{0,1\}` trap in P1 is the same
+  bug); the build skill does not extend it to the gates.
+- **Recommended fix:** one line in Step 4 — run a new or retuned `verify:` as `/bin/sh -c '…'`, and
+  confirm it is **red before the fix and green after**. A gate never observed failing is not a gate.
+- **Confidence:** high · **Effort:** small

@@ -3,7 +3,7 @@ slug: uvm-env-prefix
 title: Rename the UV_MANAGER_* environment prefix to UVM_*
 kind: refactor
 appetite: small
-status: blocked
+status: in_review
 branch: feature/uvm-env-prefix
 base: main
 current_phase: done
@@ -64,6 +64,7 @@ phases:
   name: Factory documents, live seeds, and the closing sweep
   status: done
   satisfies:
+  - R6
   - R7
   depends_on:
   - P1
@@ -71,14 +72,16 @@ phases:
   - P3
   parallel: false
   hammerable: false
-  hill: uphill
+  hill: downhill
   verify: '! git grep -q UV_MANAGER_ -- . '':!spec/'' '':!issues/uvm-env-prefix.md''
-    && git ls-files -s CLAUDE.md .claude bin/uv bin/uvx bin/uvm | grep -c ^120000
+    && test "$(git grep -h ''scrubs every inherited'' -- . '':!spec/'' | grep -c UVM_)"
+    -ge 2 && ! git grep -h ''scrubs every inherited'' -- . '':!spec/'' | grep -qv
+    UVM_ && git ls-files -s CLAUDE.md .claude bin/uv bin/uvx bin/uvm | grep -c ^120000
     | grep -qx 5 && .agents/factory/bin/lint.sh >/dev/null'
 review:
   last_reviewed_commit: 6fc41245bc6f23e0039827051e7de75c17a68e22
   verdict: changes-requested
-  blocked_reason: stale scrub sentence in issues/test-harness.md
+  blocked_reason: ''
   cycle: 1
 ---
 # TECH.md — Rename the `UV_MANAGER_*` environment prefix to `UVM_*`
@@ -188,8 +191,8 @@ the software is correct; everything remaining is text.
   line the README claims it does.
 - **Touches:** `README.md`, `etc/uv-manager.conf.example`, `share/modulefiles/uv/main.lua`.
 
-## Phase P4 — Factory documents and the sweep
-**Satisfies:** R7 · **Depends on:** P1, P2, P3
+## Phase P4 — Factory documents, live seeds, and the closing sweep
+**Satisfies:** R6, R7 · **Depends on:** P1, P2, P3
 **Goal:** no `UV_MANAGER_` remains anywhere outside the three historical records, and the repository's
 symlinks survived the bulk editing.
 
@@ -206,9 +209,15 @@ symlinks survived the bulk editing.
       *because* it sits in `uv`'s namespace; substituting turns it into an argument against itself.
 - [x] Leave the three historical records untouched: `issues/uvm-env-prefix.md` and
       `spec/uvm-env-prefix/{GOAL,META}.md`. They describe what was true when written.
+- [x] **Cycle-1 remediation.** `issues/test-harness.md:21` described the scrub's *scope*, not just its
+      names, so it belongs with the two `AGENTS.md` lines above rather than with the substitutions —
+      and was missed because the original gate only searched for the old prefix. The seed now reads
+      `UV_*`, `UVM_*` and scratch, matching `AGENTS.md:73`.
 - **Verify:** `git grep UV_MANAGER_` outside `spec/` and `issues/uvm-env-prefix.md` returns nothing;
-  all five tracked symlinks (`CLAUDE.md`, `.claude`, `bin/{uv,uvx,uvm}`) are still mode `120000`;
-  `lint.sh` green. The symlink count is the guard `lint.sh` does not provide.
+  every line outside `spec/` describing the scrub names `UVM_`, and at least two such lines exist, so
+  the check cannot pass by matching nothing; all five tracked symlinks (`CLAUDE.md`, `.claude`,
+  `bin/{uv,uvx,uvm}`) are still mode `120000`; `lint.sh` green. The symlink count is the guard
+  `lint.sh` does not provide.
 - **Touches:** `AGENTS.md`, `.agents/factory/**`, `.agents/skills/**`, `issues/*.md`, `ROADMAP.md`.
 
 ---

@@ -18,8 +18,8 @@ The two things that looked hard for a bash script — mocking the network and mo
 turn out not to be, and the groundwork already exists in `.agents/factory/bin/`:
 
 - **Filesystem.** The wrapper's entire state tree hangs off one variable. `temp_root.sh` points it at
-  a temp directory, scrubs every inherited `UV_*` and scratch candidate, and removes it on exit. No
-  mocking layer is needed; the design already has the seam.
+  a temp directory, scrubs every inherited `UV_*`, `UVM_*` and scratch variable, and removes it on
+  exit. No mocking layer is needed; the design already has the seam.
 - **Network.** `uvm_fetch` uses `curl`, and `curl` speaks `file://`. Pointing `UVM_INSTALL_URL`
   at a local directory drives the *whole* provisioning path — lock, fetch, install, version detection,
   atomic rename, `current` swap — with no egress. `.agents/factory/fixtures/uv-install/install.sh` is
