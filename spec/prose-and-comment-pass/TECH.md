@@ -6,7 +6,7 @@ appetite: small
 status: in_progress
 branch: feature/prose-and-comment-pass
 base: main
-current_phase: P2
+current_phase: P3
 last_updated: '2026-08-07'
 phases:
 - id: P1
@@ -35,7 +35,7 @@ phases:
     "everything's installed" bin/uv-manager && ! grep -q 'what tells you so' bin/uv-manager
 - id: P2
   name: README.md
-  status: pending
+  status: done
   satisfies:
   - R1
   - R6
@@ -43,7 +43,7 @@ phases:
   - P1
   parallel: false
   hammerable: false
-  hill: uphill
+  hill: downhill
   verify: .agents/factory/bin/temp_root.sh uvm status | grep -oE '^[a-z][a-zA-Z_ -]*:'
     | sort -u > "${TMPDIR:-/tmp}/uvm-labels.txt" && awk '/^\$ uv-manager status$/,/^```$/'
     README.md | grep -oE '^[a-z][a-zA-Z_ -]*:' | sort -u | comm -23 - "${TMPDIR:-/tmp}/uvm-labels.txt"
@@ -177,20 +177,20 @@ Read the remaining ~198 comment lines for restatement and length. Most will pass
 **Goal:** all 570 lines audited in place, with the one verified factual error corrected and the quoted
 sample output true to a live drive.
 
-- [ ] `:448` — "Each is a four-line `sh` script" is wrong; a generated trampoline is thirteen lines
+- [x] `:448` — "Each is a four-line `sh` script" is wrong; a generated trampoline is thirteen lines
       ([`research/01-baseline-output.md`](research/01-baseline-output.md) §E). Use "short" rather than
       a number that will drift against the heredoc again.
-- [ ] `:346` — delete "Note that".
-- [ ] `:466` — "using `uv` to just-in-time provision" → "using `uv` to provision a matching environment
+- [x] `:346` — delete "Note that".
+- [x] `:466` — "using `uv` to just-in-time provision" → "using `uv` to provision a matching environment
       on demand".
-- [ ] `:141` — "7ms" → "7 ms", matching `AGENTS.md`.
-- [ ] `:280` — unwrap the mid-sentence aside in "If compute nodes lack outbound HTTPS, and it is worth
+- [x] `:141` — "7ms" → "7 ms", matching `AGENTS.md`.
+- [x] `:280` — unwrap the mid-sentence aside in "If compute nodes lack outbound HTTPS, and it is worth
       verifying rather than assuming, do this once…".
-- [ ] `:13`–`:19` — add the `invoked as:` line the sample drops from the middle of the block, between
+- [x] `:13`–`:19` — add the `invoked as:` line the sample drops from the middle of the block, between
       `uv-manager:` and `architecture:`. Settled at the planning gate; see `PLAN.md` §2. Use a
       deployment path, not a sandbox one: `uvm  (/apps/external/uv/main/bin/uvm)`.
-- [ ] Leave the two load-bearing uses of `just` at `:267` and `:394`; record them for P4.
-- [ ] Read the remaining sections, including *Design notes*, for restatement and length. No new
+- [x] Leave the two load-bearing uses of `just` at `:267` and `:394`; record them for P4.
+- [x] Read the remaining sections, including *Design notes*, for restatement and length. No new
       sections, no reordering, no table-to-prose conversion.
 
 - **Verify:** every field label quoted in the sample block must appear in a live `uvm status` drive

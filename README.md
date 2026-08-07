@@ -12,6 +12,7 @@ $ uv --version
 uv 0.12.2
 $ uv-manager status
 uv-manager:            0.3.0
+invoked as:            uv-manager  (/apps/external/uv/main/bin/uv-manager)
 architecture:          x86_64
 state root:            /anvil/scratch/x-lentner/.uv  (from UVM_ROOT)
 arch root:             /anvil/scratch/x-lentner/.uv/x86_64
@@ -137,7 +138,7 @@ On every invocation it:
    releases itself on signals and breaks itself when abandoned.
 
 4. **Exports the `UV_*` storage variables** and `exec`s the real binary. Because it `exec`s, exit
-   codes and signals are the real `uv`'s. The wrapper adds roughly 7ms per invocation on top of
+   codes and signals are the real `uv`'s. The wrapper adds roughly 7 ms per invocation on top of
    `uv` itself, which matters only if you are calling it tens of thousands of times.
 
 5. **Intercepts `uv self update`**, which cannot work for an unmanaged install, turning it into a
@@ -277,8 +278,8 @@ lists the ones that matter on a parallel filesystem, with reasons.
 
 ### Pre-warming
 
-If compute nodes lack outbound HTTPS, and it is worth verifying rather than assuming, do this once
-per architecture at deployment time:
+If compute nodes lack outbound HTTPS — worth verifying rather than assuming — do this once per
+architecture at deployment time:
 
 ```bash
 for host in <x86-login> <aarch64-node>; do
@@ -343,8 +344,8 @@ times, so anything you replace it with should stay cheap. Override with `UVM_PLA
 may need a finer key: glibc skew between login and compute images, musl-based partitions, or
 `x86-64-v2/v3/v4` levels if users build wheels from source across a mixed fleet.
 
-Note that `uname -m` reports `arm64` on macOS and `aarch64` on Linux, so a test deployment on a Mac
-produces a different key.
+`uname -m` reports `arm64` on macOS and `aarch64` on Linux, so a test deployment on a Mac produces a
+different key.
 
 ### Filesystem semantics to verify before deploying
 
@@ -445,7 +446,7 @@ advisory, makes switching between downloaded versions instant, and makes rollbac
 does not depend on `flock`, which `uv` itself requires but which is not enabled everywhere.
 
 **Architecture-neutral trampolines.** The only way to have one `PATH` entry that is correct on both
-node types. Each is a four-line `sh` script that re-resolves `uname -m` at exec time. They are
+node types. Each is a short `sh` script that re-resolves `uname -m` at exec time. They are
 generated for the union of names across all architectures, so invoking a tool on an architecture
 where it is not installed gives a useful message instead of `Exec format error`.
 
@@ -463,9 +464,9 @@ The wrapper's second job is backing Purdue's Globus Compute Multi-User Endpoint 
 Globus Compute has a long-standing alignment problem: the Python minor version and the SDK/Parsl
 versions have to match across four hops, from client to MEP to the single-user endpoint the MEP
 spawns to the workers. When they do not, failures surface as opaque deserialization errors. Anvil's
-MEP handles this by intercepting the client's reported versions and using `uv` to just-in-time
-provision a matching environment before the UEP starts, plus a default `worker_init` that
-provisions worker environments from a site-level `requirements` parameter.
+MEP handles this by intercepting the client's reported versions and using `uv` to provision a
+matching environment before the UEP starts, plus a default `worker_init` that provisions worker
+environments from a site-level `requirements` parameter.
 
 For that to work the wrapper has to survive an environment it did not choose:
 
