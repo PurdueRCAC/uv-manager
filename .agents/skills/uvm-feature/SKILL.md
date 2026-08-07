@@ -132,12 +132,16 @@ draft R-IDs — and its body mirrors this template, so promotion is a move-and-f
   Re-confirm the scope still holds against current `main`, cite anything that has drifted since it was
   written, surface that for sign-off, and adopt it largely as written. What this step performs is
   *acceptance into a cycle*.
-- **`adopted:{other-slug}`** — already promoted. STOP and report the collision.
+- **`adopted:{other-slug}`** — already promoted. STOP and report the collision. If
+  `git ls-tree main -- spec/{other-slug}` is empty and no branch carries it, the adoption is stale from
+  an abandoned cycle rather than a real collision: show the human and offer to reset the status instead.
 - **`declined` / `accepted-behaviour`** — terminal records, not candidates. STOP and show the human
   the recorded reasoning before doing anything.
 
-When the GOAL lands, leave the `issues/` file in place and set its `status:` to `adopted:{slug}` so
-the `ROADMAP.md` index does not dangle. Commit that edit alongside the GOAL.
+When the GOAL lands, leave the `issues/` file in place and set its `status:` to `adopted:{slug}`. The
+seed stays accurate until the branch actually lands, so a cycle that bounces at review or is abandoned
+still has the evidence that justified it; `/uvm-roadmap` retires the file and its `ROADMAP.md` entry
+once the work reaches `main`. Commit that edit alongside the GOAL.
 
 An issue promoted out of `.security/issues/` keeps its evidence in the hidden lane: the public
 `GOAL.md` states the **observable hardening outcome** and points at `.security/` for detail. It never

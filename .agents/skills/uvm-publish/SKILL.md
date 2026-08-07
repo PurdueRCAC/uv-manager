@@ -147,6 +147,12 @@ The PR URL or local merge result, the squash subject that landed, the retained `
 artifacts, and whether a release is warranted (`/uvm-release`) — a user-visible behavior change
 usually is, since sites deploy by `git clone` of a tag or branch.
 
+If this cycle was seeded from a deferral — `Grep` for `^status: adopted:{slug}$` under `issues/` —
+name the seed and recommend `/uvm-roadmap` once the merge lands. **Report it; never retire it here.**
+Deleting the seed would put this skill's own commit outside `spec/`, where the Step 1 staleness gate
+reads it as post-review drift and STOPs the next invocation. A match under `.security/` is never named
+in a PR body or a report.
+
 ## Notes
 
 - `spec/{slug}/` is **retained** on merge: the immutable dated design record. The PR body may label

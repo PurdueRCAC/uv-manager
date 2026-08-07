@@ -266,8 +266,9 @@ function names, real variable names, documented behavior of `uv`.
   [`.agents/factory/invariants.md`](.agents/factory/invariants.md) is the curated footgun checklist
   derived from this file. **Ceremony scales to appetite** — a one-sentence change skips the lifecycle
   entirely.
-- Two operational siblings sit outside the lifecycle: **`/uvm-harness`** applies the factory's own
-  self-improvement findings back to `.agents/`, and **`/uvm-release`** cuts a tagged version.
+- Three operational siblings sit outside the lifecycle: **`/uvm-harness`** applies the factory's own
+  self-improvement findings back to `.agents/`, **`/uvm-roadmap`** retires the seeds whose cycles have
+  landed and keeps `ROADMAP.md` true, and **`/uvm-release`** cuts a tagged version.
 - **Where a deferral goes.** A pass that decides *not* to fix something still records it, and the
   destination is not a matter of taste:
 
@@ -282,6 +283,12 @@ function names, real variable names, documented behavior of `uv`.
   An `issues/{slug}.md` is a *candidate, not a contract*. `/uvm-feature` promotes it into a `GOAL.md`,
   and that promotion is where appetite, non-goals and the R-IDs get negotiated with a human. Never
   copy one into a `GOAL.md` verbatim.
+
+  **A deferral is retired, not kept forever.** When the cycle that adopted a seed lands on `main`,
+  `/uvm-roadmap` deletes the seed and removes its `ROADMAP.md` entry: `spec/{slug}/` is the retained
+  account and git history holds the file. The security lane inverts this — nothing under `.security/`
+  is ever deleted, because it is gitignored and a deletion there leaves no history to recover from, so
+  a remediated finding moves to that roadmap's terminal records instead.
 
   **The security lane is not optional.** A deferral describing an unremediated weakness — a live
   exploitable mechanism or enough evidence to reconstruct one — goes in `.security/`, which is

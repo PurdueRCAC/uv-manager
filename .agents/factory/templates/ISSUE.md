@@ -25,12 +25,15 @@ lane: public
 |---|---|---|
 | `unshaped` | A raw deferral. Evidence captured; appetite, non-goals and R-IDs are **not** agreed. | Full shaping conversation before a GOAL exists. |
 | `shaped` | Already negotiated with a human — dated clarifications, agreed appetite, non-goals, R-IDs — but **not yet accepted into a cycle**. | Re-confirm scope against current `main`, then adopt largely as written. |
-| `adopted:{slug}` | Promoted; `spec/{slug}/` now owns it. | Nothing — the record stays so the ROADMAP index does not dangle. |
+| `adopted:{slug}` | Promoted; `spec/{slug}/` now owns it. | Nothing. The seed and its ROADMAP entry stay while the cycle is in flight, because it may bounce or be abandoned; `/uvm-roadmap` deletes both once the branch lands on `main`. |
 | `declined` | Considered and **not** taken on as debt, with the reasoning and what would change the answer. | Nothing — it is not a candidate. |
 | `accepted-behaviour` | Reported as a defect, judged **intended**. Exists so it is not re-filed. | Nothing — but read it before "fixing" the behavior. |
 
 The last two are terminal records, not queue entries; `ROADMAP.md` lists them apart from the ordered
-cycles so the index stays an index of *work*.
+cycles so the index stays an index of *work*. A deferral closed **without shipping** becomes one and
+keeps its file, because nothing else in the repository records that the question was ever asked. A
+deferral that shipped is deleted instead: the code refutes a re-filing on its own, and `spec/{slug}/`
+holds the account.
 
 `shaped` is not a shortcut past the human gate. It records that the *shaping* happened, not that the
 work was accepted; acceptance is still `/uvm-feature` creating the branch and the GOAL.

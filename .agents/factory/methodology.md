@@ -43,9 +43,10 @@ Kit's `spec→plan→tasks`, Kiro's `requirements→design→tasks`). These are 
 dated design record, not as a living source of truth that must be maintained forever. **The script and
 `AGENTS.md` remain ground truth; `spec/{slug}/` is a point-in-time record of intent.**
 
-Two operational skills sit outside the lifecycle. **`/uvm-harness`** applies the factory's own
-self-improvement findings back to `.agents/`. **`/uvm-release`** bumps the single version source and
-cuts a signed, tagged release. Neither touches `spec/`, the FSM, or product requirements.
+Three operational skills sit outside the lifecycle. **`/uvm-harness`** applies the factory's own
+self-improvement findings back to `.agents/`. **`/uvm-roadmap`** retires the seeds whose cycles have
+landed and repairs the drift that leaves in `ROADMAP.md`. **`/uvm-release`** bumps the single version
+source and cuts a signed, tagged release. None touches `spec/`, the FSM, or product requirements.
 
 ## Load-bearing principles
 
@@ -107,6 +108,7 @@ scope-hammer a correctness phase to fit the appetite.
 .agents/
   skills/uvm-{feature,plan,build,review,publish}/SKILL.md   # the five lifecycle skills
   skills/uvm-harness/SKILL.md                               # meta/maintenance: apply the loop
+  skills/uvm-roadmap/SKILL.md                               # operational: retire landed seeds
   skills/uvm-release/SKILL.md                               # operational: cut a tagged version
   factory/
     methodology.md        # this file
@@ -131,7 +133,9 @@ does not live in `spec/{slug}/`. It becomes an `issues/{slug}.md` — pre-shaped
 [`templates/ISSUE.md`](templates/ISSUE.md) — plus an ordered `ROADMAP.md` entry pointing at it.
 `META.md` is **never** the destination: that file is harness feedback, and the boundary is stated once
 in `AGENTS.md`. The `status:` field keeps a deferral a candidate: `/uvm-feature` promotes it into a
-real `GOAL.md`, and that promotion is where a human negotiates appetite, non-goals and R-IDs.
+real `GOAL.md`, and that promotion is where a human negotiates appetite, non-goals and R-IDs. When the
+cycle lands, `/uvm-roadmap` retires the seed and its index entry, so the backlog stops advertising work
+that is already on `main`.
 
 Security-sensitive deferrals take the hidden lane: `.security/issues/` plus `.security/ROADMAP.md`,
 same convention, gitignored. A public roadmap of unremediated weaknesses is an attacker's work plan;
