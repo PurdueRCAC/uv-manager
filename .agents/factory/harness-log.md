@@ -33,3 +33,43 @@ Read `origin`, `severity` and `category` from the finding in `META.md`; this led
   added as the static gate in place of a test suite; the FSM scripts converted to PEP 723 so they run
   under `uv run` with no project environment. The `Co-Authored-By` trailer is **kept** here, unlike
   the source repo — this repository's history already records it.
+
+## 2026-08-07 — uvm-env-prefix F1: GOAL criteria that only static inspection can check
+`decision=applied commit=132b214 target=.agents/factory/templates/GOAL.md`
+- **Rationale:** the sandbox-observability rule admitted one departure, for criteria needing a real
+  cluster; a documentation criterion had none and got an invented out-of-band annotation instead.
+  Generalizes because `AGENTS.md`'s same-commit rule puts a documentation criterion in most cycles.
+  Named the second departure rather than relaxing the rule — both still declare themselves inline.
+
+## 2026-08-07 — uvm-env-prefix F2: `planned` was an unreachable FSM state
+`decision=applied commit=fef0ccc target=.agents/skills/uvm-plan/SKILL.md`
+- **Rationale:** `uvm-plan` hard-coded `status: in_progress` at plan time, so `TECH.md` claimed
+  building had begun for the whole duration of the sign-off gate Step 9 then enforces, and `_fsm.py`'s
+  `planned` was dead. Plan writes `planned`; `/uvm-build` Step 5 flips it on the first *completed*
+  phase. `in_review` is ordered to win, so a single-phase roadmap does not stop at `in_progress`.
+  Touched `templates/TECH.md` in the same commit — it is the copied starting point, so leaving its
+  frontmatter at `in_progress` would have silently defeated the change.
+
+## 2026-08-07 — uvm-env-prefix F3 + F5: phase gates unchecked against their own checklists
+`decision=applied commit=61574ec target=.agents/skills/uvm-plan/SKILL.md`
+- **Rationale:** applied as one commit, by agreement — the two findings are the same check in opposite
+  directions (a gate that contradicts a checklist item; a gate blind to one), and splitting them would
+  have meant the second commit rewriting the first's sentence. Both were observed in one cycle, which
+  is what carried them past the overfit test. Guidance, not a new hard rule: the fix names the two
+  failure shapes and the three reconciliations, and leaves the judgment at plan time.
+
+## 2026-08-07 — uvm-env-prefix F4: blindness stated as "do not read", evaded by grep
+`decision=applied commit=a242486 target=.agents/skills/uvm-review/SKILL.md`
+- **Rationale:** `severity=high` but **strengthens** blind-review integrity rather than loosening it,
+  so Safety §3's typed override did not apply. The reviewer obeyed the letter and still pulled
+  PLAN/TECH/research/META lines in through two recursive greps. Restated the ban as content reaching
+  context and carried the diff rule's `':(exclude)spec/'` precision over to searches; both exclusion
+  forms were executed against this repo before being written down. `review-rubric.md` moved in lockstep.
+
+## 2026-08-07 — uvm-env-prefix F6: `verify:` authored in one shell, executed in another
+`decision=applied commit=c5f39f4 target=.agents/skills/uvm-build/SKILL.md`
+- **Rationale:** Step 4 already refused to trust exit 0 but treated the shell as neutral; a gate tested
+  interactively went green where it should have been red, because the agent shell's `grep` is a
+  function wrapping `ugrep`. Re-confirmed here before writing: `grep` is a shell function in this
+  session and `/usr/bin/grep` under `/bin/sh`. The red-before/green-after half is the load-bearing
+  part — a gate never observed failing is not a gate.
