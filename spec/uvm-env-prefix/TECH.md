@@ -3,7 +3,7 @@ slug: uvm-env-prefix
 title: Rename the UV_MANAGER_* environment prefix to UVM_*
 kind: refactor
 appetite: small
-status: in_review
+status: done
 branch: feature/uvm-env-prefix
 base: main
 current_phase: done
