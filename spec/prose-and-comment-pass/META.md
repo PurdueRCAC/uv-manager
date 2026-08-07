@@ -92,7 +92,7 @@ is skipped by the parser:
 - **Confidence:** med · **Effort:** small
 
 ## F3 — Step 6 checks a gate for contradiction and blindness, never that it can go red at all
-`origin=uvm-plan:step-6 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-plan/SKILL.md`
+`origin=uvm-plan:step-6 severity=medium category=missing-guidance status=applied target=.agents/skills/uvm-plan/SKILL.md`
 - **What happened:** the first run of this cycle's census — the command `GOAL.md` supplies as R1's check
   — reported zero hits against a tree with thirteen. The pathspec was a variable holding four paths, and
   zsh does not word-split an unquoted parameter, so `git grep` searched one nonexistent path and exited

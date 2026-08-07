@@ -152,6 +152,13 @@ mechanical ones, goes green, and the judgment item ships unchecked. Reconcile at
 gate's pathspec, extend it, or state in the phase body that an item is inspection-only so
 `/uvm-review` reads it rather than trusting the gate.
 
+Then run every `verify:` against the current tree before committing the plan. A gate asserting a
+post-condition the phase has not yet delivered must exit **non-zero**; one that exits 0 here is inert
+until proven otherwise, and will still be inert when `/uvm-build` reads its green as done. The failure
+that motivates this is silent: a census gate whose pathspec is interpolated from a variable searches
+one nonexistent path under `zsh`, which does not word-split, and reports a clean tree with thirteen
+hits in it. Write the paths literally.
+
 Set top `status: planned`, `current_phase` to the first phase, and `last_updated` to today. The plan is
 written but not signed off; `/uvm-build` flips the top status to `in_progress` when it completes the
 first phase. Then **validate**: `uv run .agents/factory/bin/next_phase.py spec/{slug}/TECH.md` must
