@@ -50,7 +50,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F3 — a phase's `verify:` contradicted a checklist item in the same phase
-`origin=uvm-build:P3 severity=low category=missing-guidance status=open target=.agents/skills/uvm-plan/SKILL.md`
+`origin=uvm-build:P3 severity=low category=missing-guidance status=applied target=.agents/skills/uvm-plan/SKILL.md`
 - **What happened:** P3's gate is `! git grep -q UV_MANAGER_ -- README.md …`, and P3's own checklist
   says to add a design note whose approved draft (`research/04-docs-surface.md` §2) argues its point
   by naming `UV_MANAGER_*` literally. Executing the checklist turned the gate red. Resolved by
@@ -86,7 +86,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F5 — nothing checks that a phase's `verify:` can observe every item on its checklist
-`origin=uvm-build:P4 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-plan/SKILL.md`
+`origin=uvm-build:P4 severity=medium category=missing-guidance status=applied target=.agents/skills/uvm-plan/SKILL.md`
 - **What happened:** P4's gate was `! git grep -q UV_MANAGER_ …`, which tests the *substitution* half
   of the phase. Two of its checklist items were about scope descriptions — `AGENTS.md:73`/`:203`, and
   the live seeds — which change with P1's behavior rather than by substitution. The gate could not
