@@ -82,10 +82,14 @@ neutrality. If the GOAL is fundamentally at odds with an invariant, STOP and esc
   *is* the deliverable, and skipping it yields a guess. `kind` and `appetite` are proxies for "is the
   root cause known?"; when they disagree with the GOAL, the GOAL wins.
 
-  **Exception — high blast radius.** Run the full fan-out whenever the change is expected to touch any
-  high-blast-radius region on `invariants.md`'s list (`uvm_acquire_lock`, `uvm_install`,
+  **Exception — high blast radius.** Run the full fan-out whenever the change can alter what a
+  high-blast-radius region on `invariants.md`'s list *does* (`uvm_acquire_lock`, `uvm_install`,
   `uvm_point_current`, `uvm_resolve_root`, `uvm_trampolines`, `uvm_export_env`, the dispatch tail),
   regardless of appetite. A "small" edit there still needs the exact contracts pinned before design.
+  The trigger is behavioral, not positional: a pass provably confined to comments, message strings or
+  documentation scales research to appetite instead. Message text is the near miss — a string a region
+  named in `invariants.md` §3 or §7 prints is user-facing behavior, so capture the pre-change output as
+  a `research/` baseline even when the fan-out is skipped.
 
   An explicit `skip research` argument stays a human override and still skips.
 

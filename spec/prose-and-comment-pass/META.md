@@ -112,7 +112,7 @@ is skipped by the parser:
 - **Confidence:** high · **Effort:** small
 
 ## F4 — the high-blast-radius research exception does not distinguish editing a region from editing its comments
-`origin=uvm-plan:step-3 severity=low category=instruction status=open target=.agents/skills/uvm-plan/SKILL.md`
+`origin=uvm-plan:step-3 severity=low category=instruction status=applied target=.agents/skills/uvm-plan/SKILL.md`
 - **What happened:** Step 3 skips the fan-out for `appetite: small`, then overrides that for any change
   "expected to touch any high-blast-radius region". This cycle is a comment-and-prose pass whose own
   contract (R4) forbids changing an executable statement, yet it edits comment text sitting inside
