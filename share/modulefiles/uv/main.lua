@@ -47,7 +47,7 @@ local scratch = os.getenv("CLUSTER_SCRATCH")
 
 local url  = "https://github.com/purduercac/uv-manager"
 local desc = [[
-uv is an extremely fast Python package and project manager, written in Rust.
+uv is a fast Python package and project manager, written in Rust.
 
 This module provides a site wrapper around uv rather than uv itself. The
 wrapper installs a private copy of the real uv on first use, and keeps the

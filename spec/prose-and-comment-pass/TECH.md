@@ -6,7 +6,7 @@ appetite: small
 status: in_progress
 branch: feature/prose-and-comment-pass
 base: main
-current_phase: P3
+current_phase: P4
 last_updated: '2026-08-07'
 phases:
 - id: P1
@@ -54,13 +54,13 @@ phases:
     as:'
 - id: P3
   name: etc/uv-manager.conf.example and share/modulefiles/uv/main.lua
-  status: pending
+  status: done
   satisfies:
   - R1
   depends_on: []
   parallel: true
   hammerable: true
-  hill: uphill
+  hill: downhill
   verify: '! git grep -niE ''(note that|this ensures|this allows|in order to|worth
     noting)'' -- etc/uv-manager.conf.example share/modulefiles/uv/main.lua && ! grep
     -qE '' --( |$)'' etc/uv-manager.conf.example && test "$(grep -c ''\[\['' share/modulefiles/uv/main.lua)"
@@ -203,14 +203,14 @@ sample output true to a live drive.
 **Goal:** the two site-facing example files read to the same standard, and their explanations of
 architecture neutrality still match what the script does.
 
-- [ ] `conf.example:130` — delete "Note that".
-- [ ] `conf.example:37` — "Purdue Anvil. Note RCAC's own guidance points…" → drop the "Note".
-- [ ] `conf.example` — normalize the five ASCII ` -- ` dashes (`:11`, `:56`, `:79`, `:95`, `:147`) to
+- [x] `conf.example:130` — delete "Note that".
+- [x] `conf.example:37` — "Purdue Anvil. Note RCAC's own guidance points…" → drop the "Note".
+- [x] `conf.example` — normalize the five ASCII ` -- ` dashes (`:11`, `:56`, `:79`, `:95`, `:147`) to
       the em-dash the file's own title line and the rest of the repository use.
-- [ ] `main.lua:50` — "uv is an extremely fast Python package and project manager" → drop "extremely".
+- [x] `main.lua:50` — "uv is an extremely fast Python package and project manager" → drop "extremely".
       Settled at the planning gate; see `PLAN.md` §2.
-- [ ] `main.lua:144` — leave "not just storage location"; record it for P4.
-- [ ] Re-read `main.lua:10`–`:28` and `:131`–`:158` against the script: the design note and the
+- [x] `main.lua:144` — leave "not just storage location"; record it for P4.
+- [x] Re-read `main.lua:10`–`:28` and `:131`–`:158` against the script: the design note and the
       "deliberately NOT set" list must still name what `uvm_set_paths` actually exports.
 
 - **Verify:** no phrase-census hits in either file; no ASCII ` -- ` dash left in the conf example;
