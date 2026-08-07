@@ -124,7 +124,7 @@ development, and a release is a tagged commit on it.
    source.
 2. Follow it into `README.md` — the sample `uv-manager status` output near the top quotes the version.
    `git grep -n "$old_version"` and confirm you have caught every occurrence; anything found outside
-   those two files is either a legitimate example pin (a `UV_MANAGER_PIN=0.12.2` for *uv's* version,
+   those two files is either a legitimate example pin (a `UVM_PIN=0.12.2` for *uv's* version,
    which is unrelated) or a violation of the single-source rule worth reporting.
 3. Commit `[release] Bump version to X.Y.Z`, staging exactly the files you changed.
 

@@ -33,10 +33,10 @@ child process. `uvm-review` has to check it by driving the script under
 
 - **R1 (event):** *When* `uv tool install` completes, the wrapper *shall* regenerate the neutral
   trampoline directory and exit with the underlying `uv` exit code.
-- **R2 (unwanted):** *If* neither `UV_MANAGER_ROOT` nor any scratch candidate names a writable
+- **R2 (unwanted):** *If* neither `UVM_ROOT` nor any scratch candidate names a writable
   directory, *then* the wrapper *shall* print each candidate with the reason it was rejected and exit
   non-zero, without writing anything.
-- **R3 (state):** *While* `UV_MANAGER_PIN` names an installed version, the wrapper *shall* point
+- **R3 (state):** *While* `UVM_PIN` names an installed version, the wrapper *shall* point
   `current` at that version without contacting the network.
 - **R4 (ubiquitous):** The wrapper *shall* leave `XDG_CONFIG_HOME` unmodified in the environment of
   the process it execs.

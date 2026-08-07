@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Geoffrey Lentner
 # SPDX-License-Identifier: MIT
 #
-# Run a command against a throwaway UV_MANAGER_ROOT, so factory verify commands and
+# Run a command against a throwaway UVM_ROOT, so factory verify commands and
 # review drives never touch the developer's real state tree, cache, or managed
 # interpreters. This is the substitute for a test fixture until the project has a
 # real test harness.
@@ -14,11 +14,11 @@
 #   .agents/factory/bin/temp_root.sh --offline --keep sh -c 'uv --version; uvm doctor'
 #
 # Options:
-#   --offline     Point UV_MANAGER_INSTALL_URL at the local installer fixture, so
+#   --offline     Point UVM_INSTALL_URL at the local installer fixture, so
 #                 provisioning runs with no egress. Exercises the whole path: lock,
 #                 fetch, install, version detection, atomic rename, `current` swap.
 #                 The fixture also asserts the installer environment was scrubbed.
-#   --arch KEY    Set UV_MANAGER_PLATFORM, so one sandbox can hold several
+#   --arch KEY    Set UVM_PLATFORM, so one sandbox can hold several
 #                 architectures and the heterogeneous-cluster behavior is reachable
 #                 on one machine.
 #   --keep        Leave the sandbox in place and print its path. For inspection.
@@ -27,9 +27,13 @@
 # stay contained instead of leaking into the working tree. The sandbox is removed on
 # every exit path unless --keep.
 #
-# Variables available to the command: UV_MANAGER_ROOT, UVM_SANDBOX, and — with
+# Variables available to the command: UVM_ROOT, UVM_SANDBOX, and — with
 # --offline — UVM_FIXTURE_DIR (write <dir>/<version>/install.sh there to test a
 # pinned install).
+#
+# The inherited environment is scrubbed, so a fixture knob goes on the inner command:
+# `temp_root.sh --offline sh -c 'UVM_FIXTURE_VERSION=6.6.6 uv --version'`. Nothing is
+# provisioned until that first uv call, so the knob is in place in time.
 
 set -eu
 
@@ -63,10 +67,14 @@ else
     trap 'rm -rf "$sandbox"' EXIT INT TERM
 fi
 
-# Scrub every UV_* variable and every scratch candidate uvm_resolve_root consults.
-# Without this, a developer with UV_CACHE_DIR or $SCRATCH exported gets a drive that
-# silently reads or writes real storage, and a green verify that proves nothing.
-for name in $(env | sed -n 's/^\(UV_[A-Za-z0-9_]*\)=.*/\1/p'); do
+# Scrub every UV_* and UVM_* variable and every scratch candidate uvm_resolve_root
+# consults. Without this, a developer with UV_CACHE_DIR, UVM_PIN or $SCRATCH exported
+# gets a drive that silently reads real storage or honors a pin, and a green verify
+# that proves nothing. The interval is spelled UVM\{0,1\}_ and not UVM\?_ because \?
+# is a GNU extension: BSD sed matches nothing with it, which would disable the whole
+# scrub on macOS while every gate stayed green. The sandbox's own UVM_SANDBOX and
+# UVM_FIXTURE_DIR are set below, after this runs.
+for name in $(env | sed -n 's/^\(UVM\{0,1\}_[A-Za-z0-9_]*\)=.*/\1/p'); do
     unset "$name"
 done
 unset CLUSTER_SCRATCH RCAC_SCRATCH SCRATCH PSCRATCH WORK PROJECT 2>/dev/null || true
@@ -75,21 +83,21 @@ unset CLUSTER_SCRATCH RCAC_SCRATCH SCRATCH PSCRATCH WORK PROJECT 2>/dev/null || 
 # (invariant §8), so a drive must still see a valid one — just not the developer's,
 # whose ~/.config/uv/uv.toml would change resolution behavior under the test.
 XDG_CONFIG_HOME="$sandbox/config"
-UV_MANAGER_ROOT="$sandbox/root"
+UVM_ROOT="$sandbox/root"
 UVM_SANDBOX="$sandbox"
-export XDG_CONFIG_HOME UV_MANAGER_ROOT UVM_SANDBOX
-mkdir -p "$XDG_CONFIG_HOME" "$UV_MANAGER_ROOT"
+export XDG_CONFIG_HOME UVM_ROOT UVM_SANDBOX
+mkdir -p "$XDG_CONFIG_HOME" "$UVM_ROOT"
 
 if [ -n "$offline" ]; then
     # Copied into the sandbox rather than referenced in place, so a drive can add
     # version subdirectories for pinned installs without dirtying the working tree.
     UVM_FIXTURE_DIR="$sandbox/fixture"
     cp -R "$repo/.agents/factory/fixtures/uv-install" "$UVM_FIXTURE_DIR"
-    UV_MANAGER_INSTALL_URL="file://$UVM_FIXTURE_DIR"
-    export UVM_FIXTURE_DIR UV_MANAGER_INSTALL_URL
+    UVM_INSTALL_URL="file://$UVM_FIXTURE_DIR"
+    export UVM_FIXTURE_DIR UVM_INSTALL_URL
 fi
 
-[ -n "$arch" ] && { UV_MANAGER_PLATFORM="$arch"; export UV_MANAGER_PLATFORM; }
+[ -n "$arch" ] && { UVM_PLATFORM="$arch"; export UVM_PLATFORM; }
 
 # The working tree's wrapper wins over any installed copy.
 PATH="$repo/bin:$PATH"

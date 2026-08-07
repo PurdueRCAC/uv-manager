@@ -6,7 +6,7 @@
 # `.agents/factory/bin/temp_root.sh --offline`.
 #
 # `uvm_fetch` uses curl, and curl speaks file://, so pointing
-# UV_MANAGER_INSTALL_URL at a local directory exercises the wrapper's entire
+# UVM_INSTALL_URL at a local directory exercises the wrapper's entire
 # provisioning path — lock, fetch, install, version detection, atomic rename,
 # `current` swap — with no network. This script is the payload that arrives.
 #
@@ -19,6 +19,9 @@
 #   UVM_FIXTURE_VERSION   version the stub reports (default 9.9.9)
 #   UVM_FIXTURE_EXIT      exit status the stub returns, for rc-propagation drives
 #   UVM_FIXTURE_BROKEN    make the stub unrunnable, to reach the wrong-architecture path
+#
+# temp_root.sh scrubs UVM_* from the inherited environment, so a drive sets these on
+# the inner command: `temp_root.sh --offline sh -c 'UVM_FIXTURE_VERSION=6.6.6 uv --version'`.
 
 set -eu
 

@@ -151,10 +151,10 @@ use at least one:
   adds `shellcheck` (fetched through `uvx --from shellcheck-py`) and asserts the `bin/` symlinks are
   still symlinks.
 - **Behavioral, sandboxed.** `.agents/factory/bin/temp_root.sh` runs the working tree's wrapper against
-  a throwaway `UV_MANAGER_ROOT` with the inherited environment scrubbed, and removes it on exit.
-- **Behavioral, offline and heterogeneous.** `--offline` points `UV_MANAGER_INSTALL_URL` at a `file://`
+  a throwaway `UVM_ROOT` with the inherited environment scrubbed, and removes it on exit.
+- **Behavioral, offline and heterogeneous.** `--offline` points `UVM_INSTALL_URL` at a `file://`
   fixture, which exercises the whole provisioning path with no egress and asserts the installer
-  environment was scrubbed. `--arch <key>` sets `UV_MANAGER_PLATFORM`, so one sandbox can hold several
+  environment was scrubbed. `--arch <key>` sets `UVM_PLATFORM`, so one sandbox can hold several
   architectures and the heterogeneous-cluster behavior is reachable on a laptop.
 
 A `verify:` command that only asserts exit 0 is not a gate. Assert the post-condition: a symlink

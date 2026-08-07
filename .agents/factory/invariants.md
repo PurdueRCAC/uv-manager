@@ -23,9 +23,9 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
 ## 1. Architecture partitioning — highest blast radius
 
 - The platform key is resolved **at exec time, on the executing node** (`uvm_init`), never earlier.
-- `UV_MANAGER_ROOT` is architecture-**neutral**. The wrapper appends `<arch>`; nothing outside the
+- `UVM_ROOT` is architecture-**neutral**. The wrapper appends `<arch>`; nothing outside the
   wrapper may export an architecture-bearing path.
-- The two paths a modulefile may put on `PATH` are the deployment `bin/` and `$UV_MANAGER_ROOT/bin`
+- The two paths a modulefile may put on `PATH` are the deployment `bin/` and `$UVM_ROOT/bin`
   (trampolines). Both are neutral by construction. `UV_CACHE_DIR`, `UV_TOOL_BIN_DIR` and the rest are
   **not** — they are set by the wrapper, on the node.
 - Failure mode when violated: `Exec format error` inside a job, after the allocation is charged. It is
@@ -45,7 +45,7 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
 
 ## 3. State root resolution
 
-- Precedence: `UV_MANAGER_ROOT`, else the first of `CLUSTER_SCRATCH`, `RCAC_SCRATCH`, `SCRATCH`,
+- Precedence: `UVM_ROOT`, else the first of `CLUSTER_SCRATCH`, `RCAC_SCRATCH`, `SCRATCH`,
   `PSCRATCH`, `WORK`, `PROJECT` naming an **existing, writable directory**, with `/.uv` appended.
 - **There is no `/tmp` fallback**, and adding one is not an improvement. Node-local storage means a
   cold cache and a re-download per node per job, an egress requirement everywhere, and environments
@@ -57,7 +57,7 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
 
 ## 4. Version selection & pinning
 
-- A pin is **authoritative**: `UV_MANAGER_PIN` selects which version `current` points at, not merely
+- A pin is **authoritative**: `UVM_PIN` selects which version `current` points at, not merely
   what to download when nothing is present.
 - `uvm_have WANT` is the single spelling of "is this request already satisfied?" — used by the caller,
   by the lock's early-out, and inside `uvm_install`. Keep it single.
@@ -78,7 +78,7 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
 - The early-out inside the wait loop must test **the version this call was asked for**. Testing "is
   some uv present" silently hands a pinned caller whatever another process was installing, which is
   the one guarantee a pin exists to provide.
-- Break a lock older than `UV_MANAGER_LOCK_STALE`; time out after `UV_MANAGER_LOCK_TIMEOUT` with the
+- Break a lock older than `UVM_LOCK_STALE`; time out after `UVM_LOCK_TIMEOUT` with the
   exact `rmdir` command to recover.
 
 ## 6. Installer environment
@@ -108,7 +108,7 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
 
 ## 8. Environment the wrapper sets — and does not
 
-- Sets, all under `$UV_MANAGER_ROOT/<arch>/`: `UV_CACHE_DIR`, `UV_TOOL_DIR`, `UV_TOOL_BIN_DIR`,
+- Sets, all under `$UVM_ROOT/<arch>/`: `UV_CACHE_DIR`, `UV_TOOL_DIR`, `UV_TOOL_BIN_DIR`,
   `UV_PYTHON_INSTALL_DIR`, `UV_PYTHON_BIN_DIR`, plus three `PATH` prepends.
 - **Deliberately does not set:** `XDG_CONFIG_HOME`, `UV_CONFIG_FILE`, `UV_PROJECT_ENVIRONMENT`,
   `UV_DEFAULT_INDEX`, `UV_INDEX`, `UV_PYTHON_PREFERENCE`, `UV_PYTHON_DOWNLOADS`, `UV_LINK_MODE`,

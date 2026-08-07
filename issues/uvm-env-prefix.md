@@ -1,5 +1,5 @@
 ---
-status: unshaped
+status: adopted:uvm-env-prefix
 kind: refactor
 appetite: small
 lane: public

@@ -13,7 +13,7 @@ uv 0.12.2
 $ uv-manager status
 uv-manager:            0.2.0
 architecture:          x86_64
-state root:            /anvil/scratch/x-glentner/.uv  (from UV_MANAGER_ROOT)
+state root:            /anvil/scratch/x-glentner/.uv  (from UVM_ROOT)
 arch root:             /anvil/scratch/x-glentner/.uv/x86_64
 selected version:      versions/0.12.2
 ...
@@ -113,14 +113,14 @@ picks its mode from `basename $0`, the same way real `uv` does.
 
 On every invocation it:
 
-1. **Resolves the state root.** `$UV_MANAGER_ROOT` if set (normally by the modulefile), otherwise
-   a cascade over conventional site variables. It refuses to run if neither yields a writable
+1. **Resolves the state root.** `$UVM_ROOT` if set (normally by the modulefile), otherwise a
+   cascade over conventional site variables. It refuses to run if neither yields a writable
    directory. See [Adapting to your site](#adapting-to-your-site).
 
 2. **Appends the architecture** (`uname -m`) and derives the tree:
 
    ```
-   $UV_MANAGER_ROOT/
+   $UVM_ROOT/
    ├── bin/                     architecture-neutral trampolines  ← safe on PATH
    └── <arch>/
        ├── versions/<ver>/      uv + uvx, one directory per version
@@ -242,7 +242,7 @@ prepend_path("PATH", pathJoin(prefix, "bin"))
 
 if scratch ~= nil then
     local root = pathJoin(scratch, ".uv")
-    setenv("UV_MANAGER_ROOT", root)
+    setenv("UVM_ROOT", root)
     prepend_path("PATH", pathJoin(root, "bin"))   -- neutral trampolines
 end
 ```
@@ -255,9 +255,9 @@ Slurm's default `--export=ALL` then copies that environment verbatim onto comput
 be `aarch64`. Something like `setenv("UV_CACHE_DIR", scratch .. "/.uv/x86_64/cache")` would be
 wrong for every `aarch64` job, and would fail silently.
 
-`UV_MANAGER_ROOT` is safe because the architecture is appended by the wrapper at exec time, on the
-node that is actually running. So is `$UV_MANAGER_ROOT/bin`, which holds trampolines that
-re-resolve `uname -m` when invoked. Do not inline the `UV_*` variables into the modulefile.
+`UVM_ROOT` is safe because the architecture is appended by the wrapper at exec time, on the node
+that is actually running. So is `$UVM_ROOT/bin`, which holds trampolines that re-resolve
+`uname -m` when invoked. Do not inline the `UV_*` variables into the modulefile.
 
 Two other deliberate omissions:
 
@@ -286,9 +286,8 @@ for host in <x86-login> <aarch64-node>; do
 done
 ```
 
-For a site with no egress at all, mirror the Astral release assets and set
-`UV_MANAGER_INSTALL_URL` to your mirror; the wrapper fetches `<base>/install.sh` or
-`<base>/<version>/install.sh`.
+For a site with no egress at all, mirror the Astral release assets and set `UVM_INSTALL_URL` to
+your mirror; the wrapper fetches `<base>/install.sh` or `<base>/<version>/install.sh`.
 
 ### Verification
 
@@ -299,7 +298,7 @@ uv-manager doctor
 du -sh ~/.cache/uv ~/.local/share/uv 2>/dev/null   # should not exist
 
 # flock works on your scratch filesystem; uv requires it
-python3 -c 'import fcntl,os; f=os.open(os.environ["UV_MANAGER_ROOT"]+"/.t",os.O_CREAT|os.O_RDWR); fcntl.flock(f,fcntl.LOCK_EX); print("flock OK")'
+python3 -c 'import fcntl,os; f=os.open(os.environ["UVM_ROOT"]+"/.t",os.O_CREAT|os.O_RDWR); fcntl.flock(f,fcntl.LOCK_EX); print("flock OK")'
 
 # the arch split is real
 srun -p <aarch64-partition> --pty bash -lc 'module load uv && uv-manager status'
@@ -313,7 +312,7 @@ Almost everything is one variable.
 
 ### The state root
 
-Set `UV_MANAGER_ROOT` from your modulefile. If it is unset the wrapper tries, in order:
+Set `UVM_ROOT` from your modulefile. If it is unset the wrapper tries, in order:
 
 ```
 $CLUSTER_SCRATCH   $RCAC_SCRATCH   $SCRATCH   $PSCRATCH   $WORK   $PROJECT
@@ -340,9 +339,9 @@ variable is most likely to be missing are the automated ones, where nobody is wa
 
 `uname -m` is the default, and it is the right granularity for the `uv` binary and for uv-managed
 CPython builds. It runs on every invocation, including inside loops calling `uv run` thousands of
-times, so anything you replace it with should stay cheap. Override with `UV_MANAGER_PLATFORM`.
-Sites that may need a finer key: glibc skew between login and compute images, musl-based
-partitions, or `x86-64-v2/v3/v4` levels if users build wheels from source across a mixed fleet.
+times, so anything you replace it with should stay cheap. Override with `UVM_PLATFORM`. Sites that
+may need a finer key: glibc skew between login and compute images, musl-based partitions, or
+`x86-64-v2/v3/v4` levels if users build wheels from source across a mixed fleet.
 
 Note that `uname -m` reports `arm64` on macOS and `aarch64` on Linux, so a test deployment on a Mac
 produces a different key.
@@ -367,8 +366,8 @@ and needs no `flock`.
 
 **Link mode will fall back to copying.** `uv` defaults to `clone` (reflink), which Lustre, GPFS and
 NFS do not support, then tries hardlink, which fails across filesystems. With the cache under
-`UV_MANAGER_ROOT` and a project `.venv` on home, users see `Failed to hardlink files; falling back
-to full copy` on every install. `UV_LINK_MODE=copy` makes that explicit and silences the warning;
+`UVM_ROOT` and a project `.venv` on home, users see `Failed to hardlink files; falling back to
+full copy` on every install. `UV_LINK_MODE=copy` makes that explicit and silences the warning;
 keeping the venv on the same filesystem as the cache actually fixes it.
 
 **Consider `UV_COMPILE_BYTECODE=1` and a real `TMPDIR`.** Without the first, the first import from
@@ -403,7 +402,7 @@ benign case. With `relatime`, or a GPFS policy engine using atime, partial loss 
 
 Mitigations, in order of effectiveness:
 
-1. **Put `UV_MANAGER_ROOT` on non-purged storage.** On Anvil that means `$PROJECT`, which is what
+1. **Put `UVM_ROOT` on non-purged storage.** On Anvil that means `$PROJECT`, which is what
    RCAC's documentation already recommends for long-lived Python environments. Scratch is still
    fine for the cache alone if you want to split them.
 2. **`uv-manager doctor`** detects what uv does not: dangling shims, missing receipts, damaged
@@ -425,6 +424,14 @@ stays correct if Astral changes what `uvx` means. It also gives wrapper-specific
 `uv-manager`, without shadowing `uv`'s own namespace, which matters because `uv` keeps adding
 subcommands (`auth`, `format`, `check`, `audit` and `upgrade` are all recent). Adding a name is
 one symlink plus one pattern in the `case`; unrecognised names fall through to `uv` mode.
+
+**`UVM_*` for the wrapper's own knobs.** `uv` reads dozens of `UV_*` variables and adds more with
+each release, so a name inside that namespace leaves an operator no way to tell what Astral honors
+from what this wrapper invented, and a future Astral name landing on one of ours would collide
+silently — unrecognised `UV_*` variables are deliberately passed through untouched. The five
+storage variables the wrapper exports keep their `UV_*` names: those are `uv`'s by right. The two
+prefixes are the storage/resolution boundary made visible in the place an operator reads first, the
+modulefile.
 
 **`exec`, not a subprocess.** Signals, exit codes and process accounting stay as they would be
 without the wrapper. An `srun uv run ...` has to forward `SIGTERM` correctly at walltime, and a
@@ -463,11 +470,11 @@ provisions worker environments from a site-level `requirements` parameter.
 For that to work the wrapper has to survive an environment it did not choose:
 
 - **A UEP is not spawned from a login shell**, so whatever your site sets in `/etc/profile.d` may
-  not be present. Set `UV_MANAGER_ROOT` explicitly in the endpoint configuration rather than
-  relying on inheritance. If it is missing, the wrapper fails with the exact fix rather than
-  falling back to node-local storage.
+  not be present. Set `UVM_ROOT` explicitly in the endpoint configuration rather than relying on
+  inheritance. If it is missing, the wrapper fails with the exact fix rather than falling back to
+  node-local storage.
 - **`worker_init` runs on compute nodes**, so egress and pre-warming assumptions apply there.
-- **Pin the version.** `UV_MANAGER_PIN` is authoritative: it selects which installed version
+- **Pin the version.** `UVM_PIN` is authoritative: it selects which installed version
   `current` points at, so pinning to an already-downloaded version costs milliseconds.
 - **Provision once, then run directly.** Keep `uv run` off the hot path of a many-rank launch. It
   takes a lock on the project environment, and N ranks starting at once either serialize on it or,
@@ -475,8 +482,8 @@ For that to work the wrapper has to survive an environment it did not choose:
 
 ```bash
 # worker_init
-export UV_MANAGER_ROOT="${SCRATCH}/.uv"
-export UV_MANAGER_PIN=0.12.2
+export UVM_ROOT="${SCRATCH}/.uv"
+export UVM_PIN=0.12.2
 export PATH="/apps/external/uv/main/bin:$PATH"
 
 export UV_PROJECT_ENVIRONMENT="${SCRATCH}/.venvs/${SLURM_JOB_ID}-$(uname -m)"
@@ -491,9 +498,9 @@ export PATH="${UV_PROJECT_ENVIRONMENT}/bin:$PATH"
 **Start with `uv-manager status`.** It prints every resolved path, where the root came from, and
 which version is selected.
 
-**"cannot determine where to keep per-user uv state"** means `UV_MANAGER_ROOT` is unset and no
-candidate resolved. The message lists each candidate and why it failed. The usual cause is a batch
-or automation context that did not inherit a login shell.
+**"cannot determine where to keep per-user uv state"** means `UVM_ROOT` is unset and no candidate
+resolved. The message lists each candidate and why it failed. The usual cause is a batch or
+automation context that did not inherit a login shell.
 
 **"install failed — no egress from this node?"** Pre-warm from a node of the same architecture that
 has outbound HTTPS.
@@ -508,7 +515,7 @@ intended. Run `uv tool install <package>` on that architecture.
 provisioning is cosmetic. The installer notices that the module's `bin/`, which holds the wrapper,
 precedes its own install directory. That is the arrangement we want.
 
-**Disk accounting.** `du -sh $UV_MANAGER_ROOT/*` breaks down cost per architecture.
+**Disk accounting.** `du -sh $UVM_ROOT/*` breaks down cost per architecture.
 
 ---
 
@@ -518,17 +525,17 @@ precedes its own install directory. That is the arrangement we want.
 
 | Variable | Effect |
 | --- | --- |
-| `UV_MANAGER_ROOT` | Base for per-user state. Architecture-neutral; the wrapper appends `<arch>`. |
-| `UV_MANAGER_PIN` | `uv` version to provision and select. |
-| `UV_MANAGER_PLATFORM` | Override the architecture key. Default `uname -m`. |
-| `UV_MANAGER_INSTALL_URL` | Installer base URL, for mirrors. Default `https://astral.sh/uv`. |
-| `UV_MANAGER_LOCK_TIMEOUT` | Seconds to wait for the provisioning lock. Default 180. |
-| `UV_MANAGER_LOCK_STALE` | Seconds after which an untouched lock is broken. Default 600. |
+| `UVM_ROOT` | Base for per-user state. Architecture-neutral; the wrapper appends `<arch>`. |
+| `UVM_PIN` | `uv` version to provision and select. |
+| `UVM_PLATFORM` | Override the architecture key. Default `uname -m`. |
+| `UVM_INSTALL_URL` | Installer base URL, for mirrors. Default `https://astral.sh/uv`. |
+| `UVM_LOCK_TIMEOUT` | Seconds to wait for the provisioning lock. Default 180. |
+| `UVM_LOCK_STALE` | Seconds after which an untouched lock is broken. Default 600. |
 
 ### `uv` variables the wrapper sets
 
 `UV_CACHE_DIR`, `UV_TOOL_DIR`, `UV_TOOL_BIN_DIR`, `UV_PYTHON_INSTALL_DIR`, `UV_PYTHON_BIN_DIR`,
-all under `$UV_MANAGER_ROOT/<arch>/`, plus `PATH`.
+all under `$UVM_ROOT/<arch>/`, plus `PATH`.
 
 ### `uv` variables the wrapper deliberately leaves alone
 

@@ -12,7 +12,7 @@
 # it opt-in (module load / explicit PATH addition), never default PATH.
 #
 # Real uv payload (binary, cache, tool venvs, managed pythons) never touches
-# home quota — it lives under $UV_MANAGER_ROOT/<arch>/ instead.
+# home quota — it lives under $UVM_ROOT/<arch>/ instead.
 #
 # See README.md for the design rationale.
 
@@ -54,7 +54,7 @@ abspath() {
 
 # ---- state root ------------------------------------------------------------
 #
-# UV_MANAGER_ROOT is the single knob a site is expected to set, normally from
+# UVM_ROOT is the single knob a site is expected to set, normally from
 # its modulefile, where it is visible in `module show uv` and in the user's
 # environment. It is architecture-NEUTRAL on purpose: the arch component is
 # appended here, at exec time, on the executing node, so a modulefile
@@ -81,9 +81,9 @@ readonly uvm_candidates=(
 )
 
 uvm_resolve_root() {
-  if [[ -n "${UV_MANAGER_ROOT:-}" ]]; then
-    uvm_base="${UV_MANAGER_ROOT}"
-    uvm_base_origin="UV_MANAGER_ROOT"
+  if [[ -n "${UVM_ROOT:-}" ]]; then
+    uvm_base="${UVM_ROOT}"
+    uvm_base_origin="UVM_ROOT"
     return 0
   fi
 
@@ -100,7 +100,7 @@ uvm_resolve_root() {
   # Nothing resolved. Report every candidate tried and how to fix it.
   {
     printf 'uv-manager: cannot determine where to keep per-user uv state.\n\n'
-    printf '  UV_MANAGER_ROOT is unset, and none of these named an existing,\n'
+    printf '  UVM_ROOT is unset, and none of these named an existing,\n'
     printf '  writable directory:\n\n'
     for name in "${uvm_candidates[@]}"; do
       value="${!name:-}"
@@ -117,7 +117,7 @@ uvm_resolve_root() {
     printf '  or by setting it explicitly — for automation and batch contexts\n'
     printf '  that do not inherit a login shell, do this in the job script or\n'
     printf '  endpoint configuration:\n'
-    printf '      export UV_MANAGER_ROOT=/path/to/large/scratch/.uv\n\n'
+    printf '      export UVM_ROOT=/path/to/large/scratch/.uv\n\n'
     printf '  This must be on storage visible from every node that will run uv,\n'
     printf '  at the same path, and it must not be your home directory.\n'
   } >&2
@@ -137,12 +137,12 @@ uvm_base_origin=""
 #
 # Deferred into a function rather than run at load time, so that `help` and
 # `--version` still work on a node with no state root configured. Otherwise
-# the one command that tells you how to set UV_MANAGER_ROOT is the one command
+# the one command that tells you how to set UVM_ROOT is the one command
 # you cannot run without it.
 
 uvm_init() {
   uvm_resolve_root
-  arch="${UV_MANAGER_PLATFORM:-$(uname -m)}"
+  arch="${UVM_PLATFORM:-$(uname -m)}"
   uvm_root="${uvm_base}/${arch}"
   uvm_versions="${uvm_root}/versions"
   uvm_current="${uvm_root}/current"
@@ -155,10 +155,10 @@ uvm_init() {
 
 # ---- knobs -----------------------------------------------------------------
 
-pin="${UV_MANAGER_PIN:-}"
-lock_timeout="${UV_MANAGER_LOCK_TIMEOUT:-180}"
-lock_stale="${UV_MANAGER_LOCK_STALE:-600}"
-install_base_url="${UV_MANAGER_INSTALL_URL:-https://astral.sh/uv}"
+pin="${UVM_PIN:-}"
+lock_timeout="${UVM_LOCK_TIMEOUT:-180}"
+lock_stale="${UVM_LOCK_STALE:-600}"
+install_base_url="${UVM_INSTALL_URL:-https://astral.sh/uv}"
 
 # ---- provisioning lock -----------------------------------------------------
 #
@@ -721,7 +721,7 @@ uvm_doctor() {
   printf '    uv-manager install         # reinstall uv itself\n'
   printf '    uv tool uninstall <name> && uv tool install <name>\n'
   printf '    uv python uninstall <ver> && uv python install <ver>\n\n'
-  printf 'Consider pointing UV_MANAGER_ROOT at non-purged storage instead.\n'
+  printf 'Consider pointing UVM_ROOT at non-purged storage instead.\n'
   return 1
 }
 
@@ -764,12 +764,12 @@ Usage: uv-manager <command> [args]
   help                This message
 
 Environment:
-  UV_MANAGER_ROOT        Base directory for per-user uv state (set by the module)
-  UV_MANAGER_PIN         uv version to provision and select
-  UV_MANAGER_PLATFORM    Override the architecture key (default: uname -m)
-  UV_MANAGER_INSTALL_URL Installer base URL, for sites mirroring Astral
-  UV_MANAGER_LOCK_TIMEOUT / UV_MANAGER_LOCK_STALE
-                         Provisioning lock wait and staleness, in seconds
+  UVM_ROOT            Base directory for per-user uv state (set by the module)
+  UVM_PIN             uv version to provision and select
+  UVM_PLATFORM        Override the architecture key (default: uname -m)
+  UVM_INSTALL_URL     Installer base URL, for sites mirroring Astral
+  UVM_LOCK_TIMEOUT    Seconds to wait for the provisioning lock (default: 180)
+  UVM_LOCK_STALE      Seconds before an untouched lock is broken (default: 600)
 
 'uvm' is a short alias for 'uv-manager'. The same script is also installed as
 'uv' and 'uvx', which pass through to the real uv for this node's architecture.
