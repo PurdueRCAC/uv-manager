@@ -209,3 +209,42 @@ is skipped by the parser:
   gate and execs it under `/bin/sh -c`, erroring if the string is empty. Then Step 4 cites one command
   and the false-green is impossible.
 - **Confidence:** high · **Effort:** small
+
+## F10 — the blind reviewer is handed `git log`, whose subjects carry the prior cycle's verdict and findings
+`origin=uvm-review:step-2 severity=high category=instruction status=open target=.agents/skills/uvm-review/SKILL.md`
+- **What happened:** Step 2 says to give the reviewer `git diff {base}...HEAD -- . ':(exclude)spec/'`
+  **plus** `git log --oneline {base}..HEAD`. On a second cycle that log reads
+  `[docs] Review {slug}: cycle 1 — changes-requested` and
+  `[docs] Build {slug} P1: F1 — drop filler just (R1)`. The cycle-2 reviewer reported unprompted that
+  it had learned a prior cycle existed, what its verdict was, which finding id was remediated, and what
+  the remediation was. Its findings did not depend on that, but it is the reviewer that noticed, not
+  the skill.
+- **Skill cause:** the skill is meticulous about the `':(exclude)spec/'` pathspec on the diff, calling
+  it "load-bearing, not cosmetic," and then hands the same information back through the log in the very
+  next clause. The leak channel is commit *subjects*, which no pathspec on the diff can close.
+  `uvm-build` and `uvm-review` are the skills that write those subjects, so the format is the harness's
+  own doing.
+- **Recommended fix:** in Step 2, change the log command to
+  `git log --oneline {base}..HEAD -- . ':(exclude)spec/'` — review-cycle commits touch only `spec/` and
+  vanish entirely — and add: on `review.cycle` ≥ 1, drop subjects too (`--format=%h`) or omit the log,
+  because build subjects name the remediated finding ids. Anchoring on a prior verdict is the exact
+  bias the blind pass exists to remove.
+- **Confidence:** high · **Effort:** small
+
+## F11 — a verification technique discovered in cycle 1 has nowhere to live that cycle 2 can read
+`origin=uvm-review:step-3 severity=medium category=missing-guidance status=open target=.agents/factory/review-rubric.md`
+- **What happened:** cycle 1 found that this repo's R1 census silently reports clean when the four
+  paths are passed through a shell variable, because `zsh` does not word-split, and recorded that as a
+  methodology note in `REVIEW.md`. `REVIEW.md` is under `spec/`, so the cycle-2 reviewer could not read
+  it, walked into the identical false green on its first batched census, and had to rediscover the
+  cause. It caught itself; a less careful pass reports `0 hits` and calls R1 satisfied.
+- **Skill cause:** the harness has no channel for carrying a *verification technique* across cycles.
+  Everything a reviewer learns lands in `REVIEW.md`, which the next blind reviewer is correctly
+  forbidden to open. The two properties — durable and blindness-safe — are in tension, and no file is
+  designated for their intersection. A false-green in a gate command is not author intent and leaks
+  nothing about the plan.
+- **Recommended fix:** give `REVIEW.md` a `## Verification notes (blindness-safe)` section and have
+  Step 2 paste it, and only it, into the next cycle's reviewer prompt. Alternatively promote such notes
+  to `review-rubric.md`, which the reviewer already reads — the `zsh` pathspec trap is not
+  feature-specific and belongs there permanently.
+- **Confidence:** high · **Effort:** small

@@ -96,10 +96,10 @@ phases:
     grep -qx ''versions/9.9.9'' && .agents/factory/bin/temp_root.sh --offline --arch
     aarch64 uvm status | grep -qE ''^architecture: +aarch64$'''
 review:
-  last_reviewed_commit: 7b0c0d9c2a4792ffc5f935089d2c5c2e2fb82c14
-  verdict: changes-requested
+  last_reviewed_commit: 7c85613723e109274969535bfd5ae6ed2a339a0b
+  verdict: approved
   blocked_reason: ''
-  cycle: 1
+  cycle: 2
 ---
 # TECH.md — Prose pass over every comment and user-facing document
 

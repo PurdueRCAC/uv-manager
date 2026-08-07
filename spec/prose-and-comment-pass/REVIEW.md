@@ -10,6 +10,9 @@
 - **Verdict:** changes-requested
 - **Cycle:** 1 of ≤3 — mirrors `review.cycle` in `TECH.md`
 
+This file is cumulative and the cycles run oldest-first. The current verdict is the one in the last
+`## Review cycle` section, not the one above.
+
 Contract-drift check: `git log --oneline main..HEAD -- spec/prose-and-comment-pass/GOAL.md` returns
 only the shaping commit `692adf1`. The contract did not move mid-build.
 
@@ -143,3 +146,99 @@ carry, minus whichever F1 removes.
 None. F1 sits in a banner comment above `uvm_status`, which is not a high-blast-radius region, and
 it touches no §1 (architecture partitioning), §2 (`exec` semantics) or §6 (installer environment)
 invariant. No human sign-off gate is required before the next step.
+
+---
+
+## Review cycle 2 — approved (2026-08-07)
+
+- **Reviewed commit:** 7c85613723e109274969535bfd5ae6ed2a339a0b  ·  **Base:** `main`
+- **Verdict:** approved  ·  **Cycle:** 2 of ≤3
+- **Mode:** fresh blind pass over the full spec-excluded diff, the default for a later cycle — not a
+  narrow re-check of cycle 1's F1. The reviewer was a new subagent given `GOAL.md`, `invariants.md`,
+  `review-rubric.md` and the runnable repo, and was not told a prior cycle existed.
+
+Contract-drift check: `git log --oneline main..HEAD -- spec/prose-and-comment-pass/GOAL.md` still
+returns only the shaping commit `692adf1`. The contract did not move between cycles.
+
+### Verification run
+
+Independent of cycle 1, and again built on a detached `git worktree` of `main` under `$TMPDIR` so
+every HEAD-versus-`main` claim is two real drives. The worktree was removed and pruned before
+hand-back; `git worktree list` shows only the repository.
+
+- `bash -n bin/uv-manager` → clean. `.agents/factory/bin/lint.sh` → exit 0, five of five checks,
+  under bash 3.2.57.
+- Every changed line in `bin/uv-manager` classified: 22 of 23 are comment lines. The one code line is
+  `-*)         ;;`, where `sed -n l` on both refs shows the executable prefix byte-identical and only
+  the trailing comment removed. `git diff main...HEAD --check` clean.
+- `temp_root.sh uvm status`, `temp_root.sh --offline uv --version`, and
+  `temp_root.sh --offline --arch aarch64 uvm status` → rc 0 on both refs, output identical modulo the
+  repo path and the `mktemp` suffix. Deeper post-condition drive on both: `uv 9.9.9 (fixture)`,
+  `current -> versions/9.9.9`, binary present, `lock left: none`.
+- The offline fixture's own assertion that `UV_INSTALL_DIR` and `CARGO_DIST_FORCE_INSTALL_DIR` were
+  scrubbed (§6) passed on every offline drive.
+- No-root failure block, `env -i` with all six scratch candidates unset → rc 1, empty stdout, stderr
+  byte-identical to `main`, every candidate named with its reason.
+- All four heredocs driven on both refs — `uvm help`, `uvm clean` without `--yes`,
+  `uv self update --help`, `uv self update --dry-run` → rc 0, stdout identical in every case.
+- Trampoline generation drive plus `wc -l` → **13 lines**, which is the executed evidence that
+  `main`'s "four-line `sh` script" was factually wrong and the branch's "short" corrects it.
+- Exclamation and non-ASCII census over the four files → zero prose `!`; the only non-ASCII codepoint
+  is the em dash. `git grep -nwE '(R[0-9]|P[0-9]|F[0-9])'` over the four → empty, no spec id leaked.
+
+Orchestrator spot-check, run outside the subagent: `git status --porcelain` empty, no leftover
+worktree, R1 census 6 + 0, aggregate 1723 against `main`'s 1724, and the cycle-1 F1 site at
+`bin/uv-manager:597` now reads ``  `cat` dies quietly on SIGPIPE. ``
+
+The cycle-1 methodology note stands and cost this reviewer a false green too: its first batched R1
+census used a shell variable for the pathspec, which `zsh` does not word-split, and returned zero
+hits on both refs. Spell the four paths out literally.
+
+### Requirement → evidence matrix
+
+| R-ID | Verified how (command + post-condition) | Status |
+|------|------------------------------------------|--------|
+| R1 | Both census commands, four explicit paths, HEAD and `main`. `main`: 10 + 3 = **13**, reproducing the GOAL baseline. HEAD: **6 + 0**. Cycle 1's F1 survivor is gone; the four removals are `bin/uv-manager:301`, `:512`, `:599` and `README.md:466`. All six survivors are the contrastive "not just X" or the comparative "just as cheap" — none is strikeable without loss. | ✅ |
+| R2 | Graded by reading all 846 lines, as the criterion specifies. Two restatements removed (`# Decide whether provisioning is needed, then do it.`, `# ignore other flags`). The reviewer hunted the surviving comments for paraphrase and reported none: `# Re-check under the lock.` names double-checked locking, `# Nothing resolved. …` states the §3 invariant, and the inline `# atomic rename within versions/` and `# a prior run may have died holding this name` are why, not what. | ✅ |
+| R3 | `cat <four> \| wc -l` → **1723** HEAD, **1724** `main`. Script 848→846 pays for README 570→571. Met, but by one line: the GOAL's *vision* of "shorter than it is now" is satisfied nominally rather than substantially. | ✅ |
+| R4 | Line-by-line classification of the diff, plus lint and the six sandbox drive comparisons above. No function name, variable name, exit code or heredoc body changed. | ✅ |
+| R5 | Zero bytes of user-facing message text differ from `main` — confirmed by identical stdout across all four heredoc drives and byte-identical stderr on the no-root block with all six candidates and their reasons. The one exclamation mark in the four files went with `"everything's installed!"` at `:334`. | ✅ (see trust note) |
+| R6 | Sample at `README.md:14-20` diffed against a real drive: label-plus-pad width 23 on both, two-space separator, field order matching `uvm_status`'s heredoc. `git log -S'invoked as' -- bin/uv-manager` shows the field arrived in `f902ebf` with no README update, so the branch is repairing a pre-existing same-commit-rule violation rather than creating churn. | ✅ |
+
+**Requirements taken on trust.** Unchanged from cycle 1: R5's "SHALL be audited" half is a claim about
+process, not an observable post-condition. Its consequential half is verified by identical output
+across the whole message surface. Nothing else was downgraded to trust.
+
+### Findings
+
+**None.** Six candidates were raised and all six died under an executed check — including a challenge
+to the new `# Fast path: already on disk, so no lock and no network.` comment (refuted: the early
+return at `:302-305` precedes `uvm_acquire_lock` at `:307` and `uvm_fetch` at `:335`, and the offline
+drive left no lock), and a challenge to whether `-*)  ;;` is an executable-line change under R4
+(refuted by byte comparison).
+
+Two unmapped changes carry forward from cycle 1 as human triage, neither blocking: the modulefile's
+"extremely fast" → "fast" at `share/modulefiles/uv/main.lua:50`, which trims Astral's own verbatim
+tagline under our house style, and the six `--` → `—` conversions in
+`etc/uv-manager.conf.example`, which normalize against em dashes the file already carried at `:1` and
+`:45`. This cycle adds one cosmetic observation, explicitly not a finding: the shortened lines at
+`etc/uv-manager.conf.example:37` and `:130` were not rewrapped, so they sit at 60 and 67 characters in
+a file that otherwise wraps at 74–78.
+
+**Outstanding publish-time obligation, carried from cycle 1 and now shorter by one.** R1's second
+clause requires every surviving hit to be listed in the PR body with the reason it stays. The list
+`/uvm-publish` must carry:
+
+```
+README.md:268                      ... not just storage.              contrastive
+README.md:395                      ... not just in principle. ...     contrastive
+bin/uv-manager:136                 ... keep it just as cheap.         comparative idiom
+bin/uv-manager:178                 ... not just on a normal return.   contrastive
+bin/uv-manager:389                 ... not just storage location.     contrastive
+share/modulefiles/uv/main.lua:144  ... just storage location.         contrastive
+```
+
+### Human-gate triggers
+
+None. There are no CONFIRMED findings, so no high-blast-radius region and no §1, §2 or §6 invariant is
+implicated. Approved for `/uvm-publish`.
