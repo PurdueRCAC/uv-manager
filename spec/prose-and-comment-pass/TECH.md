@@ -3,7 +3,7 @@ slug: prose-and-comment-pass
 title: Prose pass over every comment and user-facing document
 kind: refactor
 appetite: small
-status: in_review
+status: done
 branch: feature/prose-and-comment-pass
 base: main
 current_phase: done
