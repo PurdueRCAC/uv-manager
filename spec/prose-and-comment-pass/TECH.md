@@ -1,86 +1,102 @@
 ---
 slug: prose-and-comment-pass
-title: "Prose pass over every comment and user-facing document"
+title: Prose pass over every comment and user-facing document
 kind: refactor
 appetite: small
-status: planned
+status: in_progress
 branch: feature/prose-and-comment-pass
 base: main
-current_phase: P1
-last_updated: "2026-08-07"
+current_phase: P2
+last_updated: '2026-08-07'
 phases:
-  - id: P1
-    name: "bin/uv-manager — comments and user-facing message text"
-    status: pending
-    satisfies: [R1, R2, R4, R5]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: >-
-      bash -n bin/uv-manager
-      && .agents/factory/bin/lint.sh
-      && git show main:bin/uv-manager | grep -oE '^[a-z_]+\(\)' > "${TMPDIR:-/tmp}/uvm-fns.txt"
-      && grep -oE '^[a-z_]+\(\)' bin/uv-manager | diff "${TMPDIR:-/tmp}/uvm-fns.txt" -
-      && .agents/factory/bin/temp_root.sh --offline sh -c 'uv --version && readlink "$UVM_ROOT/$(uname -m)/current"' | grep -qx 'versions/9.9.9'
-      && test "$(.agents/factory/bin/temp_root.sh sh -c 'unset UVM_ROOT; uvm status' 2>&1 | grep -c '^      \$')" -eq 6
-      && .agents/factory/bin/temp_root.sh sh -c 'unset UVM_ROOT; uvm status' 2>&1 | grep -q 'module load uv'
-      && .agents/factory/bin/temp_root.sh sh -c 'unset UVM_ROOT; uvm status' 2>&1 | grep -q 'not be your home directory'
-      && test "$( (git grep -niwE '(simply|just|essentially|basically|comprehensive|robust|seamless|powerful|elegant|leverage|utilize)' -- bin/uv-manager; git grep -niE '(note that|this ensures|this allows|in order to|worth noting)' -- bin/uv-manager) | wc -l | tr -d ' ')" -eq 4
-      && ! grep -q "everything's installed" bin/uv-manager
-      && ! grep -q 'what tells you so' bin/uv-manager
-  - id: P2
-    name: "README.md"
-    status: pending
-    satisfies: [R1, R6]
-    depends_on: [P1]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: >-
-      .agents/factory/bin/temp_root.sh uvm status | grep -oE '^[a-z][a-zA-Z_ -]*:' | sort -u > "${TMPDIR:-/tmp}/uvm-labels.txt"
-      && awk '/^\$ uv-manager status$/,/^```$/' README.md | grep -oE '^[a-z][a-zA-Z_ -]*:' | sort -u | comm -23 - "${TMPDIR:-/tmp}/uvm-labels.txt" > "${TMPDIR:-/tmp}/uvm-missing.txt"
-      && test ! -s "${TMPDIR:-/tmp}/uvm-missing.txt"
-      && ! git grep -niE '(note that|this ensures|this allows|in order to|worth noting)' -- README.md
-      && ! git grep -niwE '(four-line|comprehensive|robust|seamless|powerful|elegant|leverage|utilize)' -- README.md
-      && awk '/^\$ uv-manager status$/,/^```$/' README.md | grep -q '^invoked as:'
-  - id: P3
-    name: "etc/uv-manager.conf.example and share/modulefiles/uv/main.lua"
-    status: pending
-    satisfies: [R1]
-    depends_on: []
-    parallel: true
-    hammerable: true
-    hill: uphill
-    verify: >-
-      ! git grep -niE '(note that|this ensures|this allows|in order to|worth noting)' -- etc/uv-manager.conf.example share/modulefiles/uv/main.lua
-      && ! grep -qE ' --( |$)' etc/uv-manager.conf.example
-      && test "$(grep -c '\[\[' share/modulefiles/uv/main.lua)" -eq "$(grep -c '\]\]' share/modulefiles/uv/main.lua)"
-      && grep -q 'setenv("UVM_ROOT", root)' share/modulefiles/uv/main.lua
-      && ! grep -qE 'setenv\("UV_(CACHE|TOOL|PYTHON)' share/modulefiles/uv/main.lua
-      && ! grep -qw 'extremely' share/modulefiles/uv/main.lua
-  - id: P4
-    name: "Reconciliation — counts, census, PR-body exception list, full drive set"
-    status: pending
-    satisfies: [R1, R3, R4]
-    depends_on: [P1, P2, P3]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: >-
-      test "$(cat bin/uv-manager README.md etc/uv-manager.conf.example share/modulefiles/uv/main.lua | wc -l | tr -d ' ')" -le 1724
-      && test "$( (git grep -niwE '(simply|just|essentially|basically|comprehensive|robust|seamless|powerful|elegant|leverage|utilize)' -- bin/uv-manager README.md etc/uv-manager.conf.example share/modulefiles/uv/main.lua; git grep -niE '(note that|this ensures|this allows|in order to|worth noting)' -- bin/uv-manager README.md etc/uv-manager.conf.example share/modulefiles/uv/main.lua) | wc -l | tr -d ' ')" -eq 7
-      && ! git grep -nwE '(R1|R2|R3|R4|R5|R6|P1|P2|P3|P4)' -- bin/uv-manager README.md
-      && .agents/factory/bin/lint.sh
-      && .agents/factory/bin/temp_root.sh --offline sh -c 'uv --version && readlink "$UVM_ROOT/$(uname -m)/current"' | grep -qx 'versions/9.9.9'
-      && .agents/factory/bin/temp_root.sh --offline --arch aarch64 uvm status | grep -qE '^architecture: +aarch64$'
+- id: P1
+  name: bin/uv-manager — comments and user-facing message text
+  status: done
+  satisfies:
+  - R1
+  - R2
+  - R4
+  - R5
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: downhill
+  verify: bash -n bin/uv-manager && .agents/factory/bin/lint.sh && git show main:bin/uv-manager
+    | grep -oE '^[a-z_]+\(\)' > "${TMPDIR:-/tmp}/uvm-fns.txt" && grep -oE '^[a-z_]+\(\)'
+    bin/uv-manager | diff "${TMPDIR:-/tmp}/uvm-fns.txt" - && .agents/factory/bin/temp_root.sh
+    --offline sh -c 'uv --version && readlink "$UVM_ROOT/$(uname -m)/current"' | grep
+    -qx 'versions/9.9.9' && test "$(.agents/factory/bin/temp_root.sh sh -c 'unset
+    UVM_ROOT; uvm status' 2>&1 | grep -c '^      \$')" -eq 6 && .agents/factory/bin/temp_root.sh
+    sh -c 'unset UVM_ROOT; uvm status' 2>&1 | grep -q 'module load uv' && .agents/factory/bin/temp_root.sh
+    sh -c 'unset UVM_ROOT; uvm status' 2>&1 | grep -q 'not be your home directory'
+    && test "$( (git grep -niwE '(simply|just|essentially|basically|comprehensive|robust|seamless|powerful|elegant|leverage|utilize)'
+    -- bin/uv-manager; git grep -niE '(note that|this ensures|this allows|in order
+    to|worth noting)' -- bin/uv-manager) | wc -l | tr -d ' ')" -eq 4 && ! grep -q
+    "everything's installed" bin/uv-manager && ! grep -q 'what tells you so' bin/uv-manager
+- id: P2
+  name: README.md
+  status: pending
+  satisfies:
+  - R1
+  - R6
+  depends_on:
+  - P1
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: .agents/factory/bin/temp_root.sh uvm status | grep -oE '^[a-z][a-zA-Z_ -]*:'
+    | sort -u > "${TMPDIR:-/tmp}/uvm-labels.txt" && awk '/^\$ uv-manager status$/,/^```$/'
+    README.md | grep -oE '^[a-z][a-zA-Z_ -]*:' | sort -u | comm -23 - "${TMPDIR:-/tmp}/uvm-labels.txt"
+    > "${TMPDIR:-/tmp}/uvm-missing.txt" && test ! -s "${TMPDIR:-/tmp}/uvm-missing.txt"
+    && ! git grep -niE '(note that|this ensures|this allows|in order to|worth noting)'
+    -- README.md && ! git grep -niwE '(four-line|comprehensive|robust|seamless|powerful|elegant|leverage|utilize)'
+    -- README.md && awk '/^\$ uv-manager status$/,/^```$/' README.md | grep -q '^invoked
+    as:'
+- id: P3
+  name: etc/uv-manager.conf.example and share/modulefiles/uv/main.lua
+  status: pending
+  satisfies:
+  - R1
+  depends_on: []
+  parallel: true
+  hammerable: true
+  hill: uphill
+  verify: '! git grep -niE ''(note that|this ensures|this allows|in order to|worth
+    noting)'' -- etc/uv-manager.conf.example share/modulefiles/uv/main.lua && ! grep
+    -qE '' --( |$)'' etc/uv-manager.conf.example && test "$(grep -c ''\[\['' share/modulefiles/uv/main.lua)"
+    -eq "$(grep -c ''\]\]'' share/modulefiles/uv/main.lua)" && grep -q ''setenv("UVM_ROOT",
+    root)'' share/modulefiles/uv/main.lua && ! grep -qE ''setenv\("UV_(CACHE|TOOL|PYTHON)''
+    share/modulefiles/uv/main.lua && ! grep -qw ''extremely'' share/modulefiles/uv/main.lua'
+- id: P4
+  name: Reconciliation — counts, census, PR-body exception list, full drive set
+  status: pending
+  satisfies:
+  - R1
+  - R3
+  - R4
+  depends_on:
+  - P1
+  - P2
+  - P3
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: 'test "$(cat bin/uv-manager README.md etc/uv-manager.conf.example share/modulefiles/uv/main.lua
+    | wc -l | tr -d '' '')" -le 1724 && test "$( (git grep -niwE ''(simply|just|essentially|basically|comprehensive|robust|seamless|powerful|elegant|leverage|utilize)''
+    -- bin/uv-manager README.md etc/uv-manager.conf.example share/modulefiles/uv/main.lua;
+    git grep -niE ''(note that|this ensures|this allows|in order to|worth noting)''
+    -- bin/uv-manager README.md etc/uv-manager.conf.example share/modulefiles/uv/main.lua)
+    | wc -l | tr -d '' '')" -eq 7 && ! git grep -nwE ''(R1|R2|R3|R4|R5|R6|P1|P2|P3|P4)''
+    -- bin/uv-manager README.md && .agents/factory/bin/lint.sh && .agents/factory/bin/temp_root.sh
+    --offline sh -c ''uv --version && readlink "$UVM_ROOT/$(uname -m)/current"'' |
+    grep -qx ''versions/9.9.9'' && .agents/factory/bin/temp_root.sh --offline --arch
+    aarch64 uvm status | grep -qE ''^architecture: +aarch64$'''
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — Prose pass over every comment and user-facing document
 
 The **context engine and finite-state machine** for building this feature. The YAML frontmatter above
@@ -117,33 +133,33 @@ no behavior change and no information lost from the operator-facing blocks.
 
 Census hits:
 
-- [ ] `:25` — delete "Note that" from the identity banner.
-- [ ] `:301` — replace "Just repoint." with the reason the fast path exists: no lock, no network.
-- [ ] `:512` — "is not more careful, it is more surface to drift out of date", em-dash form, matching
+- [x] `:25` — delete "Note that" from the identity banner.
+- [x] `:301` — replace "Just repoint." with the reason the fast path exists: no lock, no network.
+- [x] `:512` — "is not more careful, it is more surface to drift out of date", em-dash form, matching
       the wording already in `AGENTS.md` and `invariants.md`.
-- [ ] Leave the four load-bearing uses of `just` at `:136`, `:178`, `:391`, `:599`. Each means *merely*
+- [x] Leave the four load-bearing uses of `just` at `:136`, `:178`, `:391`, `:599`. Each means *merely*
       or *equally*; record them for P4's PR-body list.
 
 Factual and grammatical defects:
 
-- [ ] `:333`–`:334` — replace `four lines of "everything's installed!"` with "four lines of installer
+- [x] `:333`–`:334` — replace `four lines of "everything's installed!"` with "four lines of installer
       chatter". `AGENTS.md` bans exclamation marks in source.
-- [ ] `:783`–`:784` — "because they are what tells you so" → "because they are what tell you how to
+- [x] `:783`–`:784` — "because they are what tells you so" → "because they are what tell you how to
       configure it."
 
 Restatements (R2):
 
-- [ ] `:361` — delete "Decide whether provisioning is needed, then do it."; keep the pin paragraph.
-- [ ] `:559` — delete `# ignore other flags` from the `-*)` arm.
+- [x] `:361` — delete "Decide whether provisioning is needed, then do it."; keep the pin paragraph.
+- [x] `:559` — delete `# ignore other flags` from the `-*)` arm.
 
 Message blocks (R5) — audit, do not restructure:
 
-- [ ] Read the four heredocs (`uvm_self_update` help, `uvm_status`, `uvm_clean`, `uvm_help`) and the
+- [x] Read the four heredocs (`uvm_self_update` help, `uvm_status`, `uvm_clean`, `uvm_help`) and the
       inline `die`/`note` strings against `AGENTS.md` § *Prose and comments*.
-- [ ] The `uvm_resolve_root` failure block keeps all six candidates with their per-candidate reason,
+- [x] The `uvm_resolve_root` failure block keeps all six candidates with their per-candidate reason,
       both fixes, and the home-directory constraint. Compare wording against
       [`research/01-baseline-output.md`](research/01-baseline-output.md) §B.
-- [ ] Do not convert any `printf` block to a heredoc. That is an executable change and R4 forbids it;
+- [x] Do not convert any `printf` block to a heredoc. That is an executable change and R4 forbids it;
       the digest records that the EPIPE concern behind it does not reproduce.
 
 Read the remaining ~198 comment lines for restatement and length. Most will pass untouched.

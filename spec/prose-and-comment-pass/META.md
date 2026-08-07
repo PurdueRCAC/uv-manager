@@ -133,3 +133,19 @@ is skipped by the parser:
   session disallows them**, do the research yourself, sequentially, writing the same files." The
   deliverable is unchanged either way, which is worth saying so the choice does not read as a scope cut.
 - **Confidence:** high · **Effort:** small
+
+## F6 — `uvm-build` derives the commit category from `kind`, which is a different taxonomy
+`origin=uvm-build:step-7 severity=low category=instruction status=open target=.agents/skills/uvm-build/SKILL.md`
+- **What happened:** Step 7 says "`{category}` is the `TECH.md` `kind`", which here is `refactor`.
+  `/uvm-plan` Step 8 says the opposite — "`{category}` is the same category as the shape commit" — which
+  is `docs`, and the `TECH.md` conventions block I committed last cycle spells out `[docs]` with its
+  reason. Two lifecycle skills give different rules for the same field, so I had to adjudicate rather
+  than follow. I used `docs`, consistent with the branch's other two commits.
+- **Skill cause:** `kind` and commit category are not the same set. `AGENTS.md` lists the categories as
+  `feature, fix, docs, refactor, release, harness` and calls the set open; `kind` is the lifecycle
+  taxonomy and has no `docs` or `harness` member. A prose or documentation cycle is exactly the case
+  where they diverge, and it is not rare — the same-commit rule pulls documentation into most cycles.
+- **Recommended fix:** make `uvm-build` defer to the shape commit's category the way `uvm-plan` does,
+  and say that `kind` is a fallback when no prior branch commit exists. Alternatively record the
+  category once in `TECH.md` frontmatter at plan time so both skills read one field.
+- **Confidence:** high · **Effort:** small
