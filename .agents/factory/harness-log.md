@@ -73,3 +73,31 @@ Read `origin`, `severity` and `category` from the finding in `META.md`; this led
   function wrapping `ugrep`. Re-confirmed here before writing: `grep` is a shell function in this
   session and `/usr/bin/grep` under `/bin/sh`. The red-before/green-after half is the load-bearing
   part — a gate never observed failing is not a gate.
+
+## 2026-08-07 — maintainer request: nothing retired a seed after its cycle shipped
+`decision=applied commit=7d5ac9f target=.agents/skills/uvm-roadmap/SKILL.md`
+- **Rationale:** raised by the maintainer, not by a `META.md` finding — the lifecycle promoted an
+  `issues/{slug}.md` into a cycle and then left it in the backlog forever. Built as a third
+  operational sibling rather than folded into `/uvm-publish`, which was the first design considered
+  and rejected: retirement writes outside `spec/`, so publish would have had to exclude `issues/`
+  from its staleness gate, and `/uvm-review` demonstrably grades `issues/` content — the F5 finding
+  processed earlier the same day was a gate going green with `issues/test-harness.md` stale. Publish
+  detects and reports; `/uvm-roadmap` acts. Keeping the deletion verb out of the one irreversible
+  step was the secondary reason. Detection keys off `status: adopted:{slug}` rather than the
+  filename, since the two differ (`issues/trampoline-ignores-platform-override.md` →
+  `trampoline-platform-override`), and the trigger carries `|| true` because `grep` exits 2 while
+  printing matches when the gitignored `.security/` lane is absent. The security lane inverts the
+  rule and moves rather than deletes: gitignored means no history to recover from. Lifecycle prose
+  moved in lockstep — `templates/ISSUE.md`, `uvm-feature`, `AGENTS.md` and `methodology.md` all
+  documented retention as unconditional.
+
+## 2026-08-07 — uvm-env-prefix: the first retirement, and the ROADMAP numbering
+`decision=applied commit=5bb08e0 target=ROADMAP.md`
+- **Rationale:** exercised the new step by hand on the case already sitting in the tree rather than
+  waiting for the next cycle to hit it under time pressure. Dropped the `### N.` numbering in the same
+  commit: an audit of what removing one entry breaks found every casualty positional (`cycle 1`,
+  `of the three`, `Three are already queued`) and every by-name reference intact, so the numbers were
+  manufacturing the only breakage and renumbering-on-every-retirement would have been a standing
+  chore. The seed's `Seed:` link in `spec/uvm-env-prefix/GOAL.md` is deliberately left dangling —
+  `spec/{slug}/` records what was true when written, and the dangling path is the signpost that makes
+  `git log --diff-filter=D` a two-step recovery.
