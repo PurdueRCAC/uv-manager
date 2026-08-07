@@ -27,12 +27,14 @@ Stable IDs (`R1`, `R2`, …) that survive squash-merge and anchor traceability. 
 (see [`ears.md`](../../.agents/factory/ears.md)) — it makes each line directly testable — but plain,
 unambiguous prose is acceptable where EARS would be forced.
 
-Each criterion must be observable from a sandbox drive
-(`.agents/factory/bin/temp_root.sh …`): an exit status, a path, a symlink target, a line on stderr, an
-environment variable in the child process. Two kinds of criterion cannot be, and each declares its
-departure where it is written: one that genuinely requires a real cluster says so; one satisfied by
-the text of the repository rather than by its behavior — a documentation sweep, a rename's eradication
-of the old name — carries its own check inline (`git grep -n …`).
+Every criterion declares how it is checked. The default is a sandbox drive
+(`.agents/factory/bin/temp_root.sh …`) asserting something observable — an exit status, a path, a
+symlink target, a line on stderr, an environment variable in the child process. One a drive cannot
+reach names its substitute where it is written: the command that stands in (`git grep -n …` for a
+documentation sweep, or a rename's eradication of the old name); or, where no command can decide it,
+the reviewer who grades it and the text they grade against; or a real cluster, which means the
+criterion is taken on trust. Prose quality is the third kind — no grep detects a comment that restates
+the line below it.
 
 - **R1** — WHEN <trigger>, the <component> SHALL <observable response>.
 - **R2** — WHILE <state>, the <component> SHALL <response>.

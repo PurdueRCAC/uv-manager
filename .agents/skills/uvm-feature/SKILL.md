@@ -107,11 +107,12 @@ Start from the template. Fill **Problem** (the raw need — motivate, do not des
 (with any `[NEEDS CLARIFICATION]` markers resolved), and **Related materials**. Record `slug`, `kind`
 and `appetite` in the header.
 
-Every criterion must be observable from a sandbox drive under
+Every criterion declares how it is checked. The default is a sandbox drive under
 `.agents/factory/bin/temp_root.sh` — an exit status, a path, a symlink target, a line on stderr, an
-environment variable in the child process. If a criterion genuinely requires a real cluster, say so in
-the criterion itself so the reviewer knows it is being taken on trust rather than assuming it was
-checked.
+environment variable in the child process. One a drive cannot reach names its substitute in the
+criterion itself: the command that stands in for the drive, the reviewer who grades it and against
+what, or a real cluster, which tells the reviewer it is taken on trust rather than leaving it to
+assume the criterion was checked.
 
 If adopting a hand-written GOAL.md, refine it **in place**: preserve the author's intent, and only
 disambiguate, structure, and add R-IDs, appetite and non-goals. Do not expand scope.

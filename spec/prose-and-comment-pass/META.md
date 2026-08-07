@@ -74,7 +74,7 @@ is skipped by the parser:
 - **Confidence:** high · **Effort:** small
 
 ## F2 — the GOAL template's non-drive-verifiable exceptions are a closed set of two, and prose quality is a third
-`origin=uvm-feature:step-4 severity=low category=template status=open target=.agents/factory/templates/GOAL.md`
+`origin=uvm-feature:step-4 severity=low category=template status=applied target=.agents/factory/templates/GOAL.md`
 - **What happened:** the template names exactly two criteria that need not be observable from a
   `temp_root.sh` drive — one requiring a real cluster, and one "satisfied by the text of the repository"
   that "carries its own check inline (`git grep -n …`)". This cycle's R2 ("no comment paraphrases the
