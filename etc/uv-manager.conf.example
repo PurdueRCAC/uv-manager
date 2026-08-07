@@ -8,7 +8,7 @@
 # Everything the wrapper reads for itself is spelled UVM_*. The UV_* names
 # below are uv's own configuration, included because these are the settings
 # that actually matter on a parallel filesystem and are easy to overlook.
-# Five more -- the storage locations -- are exported by the wrapper on the
+# Five more — the storage locations — are exported by the wrapper on the
 # executing node and override anything set for them here.
 
 
@@ -34,7 +34,7 @@
 # Purdue RCAC community clusters:
 #export UVM_ROOT="${CLUSTER_SCRATCH}/.uv"
 
-# Purdue Anvil. Note RCAC's own guidance points long-lived Python
+# Purdue Anvil. RCAC's own guidance points long-lived Python
 # environments at $PROJECT rather than $SCRATCH, because scratch is purged
 # after 30 days and uv does not detect a partially purged environment.
 #export UVM_ROOT="${PROJECT}/.uv"
@@ -53,7 +53,7 @@
 # 2. Version policy
 # ===========================================================================
 
-# Pin the uv version. Recommended for anything automation depends on --
+# Pin the uv version. Recommended for anything automation depends on —
 # notably a Globus Compute endpoint provisioning environments to match a
 # client's SDK versions. A pin selects which installed version `current`
 # points at, so switching between already-downloaded versions is instant.
@@ -76,7 +76,7 @@
 #export UVM_LOCK_STALE=600
 
 # Override the architecture key. Default is `uname -m`. Set this if login and
-# compute images differ in a way `uname -m` does not capture -- glibc version
+# compute images differ in a way `uname -m` does not capture — glibc version
 # skew, musl, or x86-64 microarchitecture levels. Keep it cheap to compute:
 # the wrapper evaluates it on every single invocation.
 #export UVM_PLATFORM="$(uname -m)-glibc$(getconf GNU_LIBC_VERSION | awk '{print $2}')"
@@ -92,7 +92,7 @@
 #
 # Prefer uv's system configuration file, /etc/uv/uv.toml, where you can: it
 # MERGES with the user's ~/.config/uv/uv.toml rather than replacing it.
-# Do NOT use UV_CONFIG_FILE for site defaults -- that replaces user config
+# Do NOT use UV_CONFIG_FILE for site defaults — that replaces user config
 # entirely. Environment variables are the fallback when you cannot manage
 # /etc on compute node images.
 
@@ -127,7 +127,7 @@
 # Internal package index.
 #export UV_DEFAULT_INDEX=https://mirror.example.edu/pypi/simple
 
-# uv waits this long for its own flock-based locks. Note that if your scratch
+# uv waits this long for its own flock-based locks. If your scratch
 # filesystem has flock disabled entirely, uv fails outright with
 # "Function not implemented (os error 38)" and there is no bypass. Test it.
 #export UV_LOCK_TIMEOUT=300
@@ -144,5 +144,5 @@
 #     export UV_PROJECT_ENVIRONMENT=".venv-$(uname -m)"
 #
 # For many-rank jobs, resolve the environment once in the prologue and launch
-# the interpreter directly rather than putting `uv run` on the hot path --
+# the interpreter directly rather than putting `uv run` on the hot path —
 # `uv run` takes a lock on the project environment.

@@ -1,5 +1,5 @@
 ---
-status: unshaped
+status: adopted:prose-and-comment-pass
 kind: refactor
 appetite: small
 lane: public

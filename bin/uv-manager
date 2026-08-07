@@ -22,9 +22,9 @@ readonly uvm_version="0.3.0"
 
 # ---- identity: uv, uvx or uv-manager, decided purely by argv[0] ------------
 #
-# Real uv does the same thing, so `uvx` needs no separate code path. Note that
-# the dispatch keys on the name used to invoke the script, not on whether that
-# name is a symlink: a copy named `uvx` still runs in uvx mode.
+# Real uv does the same thing, so `uvx` needs no separate code path. Dispatch
+# keys on the name used to invoke the script, not on whether that name is a
+# symlink: a copy named `uvx` still runs in uvx mode.
 #
 # Anything not recognised falls through to uv mode.
 
@@ -298,7 +298,7 @@ uvm_install() {
   local want="$1" force="${2:-}"
   local url tmp ver dest
 
-  # Fast path: what was asked for is already on disk. Just repoint.
+  # Fast path: already on disk, so no lock and no network.
   if [[ -z "${force}" ]] && uvm_have "${want}"; then
     [[ -n "${want}" ]] && uvm_point_current "${want}"
     return 0
@@ -330,8 +330,8 @@ uvm_install() {
   #
   # The installer's progress output goes to stderr, not stdout. Provisioning
   # is a side effect of whatever the user actually asked for, and on a cold
-  # node `VER=$(uv --version)` must not come back with four lines of
-  # "everything's installed!" ahead of the answer.
+  # node `VER=$(uv --version)` must not come back with four lines of installer
+  # chatter ahead of the answer.
   if ! uvm_fetch "${url}" \
         | env -u UV_INSTALL_DIR -u CARGO_DIST_FORCE_INSTALL_DIR \
               UV_UNMANAGED_INSTALL="${tmp}" sh >&2; then
@@ -358,8 +358,6 @@ uvm_install() {
   uvm_unlock
 }
 
-# Decide whether provisioning is needed, then do it.
-#
 # A pin is honoured even when some other version is already installed: it
 # selects which version `current` points at, not merely which version to
 # download if nothing is present.
@@ -509,8 +507,8 @@ TRAMPOLINE
 # separate value are these five; everything else that looks like one (--python,
 # --index-url, --cache-dir, ...) is a per-command option and can only appear
 # after the subcommand, where this parser has already stopped looking. A longer
-# list is not more careful, it is just more surface to drift out of date and
-# more arguments to mis-skip.
+# list is not more careful — it is more surface to drift out of date and more
+# arguments to mis-skip.
 
 uvm_global_takes_value() {
   case "$1" in
@@ -556,7 +554,7 @@ uvm_self_update() {
       --dry-run)  dry_run=1 ;;
       --token)    shift || true ;;   # takes a value; never treat it as a version
       --token=*)  ;;
-      -*)         ;;                 # ignore other flags
+      -*)         ;;
       *)          target="$1" ;;     # positional TARGET_VERSION
     esac
     shift || true
@@ -596,8 +594,8 @@ EOF
 
 # Emitted through a heredoc rather than a series of printfs so that closing
 # stdout early (`uv-manager status | head`) behaves like any other Unix filter.
-# bash's printf builtin reports EPIPE as "write error: Broken pipe"; `cat` just
-# dies on SIGPIPE.
+# bash's printf builtin reports EPIPE as "write error: Broken pipe"; `cat` dies
+# quietly on SIGPIPE.
 uvm_status() {
   local cur resolved
   cur="$( [[ -L "${uvm_current}" ]] && readlink -- "${uvm_current}" 2>/dev/null || true )"
@@ -780,8 +778,8 @@ uvm_manager_main() {
   local cmd="${1:-status}"
   shift || true
 
-  # These two are the reason uvm_init is deferred: they have to work on a node
-  # where no state root is configured, because they are what tells you so.
+  # These two are the reason uvm_init is deferred: they must work where no
+  # state root is configured, because they are what tell you how to set one.
   case "${cmd}" in
     help|-h|--help) uvm_help; return 0 ;;
     --version)      printf '%s\n' "${uvm_version}"; return 0 ;;
