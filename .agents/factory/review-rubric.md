@@ -77,6 +77,21 @@ context, so lean on executed evidence, not opinion.
 proving idempotence; two concurrent invocations proving the lock. "I read the code and it looks
 wrong" is a PLAUSIBLE at best.
 
+## Verification traps in this repository
+
+Standing knowledge, safe for a blind reviewer: a false green in a gate command is not author intent
+and reveals nothing about the plan. A trap found during a review that is not feature-specific belongs
+here, added by `/uvm-harness` — never in `REVIEW.md`, which the next cycle's reviewer is correctly
+forbidden to open, so a technique recorded there is rediscovered or walked into again.
+
+- **An interpolated pathspec collapses under `zsh`.** `git grep -n PATTERN -- $PATHS`, where `$PATHS`
+  holds several paths, searches one nonexistent path and exits clean: `zsh` does not word-split an
+  unquoted parameter. A census built that way reports zero hits against a tree full of them. Write the
+  paths literally, and check the count against whatever baseline `GOAL.md` states.
+- **`grep` may not be `grep`.** In an interactive agent shell it can be a function wrapping something
+  else; under `/bin/sh` it is `/usr/bin/grep`. Run anything load-bearing through `/bin/sh -c` before
+  believing its exit status.
+
 ## Severity
 
 | Severity | Meaning |

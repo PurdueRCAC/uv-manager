@@ -232,7 +232,7 @@ is skipped by the parser:
 - **Confidence:** high · **Effort:** small
 
 ## F11 — a verification technique discovered in cycle 1 has nowhere to live that cycle 2 can read
-`origin=uvm-review:step-3 severity=medium category=missing-guidance status=open target=.agents/factory/review-rubric.md`
+`origin=uvm-review:step-3 severity=medium category=missing-guidance status=applied target=.agents/factory/review-rubric.md`
 - **What happened:** cycle 1 found that this repo's R1 census silently reports clean when the four
   paths are passed through a shell variable, because `zsh` does not word-split, and recorded that as a
   methodology note in `REVIEW.md`. `REVIEW.md` is under `spec/`, so the cycle-2 reviewer could not read
