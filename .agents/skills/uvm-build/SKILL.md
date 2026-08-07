@@ -111,6 +111,12 @@ Steps 1–2, then report the plan that *would* run and stop — no edits, no com
    `next_phase.py`. Set `--top-status in_progress` and proceed. If a finding contradicts a `GOAL.md`
    R-ID rather than just the plan, STOP and escalate instead.
 
+   A remediation edit is not local to its phase. After making it, re-run the `verify:` of every `done`
+   phase that lists the reopened phase in `depends_on`, and reopen any that goes red. `next_phase.py`
+   never re-runs a gate, so a `done` phase whose assertion the fix invalidated is invisible to the FSM
+   and ships green. The shape that breaks is a reconciliation phase whose gate hardcodes a count the
+   fix just moved.
+
 ### Step 2 — Identify target phase + load context
 1. Target = the `next_phase` output from Step 1, or the argument-selected phase. Confirm its
    `depends_on` are `done`; if not, STOP.

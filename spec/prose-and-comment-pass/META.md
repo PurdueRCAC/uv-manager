@@ -177,7 +177,7 @@ is skipped by the parser:
 - **Confidence:** high · **Effort:** small
 
 ## F8 — remediation is described as local to one phase, but a fix invalidates downstream gates
-`origin=uvm-build:step-1.3 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-build/SKILL.md`
+`origin=uvm-build:step-1.3 severity=medium category=missing-guidance status=applied target=.agents/skills/uvm-build/SKILL.md`
 - **What happened:** F1 was one word in `bin/uv-manager`, which Step 1.3 correctly routed to reopening
   P1 and retuning its gate. But P4 is a reconciliation phase whose gate hardcodes the post-pass census
   total, and the one-word fix moved it from 7 to 6. Nothing in Step 1.3 told me to look; I found it
