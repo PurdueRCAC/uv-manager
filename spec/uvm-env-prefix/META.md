@@ -103,7 +103,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F6 — `verify:` strings are authored in the agent's shell and executed in another
-`origin=uvm-build:P4 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-build/SKILL.md`
+`origin=uvm-build:P4 severity=medium category=missing-guidance status=applied target=.agents/skills/uvm-build/SKILL.md`
 - **What happened:** while retuning P4's gate I tested a candidate clause interactively and it reported
   green on a tree where it should have been red. The agent shell's `grep` is a function wrapping
   `ugrep`; the clause behaved correctly under `/bin/sh` with `/usr/bin/grep`. Had I trusted the

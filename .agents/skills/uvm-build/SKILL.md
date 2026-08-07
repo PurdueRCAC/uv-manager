@@ -129,6 +129,12 @@ Run the phase's `verify:` command, plus any additional drive the change warrants
 asserted post-condition held** — the observed tree, symlink target, exit code or stderr line is
 correct — not merely that the command exited 0.
 
+A **new or retuned** `verify:` gets one step before you trust it: run it as `/bin/sh -c '…'`, and
+confirm it is red before the fix and green after. The string is authored in this session's interactive
+shell and executed later by `lint.sh`, by CI, and by anyone reading `TECH.md` under plain `sh`, where
+aliases, shell functions and GNU-versus-BSD utilities all diverge — a `grep` that is a shell function
+here is `/usr/bin/grep` there. A gate never observed failing is not a gate.
+
 Green → proceed. Red → STOP; do not mark done or advance state. Record the failure:
 ```
 uv run .agents/factory/bin/set_phase.py spec/{slug}/TECH.md --phase {id} --record-attempt --touch
