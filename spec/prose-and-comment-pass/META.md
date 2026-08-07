@@ -82,3 +82,54 @@ is skipped by the parser:
   and against what. That covers cluster-only, `git grep`, and reviewer-judgment cases without needing a
   fourth revision the next time an unanticipated one appears.
 - **Confidence:** med · **Effort:** small
+
+## F3 — Step 6 checks a gate for contradiction and blindness, never that it can go red at all
+`origin=uvm-plan:step-6 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-plan/SKILL.md`
+- **What happened:** the first run of this cycle's census — the command `GOAL.md` supplies as R1's check
+  — reported zero hits against a tree with thirteen. The pathspec was a variable holding four paths, and
+  zsh does not word-split an unquoted parameter, so `git grep` searched one nonexistent path and exited
+  clean. A gate built on that shape would have gone green on an untouched file. I found it only because
+  the number disagreed with the GOAL's stated baseline of 13.
+- **Skill cause:** Step 6 tells me to read a `verify:` back against the phase checklist for two failure
+  modes, contradiction and blindness, and both are about *scope*. Neither catches a gate that cannot
+  fail — one whose command silently matches nothing regardless of the tree. The obvious control is to
+  run every gate against the pre-pass tree and confirm the ones asserting post-conditions come back
+  **red**, but the skill never asks for it. Nothing in Step 6 distinguishes "green because the work is
+  done" from "green because the command is inert".
+- **Recommended fix:** add to Step 6, after the two-direction read-back: run each `verify:` against the
+  current tree before committing the plan. A gate asserting a post-condition the phase has not yet
+  delivered must exit non-zero, and one that exits 0 is inert until proven otherwise. Note the specific
+  trap that motivated it — an interpolated pathspec collapses under zsh — and require literal paths in
+  census-style gates.
+- **Confidence:** high · **Effort:** small
+
+## F4 — the high-blast-radius research exception does not distinguish editing a region from editing its comments
+`origin=uvm-plan:step-3 severity=low category=instruction status=open target=.agents/skills/uvm-plan/SKILL.md`
+- **What happened:** Step 3 skips the fan-out for `appetite: small`, then overrides that for any change
+  "expected to touch any high-blast-radius region". This cycle is a comment-and-prose pass whose own
+  contract (R4) forbids changing an executable statement, yet it edits comment text sitting inside
+  `uvm_install`, `uvm_acquire_lock`, `uvm_resolve_root` and `uvm_trampolines`. Read literally the
+  exception fires and mandates a full fan-out; read by intent it does not, because none of the contracts
+  the exception exists to pin can be broken by a comment.
+- **Skill cause:** "touch" is doing two jobs. The exception's stated rationale — "a small edit there
+  still needs the exact contracts pinned before design" — is about *behavior*, but the trigger is
+  written as file-region adjacency, which text edits satisfy for free.
+- **Recommended fix:** make the trigger behavioral: the exception fires when a change can alter what a
+  high-blast-radius region *does*. A pass constrained to comments, message strings or documentation
+  scales research to appetite instead — though the message text of a region named in `invariants.md` §3
+  or §7 is still worth a baseline capture, which is what this cycle did.
+- **Confidence:** med · **Effort:** small
+
+## F5 — the subagent fallback is written as availability, but the blocker is often policy
+`origin=uvm-plan:step-3 severity=low category=instruction status=open target=.agents/factory/portability.md`
+- **What happened:** the fan-out fallback is gated on "**No subagents in your harness?**" and
+  `portability.md` frames the same escape hatch as a capability question. Here subagents existed and
+  worked; the session instructed me not to spawn them unasked. I took the fallback and did the research
+  sequentially, which was plainly the intent, but the condition as written did not cover the case.
+- **Skill cause:** the instruction tests for a missing tool when the thing that actually matters is
+  whether fanning out is available *and* permitted. A harness with an agent policy, a cost ceiling, or a
+  sandbox restriction hits this on every lifecycle skill that fans out, not just this one.
+- **Recommended fix:** widen the condition wherever it appears — "if subagents are unavailable **or the
+  session disallows them**, do the research yourself, sequentially, writing the same files." The
+  deliverable is unchanged either way, which is worth saying so the choice does not read as a scope cut.
+- **Confidence:** high · **Effort:** small
