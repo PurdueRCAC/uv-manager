@@ -6,10 +6,10 @@
 
 ## 1. Summary
 
-An audit, not a rewrite. Reading all 1724 in-scope lines produced roughly twenty edits: six of the
+An audit, not a rewrite. Reading all 1724 in-scope lines produced roughly twenty edits: seven of the
 thirteen census hits removed, two comments deleted for restating the code they sit above, three
 factual or grammatical defects corrected, and one file's punctuation made self-consistent. The other
-seven census hits are the load-bearing "not just X" construction and stay, listed with reasons in the
+six census hits are the load-bearing "not just X" construction and stay, listed with reasons in the
 PR body as R1 requires. Four phases, one per file group plus a reconciliation gate, ordered so the
 script — where the comment density and the blast radius both concentrate — goes first.
 
@@ -33,21 +33,26 @@ text, not the number.
 | `README.md:466` | "…using `uv` to just-in-time provision a matching environment…" | "…using `uv` to provision a matching environment on demand…" — "just-in-time provision" reads as a verbed noun phrase. |
 | `etc/uv-manager.conf.example:130` | "uv waits this long for its own flock-based locks. Note that if your scratch filesystem has flock disabled…" | Delete "Note that". |
 
-### Census hits retained (seven) — the R1 exception list
+### Census hits retained (six) — the R1 exception list
 
-All seven are `just` meaning *merely* or *equally*, where deletion changes the claim. **This is the R1
-exception list; `/uvm-publish` lifts it into the PR body verbatim.** Line numbers here are post-pass,
-confirmed against the landed tree at P4:
+All six are `just` meaning *merely* or *equally*, where deletion changes the claim. Each passes the
+test that separates a retained hit from filler: strike the word and the sentence says something
+different, or stops parsing. **This is the R1 exception list; `/uvm-publish` lifts it into the PR body
+verbatim.** Line numbers here are post-pass, confirmed against the landed tree at P4:
 
 | Where | Text | Why it stays |
 |-------|------|--------------|
 | `bin/uv-manager:136` | "should override it and keep it just as cheap" | "just as cheap" = *equally cheap*. |
 | `bin/uv-manager:178` | "Release on signals too, not just on a normal return." | *not only*. |
 | `bin/uv-manager:389` | "would change resolution behaviour, not just storage location" | *not merely*. |
-| `bin/uv-manager:597` | "bash's printf builtin reports EPIPE…; `cat` just dies on SIGPIPE" | *merely dies*, which is the whole contrast. |
 | `README.md:268` | "would change dependency resolution, not just storage" | *not merely*. |
 | `README.md:395` | "Partial loss happens in practice, not just in principle." | *not merely*. |
 | `share/modulefiles/uv/main.lua:144` | "would change dependency resolution, not just storage location" | *not merely*. |
+
+A seventh entry stood here through review cycle 1: `bin/uv-manager:597`, "`cat` just dies on SIGPIPE",
+justified as *merely dies*. It was the one retained hit that failed the deletion test — the claim is
+identical without the word — and the same fact was already written without it 140 lines later and in
+`AGENTS.md` § *Output discipline*. Removed at P1; the census is six.
 
 ### Factual and grammatical defects (three)
 
@@ -103,7 +108,7 @@ files change at the word level, and R3's aggregate has room it does not need.
 
 | R-ID | Design element(s) that satisfy it |
 |------|-----------------------------------|
-| R1 | Six census hits removed (P1–P3); seven retained with the reason table above, which becomes the PR-body list (P4). |
+| R1 | Seven census hits removed (P1–P3, the seventh at review cycle 1); six retained with the reason table above, which becomes the PR-body list (P4). |
 | R2 | Two restatement comments deleted; the remaining comment body read line by line in P1 and graded by inspection at review. |
 | R3 | No section is expanded. Aggregate line count asserted `<= 1724` by P4's gate. |
 | R4 | No executable statement touched, by construction. Gated behaviorally: `bash -n`, `lint.sh`, a function-definition diff against `main`, and the three GOAL-named drives reaching their baseline post-conditions. |

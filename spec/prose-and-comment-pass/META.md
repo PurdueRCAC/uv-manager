@@ -175,3 +175,37 @@ is skipped by the parser:
   documentation pass, or when a `GOAL.md` criterion is a whole-file census, the graded surface is the
   file, not the hunk; the anti-gap-hunting rule still holds elsewhere.
 - **Confidence:** high · **Effort:** small
+
+## F8 — remediation is described as local to one phase, but a fix invalidates downstream gates
+`origin=uvm-build:step-1.3 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-build/SKILL.md`
+- **What happened:** F1 was one word in `bin/uv-manager`, which Step 1.3 correctly routed to reopening
+  P1 and retuning its gate. But P4 is a reconciliation phase whose gate hardcodes the post-pass census
+  total, and the one-word fix moved it from 7 to 6. Nothing in Step 1.3 told me to look; I found it
+  only because I had read P4's `verify:` during the review. Had I not, P1 would have gone green, the
+  branch would have shipped `status: in_review`, and P4 would have sat `done` with a gate that fails
+  on the tree it certifies.
+- **Skill cause:** Step 1.3 is written as if a finding maps to exactly one phase — "prefer reopening
+  the existing phase whose `satisfies` covers the failing R-IDs" — and never mentions the phases
+  downstream of it. `next_phase.py` does not re-run gates, so a stale assertion in a `done` phase is
+  invisible to the FSM. This factory's plans routinely end in a reconciliation phase that snapshots
+  counts, which is exactly the shape that breaks.
+- **Recommended fix:** add to Step 1.3 — after a remediation edit, re-run the `verify:` of every `done`
+  phase that lists the reopened phase in `depends_on`, and reopen any that goes red. A phase whose
+  gate asserts a count is a downstream dependency of every phase that can change that count.
+- **Confidence:** high · **Effort:** small
+
+## F9 — Step 4 requires running a gate under `/bin/sh`, with no supported way to get the string out
+`origin=uvm-build:step-4 severity=low category=tooling status=open target=.agents/factory/bin/`
+- **What happened:** Step 4 says to run a retuned gate as `/bin/sh -c '…'` and confirm it is red before
+  the fix and green after. The gate lives in `TECH.md` as folded YAML across a dozen wrapped lines, so
+  it cannot be copied by hand without reflowing it — and reflowing is where a quoting error enters. I
+  wrote a throwaway `uv run --with pyyaml` reader twice, once per phase.
+- **Skill cause:** `.agents/factory/bin/` has `next_phase.py`, `set_phase.py` and `meta_status.py` but
+  nothing that prints or runs a phase's gate, even though Step 4 makes running it under a plain shell
+  mandatory. The first attempt failed on a missing `pyyaml` and left the variable empty; an empty
+  string handed to `/bin/sh -c` exits 0, so the "confirm it is red" step can be satisfied by a reader
+  that silently produced nothing.
+- **Recommended fix:** add `run_verify.py spec/{slug}/TECH.md --phase P<n> [--print]` that extracts the
+  gate and execs it under `/bin/sh -c`, erroring if the string is empty. Then Step 4 cites one command
+  and the false-green is impossible.
+- **Confidence:** high · **Effort:** small

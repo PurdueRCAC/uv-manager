@@ -3,7 +3,7 @@ slug: prose-and-comment-pass
 title: Prose pass over every comment and user-facing document
 kind: refactor
 appetite: small
-status: blocked
+status: in_review
 branch: feature/prose-and-comment-pass
 base: main
 current_phase: done
@@ -31,8 +31,9 @@ phases:
     sh -c 'unset UVM_ROOT; uvm status' 2>&1 | grep -q 'not be your home directory'
     && test "$( (git grep -niwE '(simply|just|essentially|basically|comprehensive|robust|seamless|powerful|elegant|leverage|utilize)'
     -- bin/uv-manager; git grep -niE '(note that|this ensures|this allows|in order
-    to|worth noting)' -- bin/uv-manager) | wc -l | tr -d ' ')" -eq 4 && ! grep -q
-    "everything's installed" bin/uv-manager && ! grep -q 'what tells you so' bin/uv-manager
+    to|worth noting)' -- bin/uv-manager) | wc -l | tr -d ' ')" -eq 3 && test "$(grep
+    -c 'quietly on SIGPIPE' bin/uv-manager)" -eq 2 && ! grep -q "everything's installed"
+    bin/uv-manager && ! grep -q 'what tells you so' bin/uv-manager
 - id: P2
   name: README.md
   status: done
@@ -86,7 +87,10 @@ phases:
     -- bin/uv-manager README.md etc/uv-manager.conf.example share/modulefiles/uv/main.lua;
     git grep -niE ''(note that|this ensures|this allows|in order to|worth noting)''
     -- bin/uv-manager README.md etc/uv-manager.conf.example share/modulefiles/uv/main.lua)
-    | wc -l | tr -d '' '')" -eq 7 && ! git grep -nwE ''(R1|R2|R3|R4|R5|R6|P1|P2|P3|P4)''
+    | wc -l | tr -d '' '')" -eq 6 && test "$(sed -n ''/^### Census hits retained/,/^###
+    /p'' spec/prose-and-comment-pass/PLAN.md | grep -c ''^| `'')" -eq 6 && ! sed -n
+    ''/^### Census hits retained/,/^### /p'' spec/prose-and-comment-pass/PLAN.md |
+    grep ''^| `'' | grep -q ''uv-manager:597'' && ! git grep -nwE ''(R1|R2|R3|R4|R5|R6|P1|P2|P3|P4)''
     -- bin/uv-manager README.md && .agents/factory/bin/lint.sh && .agents/factory/bin/temp_root.sh
     --offline sh -c ''uv --version && readlink "$UVM_ROOT/$(uname -m)/current"'' |
     grep -qx ''versions/9.9.9'' && .agents/factory/bin/temp_root.sh --offline --arch
@@ -94,7 +98,7 @@ phases:
 review:
   last_reviewed_commit: 7b0c0d9c2a4792ffc5f935089d2c5c2e2fb82c14
   verdict: changes-requested
-  blocked_reason: 'R1: filler ''just'' survives at bin/uv-manager:597'
+  blocked_reason: ''
   cycle: 1
 ---
 # TECH.md — Prose pass over every comment and user-facing document
@@ -137,8 +141,13 @@ Census hits:
 - [x] `:301` — replace "Just repoint." with the reason the fast path exists: no lock, no network.
 - [x] `:512` — "is not more careful, it is more surface to drift out of date", em-dash form, matching
       the wording already in `AGENTS.md` and `invariants.md`.
-- [x] Leave the four load-bearing uses of `just` at `:136`, `:178`, `:391`, `:599`. Each means *merely*
-      or *equally*; record them for P4's PR-body list.
+- [x] Leave the load-bearing uses of `just` at `:136`, `:178`, `:391`. Each means *merely* or
+      *equally*; record them for P4's PR-body list.
+- [x] **Amended after review cycle 1 (F1).** The fourth, at `:597`, was classified load-bearing here on
+      the reading that `cat` *merely* dies. It fails the deletion test the other three pass: strike the
+      word and the claim is unchanged. The same fact is already stated without it at `:736` and in
+      `AGENTS.md` § *Output discipline* — "`cat` dies quietly on SIGPIPE" — so the file said one thing
+      two ways. Adopt the existing phrasing; the census over the script drops from 4 to 3.
 
 Factual and grammatical defects:
 
@@ -227,26 +236,28 @@ architecture neutrality still match what the script does.
 **Goal:** the contract-level numbers hold, and the surviving census hits are written down where R1
 requires them.
 
-- [x] Re-run both census commands over the four spelled-out paths. Expect exactly 7 hits. Spell the
+- [x] Re-run both census commands over the four spelled-out paths. Expect exactly 6 hits. Spell the
       paths out: a shell that does not word-split an unquoted variable turns the pathspec into one
-      nonexistent path and git reports clean.
-- [x] Keep the seven survivors, each with its reason, in `PLAN.md` §2 with post-pass line numbers, and
+      nonexistent path and git reports clean. **Amended after review cycle 1:** 7 before F1, 6 after.
+- [x] Keep the six survivors, each with its reason, in `PLAN.md` §2 with post-pass line numbers, and
       mark it there as the list `/uvm-publish` lifts into the PR body. R1 requires the list to reach
       the PR. **Amended at build:** the original item offered `META.md` as a home, which `AGENTS.md`
       reserves for harness feedback — "never code follow-ups". `PLAN.md` already carried the table, so
-      the list is maintained there rather than duplicated.
+      the list is maintained there rather than duplicated. The retired seventh row is kept as prose
+      below the table, so the PR body records why it was reclassified rather than silently dropped.
 - [x] Confirm the aggregate line count has not increased above 1724.
 - [x] Drive the full GOAL R4 set and compare against
       [`research/01-baseline-output.md`](research/01-baseline-output.md): `uvm status`,
       `--offline uv --version`, `--offline --arch aarch64 uvm status`, plus the no-root failure block.
 - [x] Confirm no feature-scoped spec id leaked into the script or the README.
 
-- **Verify:** aggregate `<= 1724`; census total exactly 7; no spec ids; `lint.sh`; `--offline`
-  provisioning lands `current -> versions/9.9.9`; `--offline --arch aarch64 uvm status` still reports
+- **Verify:** aggregate `<= 1724`; census total exactly 6; the `PLAN.md` exception table has exactly 6
+  rows and no longer carries the retired `:597` entry; no spec ids; `lint.sh`; `--offline` provisioning
+  lands `current -> versions/9.9.9`; `--offline --arch aarch64 uvm status` still reports
   `architecture: aarch64`.
-- **Inspection-only, not covered by the gate:** whether the PR-body exception list was actually
-  written, and whether the surviving hits are the seven `PLAN.md` predicted rather than seven
-  different ones.
+- **Inspection-only, not covered by the gate:** whether the surviving hits are the six `PLAN.md`
+  predicted rather than six different ones. The gate counts rows and counts hits; it cannot tell you
+  they are the same six.
 - **Touches:** `spec/prose-and-comment-pass/`.
 
 ---

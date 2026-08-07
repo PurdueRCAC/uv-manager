@@ -594,8 +594,8 @@ EOF
 
 # Emitted through a heredoc rather than a series of printfs so that closing
 # stdout early (`uv-manager status | head`) behaves like any other Unix filter.
-# bash's printf builtin reports EPIPE as "write error: Broken pipe"; `cat` just
-# dies on SIGPIPE.
+# bash's printf builtin reports EPIPE as "write error: Broken pipe"; `cat` dies
+# quietly on SIGPIPE.
 uvm_status() {
   local cur resolved
   cur="$( [[ -L "${uvm_current}" ]] && readlink -- "${uvm_current}" 2>/dev/null || true )"
