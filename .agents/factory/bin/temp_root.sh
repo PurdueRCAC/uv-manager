@@ -30,6 +30,10 @@
 # Variables available to the command: UV_MANAGER_ROOT, UVM_SANDBOX, and — with
 # --offline — UVM_FIXTURE_DIR (write <dir>/<version>/install.sh there to test a
 # pinned install).
+#
+# The inherited environment is scrubbed, so a fixture knob goes on the inner command:
+# `temp_root.sh --offline sh -c 'UVM_FIXTURE_VERSION=6.6.6 uv --version'`. Nothing is
+# provisioned until that first uv call, so the knob is in place in time.
 
 set -eu
 
@@ -63,10 +67,14 @@ else
     trap 'rm -rf "$sandbox"' EXIT INT TERM
 fi
 
-# Scrub every UV_* variable and every scratch candidate uvm_resolve_root consults.
-# Without this, a developer with UV_CACHE_DIR or $SCRATCH exported gets a drive that
-# silently reads or writes real storage, and a green verify that proves nothing.
-for name in $(env | sed -n 's/^\(UV_[A-Za-z0-9_]*\)=.*/\1/p'); do
+# Scrub every UV_* and UVM_* variable and every scratch candidate uvm_resolve_root
+# consults. Without this, a developer with UV_CACHE_DIR, UVM_PIN or $SCRATCH exported
+# gets a drive that silently reads real storage or honors a pin, and a green verify
+# that proves nothing. The interval is spelled UVM\{0,1\}_ and not UVM\?_ because \?
+# is a GNU extension: BSD sed matches nothing with it, which would disable the whole
+# scrub on macOS while every gate stayed green. The sandbox's own UVM_SANDBOX and
+# UVM_FIXTURE_DIR are set below, after this runs.
+for name in $(env | sed -n 's/^\(UVM\{0,1\}_[A-Za-z0-9_]*\)=.*/\1/p'); do
     unset "$name"
 done
 unset CLUSTER_SCRATCH RCAC_SCRATCH SCRATCH PSCRATCH WORK PROJECT 2>/dev/null || true

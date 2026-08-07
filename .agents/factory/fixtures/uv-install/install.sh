@@ -19,6 +19,9 @@
 #   UVM_FIXTURE_VERSION   version the stub reports (default 9.9.9)
 #   UVM_FIXTURE_EXIT      exit status the stub returns, for rc-propagation drives
 #   UVM_FIXTURE_BROKEN    make the stub unrunnable, to reach the wrong-architecture path
+#
+# temp_root.sh scrubs UVM_* from the inherited environment, so a drive sets these on
+# the inner command: `temp_root.sh --offline sh -c 'UVM_FIXTURE_VERSION=6.6.6 uv --version'`.
 
 set -eu
 

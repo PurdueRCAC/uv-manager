@@ -1,57 +1,86 @@
 ---
 slug: uvm-env-prefix
-title: "Rename the UV_MANAGER_* environment prefix to UVM_*"
+title: Rename the UV_MANAGER_* environment prefix to UVM_*
 kind: refactor
 appetite: small
 status: in_progress
 branch: feature/uvm-env-prefix
 base: main
-current_phase: P1
-last_updated: "2026-08-07"
+current_phase: P2
+last_updated: '2026-08-07'
 phases:
-  - id: P1
-    name: "Close the sandbox scrub gap before anything depends on it"
-    status: pending
-    satisfies: [R6]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "UVM_PIN=1.2.3 UV_CACHE_DIR=/nope .agents/factory/bin/temp_root.sh sh -c 'env | grep -c ^UVM_PIN; env | grep -c ^UV_CACHE_DIR; env | grep -c ^UVM_SANDBOX' | paste -sd, - | grep -qx 0,0,1 && .agents/factory/bin/temp_root.sh --offline sh -c 'UVM_FIXTURE_VERSION=6.6.6 uv --version' | grep -qF 'uv 6.6.6 (fixture)' && .agents/factory/bin/lint.sh >/dev/null"
-  - id: P2
-    name: "Rename the six knobs in the wrapper and the sandbox that drives it"
-    status: pending
-    satisfies: [R1, R2, R3, R4, R5, R6]
-    depends_on: [P1]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: ".agents/factory/bin/lint.sh >/dev/null && .agents/factory/bin/temp_root.sh uvm status | grep -qF '(from UVM_ROOT)' && .agents/factory/bin/temp_root.sh uvm help | grep -c '^  UVM_' | grep -qx 6 && .agents/factory/bin/temp_root.sh sh -c 'UVM_PIN=1.2.3 uvm status' | grep -qE '^pin: +1[.]2[.]3$' && UVM_PIN=9.9.9 .agents/factory/bin/temp_root.sh uvm status | grep -qE '^pin: +<none' && .agents/factory/bin/temp_root.sh --arch testarch uvm status | grep -c '^UV_.*/testarch/' | grep -qx 5 && .agents/factory/bin/temp_root.sh sh -c 'UV_MANAGER_ROOT=$UVM_ROOT; export UV_MANAGER_ROOT; unset UVM_ROOT; uvm status >/dev/null 2>err; test $? -ne 0 && grep -q keep.per-user err'"
-  - id: P3
-    name: "Site-facing artifacts: README, conf example, modulefile"
-    status: pending
-    satisfies: [R5]
-    depends_on: [P2]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "! git grep -q UV_MANAGER_ -- README.md etc/uv-manager.conf.example share/modulefiles/uv/main.lua && grep -qF '(from UVM_ROOT)' README.md && grep -q 'setenv(.UVM_ROOT.' share/modulefiles/uv/main.lua && .agents/factory/bin/temp_root.sh uvm status | grep -qE '^state root:.*from UVM_ROOT'"
-  - id: P4
-    name: "Factory documents, live seeds, and the closing sweep"
-    status: pending
-    satisfies: [R7]
-    depends_on: [P1, P2, P3]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: "! git grep -q UV_MANAGER_ -- . ':!spec/' ':!issues/uvm-env-prefix.md' && git ls-files -s CLAUDE.md .claude bin/uv bin/uvx bin/uvm | grep -c ^120000 | grep -qx 5 && .agents/factory/bin/lint.sh >/dev/null"
+- id: P1
+  name: Close the sandbox scrub gap before anything depends on it
+  status: done
+  satisfies:
+  - R6
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: UVM_PIN=1.2.3 UV_CACHE_DIR=/nope .agents/factory/bin/temp_root.sh sh -c
+    'env | grep -c ^UVM_PIN; env | grep -c ^UV_CACHE_DIR; env | grep -c ^UVM_SANDBOX'
+    | paste -sd, - | grep -qx 0,0,1 && .agents/factory/bin/temp_root.sh --offline
+    sh -c 'UVM_FIXTURE_VERSION=6.6.6 uv --version' | grep -qF 'uv 6.6.6 (fixture)'
+    && .agents/factory/bin/lint.sh >/dev/null
+- id: P2
+  name: Rename the six knobs in the wrapper and the sandbox that drives it
+  status: pending
+  satisfies:
+  - R1
+  - R2
+  - R3
+  - R4
+  - R5
+  - R6
+  depends_on:
+  - P1
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: '.agents/factory/bin/lint.sh >/dev/null && .agents/factory/bin/temp_root.sh
+    uvm status | grep -qF ''(from UVM_ROOT)'' && .agents/factory/bin/temp_root.sh
+    uvm help | grep -c ''^  UVM_'' | grep -qx 6 && .agents/factory/bin/temp_root.sh
+    sh -c ''UVM_PIN=1.2.3 uvm status'' | grep -qE ''^pin: +1[.]2[.]3$'' && UVM_PIN=9.9.9
+    .agents/factory/bin/temp_root.sh uvm status | grep -qE ''^pin: +<none'' && .agents/factory/bin/temp_root.sh
+    --arch testarch uvm status | grep -c ''^UV_.*/testarch/'' | grep -qx 5 && .agents/factory/bin/temp_root.sh
+    sh -c ''UV_MANAGER_ROOT=$UVM_ROOT; export UV_MANAGER_ROOT; unset UVM_ROOT; uvm
+    status >/dev/null 2>err; test $? -ne 0 && grep -q keep.per-user err'''
+- id: P3
+  name: 'Site-facing artifacts: README, conf example, modulefile'
+  status: pending
+  satisfies:
+  - R5
+  depends_on:
+  - P2
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: '! git grep -q UV_MANAGER_ -- README.md etc/uv-manager.conf.example share/modulefiles/uv/main.lua
+    && grep -qF ''(from UVM_ROOT)'' README.md && grep -q ''setenv(.UVM_ROOT.'' share/modulefiles/uv/main.lua
+    && .agents/factory/bin/temp_root.sh uvm status | grep -qE ''^state root:.*from
+    UVM_ROOT'''
+- id: P4
+  name: Factory documents, live seeds, and the closing sweep
+  status: pending
+  satisfies:
+  - R7
+  depends_on:
+  - P1
+  - P2
+  - P3
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: '! git grep -q UV_MANAGER_ -- . '':!spec/'' '':!issues/uvm-env-prefix.md''
+    && git ls-files -s CLAUDE.md .claude bin/uv bin/uvx bin/uvm | grep -c ^120000
+    | grep -qx 5 && .agents/factory/bin/lint.sh >/dev/null'
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — Rename the `UV_MANAGER_*` environment prefix to `UVM_*`
 
 The **context engine and finite-state machine** for building this feature. The YAML frontmatter above
@@ -95,15 +124,15 @@ only an inconsistent tree.
 **Goal:** `.agents/factory/bin/temp_root.sh` scrubs inherited `UVM_*` variables as well as `UV_*`, so
 that when P2 makes the wrapper read them they cannot leak into a drive. Inert today, provable today.
 
-- [ ] Widen the pattern at `temp_root.sh:69` from `UV_` to `UVM\{0,1\}_`. **Use the POSIX interval, not
+- [x] Widen the pattern at `temp_root.sh:69` from `UV_` to `UVM\{0,1\}_`. **Use the POSIX interval, not
       `\?`** — `\?` is a GNU extension that matches *nothing* under BSD sed, which would silently
       disable the whole scrub on macOS while every gate stayed green.
-- [ ] Update the comment at `:66-68`: it describes scope ("every `UV_*` variable"), so it moves with
+- [x] Update the comment at `:66-68`: it describes scope ("every `UV_*` variable"), so it moves with
       the pattern. Record why the interval is spelled that way.
-- [ ] Add a line to the `temp_root.sh` header and the fixture header noting that fixture knobs go on
+- [x] Add a line to the `temp_root.sh` header and the fixture header noting that fixture knobs go on
       the *inner* command — `temp_root.sh --offline sh -c 'UVM_FIXTURE_VERSION=6.6.6 uv --version'` —
       because the sandbox is hermetic by design. Provisioning is lazy, so this works.
-- [ ] Confirm `UVM_SANDBOX` (`:79`) and `UVM_FIXTURE_DIR` (`:86`) are still exported after the loop and
+- [x] Confirm `UVM_SANDBOX` (`:79`) and `UVM_FIXTURE_DIR` (`:86`) are still exported after the loop and
       therefore unaffected.
 - **Verify:** the drive asserts three counts at once, `0,0,1` — an inherited `UVM_PIN` is gone, an
   inherited `UV_CACHE_DIR` is gone, and `UVM_SANDBOX` survives — then that an inner-command
