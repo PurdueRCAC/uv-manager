@@ -53,9 +53,12 @@ Additional instructions provided with the invocation: $ARGUMENTS
 ## Safety Principles
 
 - **Blindness is the point.** The correctness reviewer is given `GOAL.md`, the diff, the runnable repo,
-  `invariants.md` and `review-rubric.md`, and is **explicitly told not to read `PLAN.md`, `TECH.md`,
-  `research/`, or `META.md`** (the last leaks author intent and harness notes, same reason as
-  PLAN/TECH). Only this skill reads `TECH.md`, and only for the `base`/`slug`/`kind` metadata; it must
+  `invariants.md` and `review-rubric.md`, and is **explicitly told that `PLAN.md`, `TECH.md`,
+  `research/` and `META.md` must not reach its context by any route** (`META.md` leaks author intent
+  and harness notes, same reason as PLAN/TECH). Opening them is the obvious route; a repository-wide
+  `grep -rn` or `rg` sweep is the one that actually fires, because a reviewer inventorying a renamed
+  symbol reaches for exactly that and gets the matching lines back without opening a file.
+  Only this skill reads `TECH.md`, and only for the `base`/`slug`/`kind` metadata; it must
   not pass PLAN/TECH *content* into the reviewer prompt. **The diff must be blind too:** those
   artifacts are committed on the branch, so a plain `git diff {base}...HEAD` hands the reviewer
   PLAN/TECH/research and any prior cycle's REVIEW.md as added hunks. The `':(exclude)spec/'` pathspec
@@ -104,7 +107,10 @@ Launch a fresh `general-purpose` reviewer via `Agent`. Give it, inline, **only**
 - the instruction: work in the runnable repo; follow the refutation protocol; **run** the relevant
   gates — `bash -n bin/uv-manager`, `.agents/factory/bin/lint.sh`, and behavioral drives through
   `.agents/factory/bin/temp_root.sh [--offline] [--arch KEY]`, never the developer's real state root;
-  and **do not read `PLAN.md`, `TECH.md`, `research/`, or `META.md`**;
+  and **keep `PLAN.md`, `TECH.md`, `research/` and `META.md` out of context entirely** — do not open
+  them, and exclude `spec/` from every repository-wide search:
+  `git grep -n … -- . ':(exclude)spec/'`, `rg --glob '!spec/**' …`. `GOAL.md` is supplied inline
+  above, so excluding the whole directory costs the reviewer nothing;
 - the conduct rule: **no edits to tracked files** (revert any instrumentation before returning;
   `git status --porcelain` must be clean on hand-back), and the rubric's "Verdict & loop" section is
   the orchestrator's job — the reviewer must not write `REVIEW.md`, call `ReportFindings`, or run

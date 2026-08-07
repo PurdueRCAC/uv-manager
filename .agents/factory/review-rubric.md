@@ -18,7 +18,10 @@ it reaches a cluster.
   research, and any prior cycle's REVIEW.md) and the full runnable repo
 - ✅ [`invariants.md`](invariants.md) and `AGENTS.md`
 - ❌ **NOT** `PLAN.md`, `TECH.md`, `research/`, or `META.md` (`META.md` is the harness
-  self-improvement log and leaks author intent, same as PLAN/TECH)
+  self-improvement log and leaks author intent, same as PLAN/TECH). The ban is on the content reaching
+  context, not on opening the file: exclude `spec/` from every repository-wide search too —
+  `git grep -n … -- . ':(exclude)spec/'`, `rg --glob '!spec/**' …` — since a sweep returns their
+  matching lines without opening anything
 - A **separate, later** completeness sub-pass *may* read `TECH.md` to ask "was every planned phase
   shipped? did scope balloon?" — kept isolated so the plan never contaminates the correctness verdict.
 

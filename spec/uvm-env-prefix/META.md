@@ -66,7 +66,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F4 — the blindness rule covers reading files but not searching them
-`origin=uvm-review:step-2 severity=high category=instruction status=open target=.agents/skills/uvm-review/SKILL.md`
+`origin=uvm-review:step-2 severity=high category=instruction status=applied target=.agents/skills/uvm-review/SKILL.md`
 - **What happened:** the reviewer honored "do not read `PLAN.md`, `TECH.md`, `research/`, or
   `META.md`" and never opened one, but two recursive `grep -rn` sweeps returned matching *lines* from
   all four into its context. It disclosed this itself. The pass's blindness was partially eroded by an
