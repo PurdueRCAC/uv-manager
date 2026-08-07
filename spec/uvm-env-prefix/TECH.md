@@ -6,7 +6,7 @@ appetite: small
 status: in_progress
 branch: feature/uvm-env-prefix
 base: main
-current_phase: P2
+current_phase: P3
 last_updated: '2026-08-07'
 phases:
 - id: P1
@@ -25,7 +25,7 @@ phases:
     && .agents/factory/bin/lint.sh >/dev/null
 - id: P2
   name: Rename the six knobs in the wrapper and the sandbox that drives it
-  status: pending
+  status: done
   satisfies:
   - R1
   - R2
@@ -145,19 +145,19 @@ that when P2 makes the wrapper read them they cannot leak into a drive. Inert to
 **Goal:** the wrapper reads `UVM_*` and the sandbox drives it through those names. After this phase
 the software is correct; everything remaining is text.
 
-- [ ] `bin/uv-manager`: rename the six reads — `uvm_resolve_root` (`:84-86`), `uvm_init` (`:145`), the
+- [x] `bin/uv-manager`: rename the six reads — `uvm_resolve_root` (`:84-86`), `uvm_init` (`:145`), the
       knobs block (`:158-161`) — plus every mention in comments, the no-root failure message
       (`:103`, `:120`) and the doctor hint (`:724`).
-- [ ] Re-flow the `uvm_help` Environment block. `UVM_` is seven characters shorter, so a plain
+- [x] Re-flow the `uvm_help` Environment block. `UVM_` is seven characters shorter, so a plain
       substitution leaves eight columns of dead gutter. Move descriptions to column 23 to match the
       commands block above, and split the folded `LOCK_TIMEOUT / LOCK_STALE` pair now that the names
       fit. Draft in [`research/04-docs-surface.md`](research/04-docs-surface.md).
-- [ ] `temp_root.sh`: rename its own three exports — `UV_MANAGER_ROOT` (`:78,80,81`),
+- [x] `temp_root.sh`: rename its own three exports — `UV_MANAGER_ROOT` (`:78,80,81`),
       `UV_MANAGER_INSTALL_URL` (`:88-89`), `UV_MANAGER_PLATFORM` (`:92`) — and the `--offline`/`--arch`
       usage text.
-- [ ] Leave `UV_INSTALL_DIR` and `CARGO_DIST_FORCE_INSTALL_DIR` alone in `uvm_fetch`/`uvm_install`.
+- [x] Leave `UV_INSTALL_DIR` and `CARGO_DIST_FORCE_INSTALL_DIR` alone in `uvm_fetch`/`uvm_install`.
       They are Astral's names (invariant §6); the fixture's assertion on them must keep passing.
-- [ ] Confirm the five exported storage variables and the three `PATH` prepends are untouched.
+- [x] Confirm the five exported storage variables and the three `PATH` prepends are untouched.
 - **Verify:** `lint.sh`, then `status` reports `(from UVM_ROOT)`; `help` shows exactly six `^  UVM_`
   lines; `UVM_PIN` set **inside** the drive reaches the `pin:` line while `UVM_PIN` set **outside** it
   does not; `--arch testarch` puts all five `UV_*` storage paths under the arch directory; and with
