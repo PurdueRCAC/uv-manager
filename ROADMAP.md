@@ -19,11 +19,12 @@ See `AGENTS.md` for why.
 
 ### Prose pass over every comment and document
 **Seed:** [`issues/prose-and-comment-pass.md`](issues/prose-and-comment-pass.md) · `refactor` ·
-appetite small
+appetite small · **adopted** as [`spec/prose-and-comment-pass/`](spec/prose-and-comment-pass/GOAL.md)
 
 Apply `AGENTS.md` § *Prose and comments* to the text that already exists. An audit for drift and
-length, not a rewrite — the guard is that the total comment and documentation line count must not
-grow. The `UVM_*` rename has landed, so this is no longer editing sentences that are about to change.
+length, not a rewrite — a census of the banned vocabulary across the in-scope files returns 13 hits.
+Scope is settled: all 570 lines of `README.md` are in, `.agents/` is out, and the guard is that the
+four files' aggregate 1724 lines must not grow.
 
 ### A real test harness
 **Seed:** [`issues/test-harness.md`](issues/test-harness.md) · `feature` · appetite big
