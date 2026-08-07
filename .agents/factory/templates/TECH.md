@@ -3,7 +3,7 @@ slug: example-slug
 title: "One-line human title for this feature"
 kind: feature
 appetite: big
-status: in_progress
+status: planned
 branch: feature/example-slug
 base: main
 current_phase: P1
@@ -48,8 +48,10 @@ work. `uvm-build` executes the next actionable phase, runs its `verify:` command
 
 ## Frontmatter field reference
 
-- `status` (top): `planned | in_progress | blocked | in_review | done`. `done` is stamped by
-  `uvm-publish` after confirmation, just before landing — the terminal state of the retained record.
+- `status` (top): `planned | in_progress | blocked | in_review | done`. `uvm-plan` writes `planned`;
+  `/uvm-build` flips it to `in_progress` on the first completed phase and to `in_review` on the last;
+  `done` is stamped by `uvm-publish` after confirmation, just before landing — the terminal state of
+  the retained record.
 - `appetite`: `small | big` — caps phase count and build-iteration budget (the circuit breaker).
 - phase `status`: `pending | in_progress | done | blocked`.
 - `satisfies`: GOAL R-IDs this phase delivers. The traceability anchor for `uvm-review`.

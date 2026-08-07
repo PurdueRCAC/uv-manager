@@ -144,9 +144,10 @@ A `verify:` must name a **post-condition**, not merely exit 0. Build it from the
 split). Any change to the user-facing surface gets a phase item for the same-commit rule —
 `uvm_help`, `README.md`, `etc/uv-manager.conf.example`, `share/modulefiles/uv/main.lua`.
 
-Set top `status: in_progress`, `current_phase` to the first phase, and `last_updated` to today. Then
-**validate**: `uv run .agents/factory/bin/next_phase.py spec/{slug}/TECH.md` must exit 0 and report the
-first phase.
+Set top `status: planned`, `current_phase` to the first phase, and `last_updated` to today. The plan is
+written but not signed off; `/uvm-build` flips the top status to `in_progress` when it completes the
+first phase. Then **validate**: `uv run .agents/factory/bin/next_phase.py spec/{slug}/TECH.md` must
+exit 0 and report the first phase.
 
 ### Step 7 — Meta-note (self-improvement loop · silence by default)
 Before committing, reflect on the **skillset itself** — not the task, not the code. Write nothing

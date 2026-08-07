@@ -144,7 +144,8 @@ sessions.
        --phase {id} --phase-status done --current {next_id_or_done} --touch
    ```
    For a mid-phase amendment, edit phase bodies and use `set_phase.py` for any status, pointer or hill
-   change. If all phases are now done, also pass `--top-status in_review`.
+   change. If all phases are now done, also pass `--top-status in_review`; otherwise, if the top status
+   is still `planned`, this is the branch's first completed phase — pass `--top-status in_progress`.
 
 ### Step 6 — Meta-note (self-improvement loop · silence by default)
 Before committing, reflect on the **skillset itself** — not the task, not the code. Write nothing

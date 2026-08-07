@@ -37,7 +37,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F2 — `uvm-plan` stamps `status: in_progress` before the sign-off gate it then enforces
-`origin=uvm-plan:step-6 severity=low category=instruction status=open target=.agents/skills/uvm-plan/SKILL.md`
+`origin=uvm-plan:step-6 severity=low category=instruction status=applied target=.agents/skills/uvm-plan/SKILL.md`
 - **What happened:** Step 6 says "Set top `status: in_progress`", so `TECH.md` claims building has
   begun at the moment the plan is written — while Step 9 stops and requires a human to review
   `PLAN.md` and `TECH.md` before `/uvm-build` runs. The FSM and the process disagree for the whole
