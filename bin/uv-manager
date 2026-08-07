@@ -26,14 +26,13 @@ readonly uvm_version="0.2.0"
 # the dispatch keys on the name used to invoke the script, not on whether that
 # name is a symlink: a copy named `uvx` still runs in uvx mode.
 #
-# Anything not recognised falls through to uv mode, so a site that wants an
-# extra alias (`uv0.12`, say) gets pass-through behaviour by default.
+# Anything not recognised falls through to uv mode.
 
-prog="$(basename -- "$0")"
+prog="${0##*/}"
 case "${prog}" in
-  uvx)                          mode="uvx"     ;;
-  uv-manager|uvm|uv-mgr)        mode="manager" ;;
-  *)                            mode="uv"      ;;
+  uvx)              mode="uvx"     ;;
+  uv-manager|uvm)   mode="manager" ;;
+  *)                mode="uv"      ;;
 esac
 
 # ---- diagnostics -----------------------------------------------------------
@@ -124,7 +123,6 @@ uvm_resolve_root() {
 
 uvm_base=""
 uvm_base_origin=""
-uvm_resolve_root
 
 # ---- platform key ----------------------------------------------------------
 #
@@ -133,24 +131,28 @@ uvm_resolve_root
 # inside loops that call `uv run` thousands of times. Sites needing a finer
 # split (glibc skew between login and compute images, musl, x86-64
 # microarchitecture levels) should override it and keep it just as cheap.
+#
+# Deferred into a function rather than run at load time, so that `help` and
+# `--version` still work on a node with no state root configured. Otherwise
+# the one command that tells you how to set UV_MANAGER_ROOT is the one command
+# you cannot run without it.
 
-arch="${UV_MANAGER_PLATFORM:-$(uname -m)}"
-
-uvm_root="${uvm_base}/${arch}"
-uvm_versions="${uvm_root}/versions"
-uvm_current="${uvm_root}/current"
-uvm_bin_dir="${uvm_current}"
-real_uv="${uvm_bin_dir}/uv"
-real_uvx="${uvm_bin_dir}/uvx"
-
-# Architecture-neutral trampoline directory. Safe for a modulefile to put on
-# PATH because it contains no architecture in its path; see uvm_trampolines.
-uvm_neutral_bin="${uvm_base}/bin"
+uvm_init() {
+  uvm_resolve_root
+  arch="${UV_MANAGER_PLATFORM:-$(uname -m)}"
+  uvm_root="${uvm_base}/${arch}"
+  uvm_versions="${uvm_root}/versions"
+  uvm_current="${uvm_root}/current"
+  real_uv="${uvm_current}/uv"
+  real_uvx="${uvm_current}/uvx"
+  # Architecture-neutral trampoline directory. Safe for a modulefile to put on
+  # PATH because it has no architecture in its path; see uvm_trampolines.
+  uvm_neutral_bin="${uvm_base}/bin"
+}
 
 # ---- knobs -----------------------------------------------------------------
 
-pin="${UV_MANAGER_PIN:-${UV_WRAPPER_PIN:-}}"
-refresh="${UV_MANAGER_REFRESH:-${UV_WRAPPER_REFRESH:-}}"
+pin="${UV_MANAGER_PIN:-}"
 lock_timeout="${UV_MANAGER_LOCK_TIMEOUT:-180}"
 lock_stale="${UV_MANAGER_LOCK_STALE:-600}"
 install_base_url="${UV_MANAGER_INSTALL_URL:-https://astral.sh/uv}"
@@ -187,6 +189,7 @@ uvm_age() {
 }
 
 uvm_acquire_lock() {
+  local want="$1" force="$2"
   local lock="${uvm_root}/.install.lock"
   local waited=0 age
 
@@ -201,8 +204,11 @@ uvm_acquire_lock() {
       die "cannot create provisioning lock at ${lock} — check permissions and quota on ${uvm_base}"
     fi
 
-    # Someone else may have finished the work we were about to do.
-    if [[ -z "${refresh}" && -x "${real_uv}" ]]; then
+    # Someone else may have finished the work we were about to do. This must
+    # test the version we were actually asked for: testing merely "is some uv
+    # present" silently hands a pinned caller whatever the other process was
+    # installing, which is the one guarantee a pin exists to provide.
+    if [[ -z "${force}" ]] && uvm_have "${want}"; then
       return 1
     fi
 
@@ -244,12 +250,26 @@ uvm_fetch() {
 
 # ---- install ---------------------------------------------------------------
 
+# True when the requested version is on disk; with no version requested, true
+# when any uv is selected. The single spelling of "is this request already
+# satisfied?", used by the caller, by the lock, and inside uvm_install.
+uvm_have() {
+  local want="$1"
+  if [[ -n "${want}" ]]; then
+    [[ -x "${uvm_versions}/${want}/uv" ]]
+  else
+    [[ -x "${real_uv}" ]]
+  fi
+}
+
 # Point ${uvm_current} at versions/<ver>. The symlink target is relative so
 # the tree stays relocatable, and the swap is atomic so a concurrent reader
 # never observes a missing or half-written `current`.
 uvm_point_current() {
   local ver="$1" tmp
+  [[ "$(readlink -- "${uvm_current}" 2>/dev/null || true)" == "versions/${ver}" ]] && return 0
   tmp="${uvm_root}/.current.$$"
+  rm -f "${tmp}" 2>/dev/null || true   # a prior run may have died holding this name
   ln -s "versions/${ver}" "${tmp}"
   if ! mv -T "${tmp}" "${uvm_current}" 2>/dev/null; then
     # mv -T is GNU-only; fall back to a brief non-atomic replace.
@@ -265,24 +285,27 @@ uvm_installed_version() {
   printf '%s\n' "${ver}"
 }
 
+# uvm_install WANT FORCE
+#   WANT   version to install and select; empty means "latest"
+#   FORCE  non-empty to go to the network even if WANT is already on disk
+#
+# Both are parameters rather than globals: the lock's early-out has to know
+# which version this particular call is serving.
 uvm_install() {
-  local want="$1" url tmp ver dest
+  local want="$1" force="${2:-}"
+  local url tmp ver dest
 
-  # Fast path: the pinned version is already on disk. Just repoint.
-  if [[ -n "${want}" && -z "${refresh}" && -x "${uvm_versions}/${want}/uv" ]]; then
-    uvm_point_current "${want}"
+  # Fast path: what was asked for is already on disk. Just repoint.
+  if [[ -z "${force}" ]] && uvm_have "${want}"; then
+    [[ -n "${want}" ]] && uvm_point_current "${want}"
     return 0
   fi
 
-  uvm_acquire_lock || return 0   # another process finished while we waited
+  uvm_acquire_lock "${want}" "${force}" || return 0  # another process got there first
 
   # Re-check under the lock.
-  if [[ -n "${want}" && -z "${refresh}" && -x "${uvm_versions}/${want}/uv" ]]; then
-    uvm_point_current "${want}"
-    uvm_unlock
-    return 0
-  fi
-  if [[ -z "${want}" && -z "${refresh}" && -x "${real_uv}" ]]; then
+  if [[ -z "${force}" ]] && uvm_have "${want}"; then
+    [[ -n "${want}" ]] && uvm_point_current "${want}"
     uvm_unlock
     return 0
   fi
@@ -301,9 +324,14 @@ uvm_install() {
   # never appears, and every subsequent invocation re-runs the installer and
   # fails. Scrub them. Mirror-related variables are left alone: they only
   # redirect where the tarball comes from, which is legitimate site policy.
+  #
+  # The installer's progress output goes to stderr, not stdout. Provisioning
+  # is a side effect of whatever the user actually asked for, and on a cold
+  # node `VER=$(uv --version)` must not come back with four lines of
+  # "everything's installed!" ahead of the answer.
   if ! uvm_fetch "${url}" \
         | env -u UV_INSTALL_DIR -u CARGO_DIST_FORCE_INSTALL_DIR \
-              UV_UNMANAGED_INSTALL="${tmp}" sh; then
+              UV_UNMANAGED_INSTALL="${tmp}" sh >&2; then
     rm -rf "${tmp}" 2>/dev/null || true
     uvm_unlock
     die "install failed — no egress from this node?
@@ -329,34 +357,26 @@ uvm_install() {
 
 # Decide whether provisioning is needed, then do it.
 #
-# Note that a pin is honoured even when some other version is already
-# installed: the pin selects which version `current` points at, not merely
-# which version to download if nothing is present.
+# A pin is honoured even when some other version is already installed: it
+# selects which version `current` points at, not merely which version to
+# download if nothing is present.
 uvm_ensure_uv() {
-  if [[ -n "${refresh}" ]]; then
-    uvm_install "${pin}"
-  elif [[ -n "${pin}" ]]; then
-    if [[ -x "${uvm_versions}/${pin}/uv" ]]; then
-      [[ "$(readlink -- "${uvm_current}" 2>/dev/null || true)" == "versions/${pin}" ]] \
-        || uvm_point_current "${pin}"
-    else
-      uvm_install "${pin}"
-    fi
-  elif [[ ! -x "${real_uv}" ]]; then
-    uvm_install ""
+  if uvm_have "${pin}"; then
+    if [[ -n "${pin}" ]]; then uvm_point_current "${pin}"; fi
+  else
+    uvm_install "${pin}" ""
   fi
 
   [[ -x "${real_uv}" ]] || die "uv is still missing after provisioning: ${real_uv}"
-
-  # Guard against ever exec'ing ourselves.
-  if [[ "$(abspath "${real_uv}")" == "$(abspath "$0")" ]]; then
-    die "refusing to exec self — UV_MANAGER_ROOT (${uvm_base}) collides with the wrapper's own location"
-  fi
 }
 
 # ---- storage layout --------------------------------------------------------
 
-uvm_export_env() {
+# The storage layout, defined once. Everything else reads these variables
+# rather than rebuilding the same paths, so adding a directory is a one-line
+# change here. Pure: sets variables, touches no filesystem, so the read-only
+# subcommands can call it without provisioning anything.
+uvm_set_paths() {
   export UV_CACHE_DIR="${uvm_root}/cache"
   export UV_TOOL_DIR="${uvm_root}/tools"
   export UV_TOOL_BIN_DIR="${uvm_root}/bin/shims"
@@ -367,6 +387,10 @@ uvm_export_env() {
   # ~/.config/uv/uv.toml (index URLs, auth, mirrors) lives, and hiding it
   # would change resolution behaviour, not just storage location. It is also
   # where the standalone installer looks for its receipt.
+}
+
+uvm_export_env() {
+  uvm_set_paths
 
   # mkdir -p unconditionally rather than behind a sentinel: it is a handful
   # of metadata operations, and it repairs a tree that a scratch purge has
@@ -380,7 +404,21 @@ uvm_export_env() {
   # Both the arch-specific shim dirs (correct for this node, for anything we
   # exec) and the arch-neutral trampoline dir (correct everywhere, and what
   # the modulefile puts on PATH).
-  export PATH="${UV_TOOL_BIN_DIR}:${UV_PYTHON_BIN_DIR}:${uvm_neutral_bin}:${PATH}"
+  #
+  # Prepended idempotently: the exported PATH is inherited by everything uv
+  # spawns, and anything that re-enters the wrapper would otherwise add the
+  # same three entries again at every level of nesting.
+  uvm_path_prepend "${uvm_neutral_bin}"
+  uvm_path_prepend "${UV_PYTHON_BIN_DIR}"
+  uvm_path_prepend "${UV_TOOL_BIN_DIR}"
+  export PATH
+}
+
+uvm_path_prepend() {
+  case ":${PATH}:" in
+    *":$1:"*) return 0 ;;
+  esac
+  PATH="$1:${PATH}"
 }
 
 # ---- architecture-neutral trampolines --------------------------------------
@@ -413,10 +451,21 @@ uvm_trampolines() {
     done | sort -u
   )"
 
-  # Add missing trampolines.
+  # Rewrite every trampoline we own rather than skipping any name that already
+  # exists: one truncated by a purge, or written by an older uv-manager, has to
+  # be repaired, and skipping on mere existence means it never is. A file that
+  # is non-empty, executable and unmarked is somebody's own script that happens
+  # to share the name; leave it, and say so.
+  local dest
   while IFS= read -r name; do
     [[ -n "${name}" ]] || continue
-    [[ -e "${uvm_neutral_bin}/${name}" ]] && continue
+    dest="${uvm_neutral_bin}/${name}"
+    if [[ -e "${dest}" || -L "${dest}" ]] \
+       && ! grep -q "${uvm_tramp_marker}" "${dest}" 2>/dev/null \
+       && [[ -s "${dest}" && -x "${dest}" ]]; then
+      note "not overwriting ${dest} (not generated by uv-manager)"
+      continue
+    fi
     tmp="${uvm_neutral_bin}/.${name}.$$"
     cat > "${tmp}" <<TRAMPOLINE
 #!/bin/sh
@@ -452,31 +501,41 @@ TRAMPOLINE
 # Find the first positional argument, skipping uv's global options and the
 # values of those that take one. Used only to recognise `self update` and the
 # tool/python commands; everything else is passed through untouched.
+#
+# The list below is deliberately short. uv's *global* options that take a
+# separate value are these five; everything else that looks like one (--python,
+# --index-url, --cache-dir, ...) is a per-command option and can only appear
+# after the subcommand, where this parser has already stopped looking. A longer
+# list is not more careful, it is just more surface to drift out of date and
+# more arguments to mis-skip.
 
 uvm_global_takes_value() {
   case "$1" in
-    --cache-dir|--config-file|--color|--directory|--project|--python|--index|\
-    --default-index|--index-url|--extra-index-url|--find-links|--exclude-newer|\
-    --index-strategy|--keyring-provider|--python-preference|--allow-insecure-host|\
-    --concurrent-downloads|--concurrent-installs|--concurrent-builds)
-      return 0 ;;
+    --color|--allow-insecure-host|--directory|--project|--config-file) return 0 ;;
     *) return 1 ;;
   esac
 }
 
-# Sets uvm_cmd and uvm_subcmd from "$@".
+# Sets uvm_cmd, uvm_subcmd, and uvm_rest (everything after the subcommand).
 uvm_parse_command() {
   uvm_cmd=""
   uvm_subcmd=""
-  local seen=0 a
+  uvm_rest=()
+  local seen=0
   while (( $# )); do
-    a="$1"
-    if [[ "${a}" == --*=* || "${a}" == -* ]]; then
-      if uvm_global_takes_value "${a}"; then shift 2 || true; else shift; fi
+    if [[ "$1" == -* ]]; then
+      # `shift 2` is all-or-nothing in bash: with one argument left it shifts
+      # nothing and returns non-zero, so a trailing value-taking flag would
+      # spin this loop forever. Guard on the count instead of swallowing the
+      # failure. uv itself will report the missing value.
+      if uvm_global_takes_value "$1" && (( $# >= 2 )); then shift 2; else shift; fi
       continue
     fi
-    if (( seen == 0 )); then uvm_cmd="${a}"; seen=1; else uvm_subcmd="${a}"; return 0; fi
+    if (( seen == 0 )); then uvm_cmd="$1"; seen=1; shift; continue; fi
+    uvm_subcmd="$1"
     shift
+    uvm_rest=( ${1+"$@"} )
+    return 0
   done
 }
 
@@ -512,7 +571,7 @@ Options:
   --dry-run    Report what would happen and exit
   -h, --help   Show this message
 
-See also: uv-manager install [VERSION], uv-manager versions, uv-manager use
+See also: uv-manager install [VERSION], uv-manager versions
 EOF
     exit 0
   fi
@@ -524,8 +583,9 @@ EOF
   fi
 
   note "intercepting 'uv self update' -> re-provisioning ${arch} install at ${uvm_root}"
-  refresh=1
-  uvm_install "${target}"
+  # A named version is a request to select that version, downloading it only
+  # if absent. No version means "go and find out what latest is now".
+  if [[ -n "${target}" ]]; then uvm_install "${target}" ""; else uvm_install "" 1; fi
   exec "${real_uv}" --version
 }
 
@@ -550,11 +610,11 @@ real uv:               ${real_uv} $( [[ -x "${real_uv}" ]] && echo '[present]' |
 real uvx:              ${real_uvx} $( [[ -x "${real_uvx}" ]] && echo '[present]' || echo '[MISSING]' )
 resolved version:      ${resolved}
 installed versions:    $(uvm_list_versions | tr '\n' ' ')
-UV_CACHE_DIR:          ${uvm_root}/cache
-UV_TOOL_DIR:           ${uvm_root}/tools
-UV_TOOL_BIN_DIR:       ${uvm_root}/bin/shims
-UV_PYTHON_INSTALL_DIR: ${uvm_root}/python
-UV_PYTHON_BIN_DIR:     ${uvm_root}/bin/python-shims
+UV_CACHE_DIR:          ${UV_CACHE_DIR}
+UV_TOOL_DIR:           ${UV_TOOL_DIR}
+UV_TOOL_BIN_DIR:       ${UV_TOOL_BIN_DIR}
+UV_PYTHON_INSTALL_DIR: ${UV_PYTHON_INSTALL_DIR}
+UV_PYTHON_BIN_DIR:     ${UV_PYTHON_BIN_DIR}
 trampoline dir:        ${uvm_neutral_bin}
 XDG_CONFIG_HOME:       ${XDG_CONFIG_HOME:-<unset — user default: ~/.config>}
 pin:                   ${pin:-<none — tracks latest>}
@@ -568,19 +628,6 @@ uvm_list_versions() {
     [[ -x "${d}uv" ]] || continue
     basename -- "${d%/}"
   done
-}
-
-# %q rather than a plain heredoc so a path containing spaces still evals
-# correctly; routed through cat for the same SIGPIPE reason as uvm_status.
-uvm_env() {
-  cat <<< "$(
-    printf 'export UV_CACHE_DIR=%q\n'          "${uvm_root}/cache"
-    printf 'export UV_TOOL_DIR=%q\n'           "${uvm_root}/tools"
-    printf 'export UV_TOOL_BIN_DIR=%q\n'       "${uvm_root}/bin/shims"
-    printf 'export UV_PYTHON_INSTALL_DIR=%q\n' "${uvm_root}/python"
-    printf 'export UV_PYTHON_BIN_DIR=%q\n'     "${uvm_root}/bin/python-shims"
-    printf 'export PATH=%q:"$PATH"\n'          "${uvm_neutral_bin}"
-  )"
 }
 
 # Scratch purges are per-file on access time, so a tree can be removed
@@ -668,7 +715,7 @@ uvm_doctor() {
 
   printf '\n%d problem(s) found. Most are caused by a scratch purge removing\n' "${problems}"
   printf 'files from under a tree uv still believes is intact. To rebuild:\n\n'
-  printf '    uv-manager refresh          # reinstall uv itself\n'
+  printf '    uv-manager install         # reinstall uv itself\n'
   printf '    uv tool uninstall <name> && uv tool install <name>\n'
   printf '    uv python uninstall <ver> && uv python install <ver>\n\n'
   printf 'Consider pointing UV_MANAGER_ROOT at non-purged storage instead.\n'
@@ -685,9 +732,13 @@ uvm_clean() {
     *)     die "clean: expected one of: cache, arch, all" ;;
   esac
   if [[ "${confirm}" != "--yes" ]]; then
-    printf 'Would remove: %s\n' "${target}"
-    printf '%s\n' "$(du -sh "${target}" 2>/dev/null || true)"
-    printf 'Re-run with --yes to proceed.\n'
+    # Heredoc rather than printfs, for the same reason as uvm_status: `cat`
+    # dies quietly on SIGPIPE where bash's printf reports EPIPE.
+    cat <<EOF
+Would remove: ${target}
+$(du -sh "${target}" 2>/dev/null || echo '(absent)')
+Re-run with --yes to proceed.
+EOF
     return 0
   fi
   note "removing ${target}"
@@ -702,20 +753,20 @@ Usage: uv-manager <command> [args]
 
   status              Show every resolved path and the selected uv version
   doctor              Check for a partially purged / damaged tree
-  versions            List uv versions installed for ${arch}
-  install [VERSION]   Provision a uv version (default: latest)
-  use VERSION         Switch to an already-installed version
-  refresh             Force re-provisioning from the network
+  versions            List uv versions installed for this architecture
+  install [VERSION]   Select VERSION, downloading it if absent.
+                      With no VERSION, re-resolve latest from the network.
   trampolines         Regenerate architecture-neutral executable shims
-  env                 Print shell exports for the current node
   clean [WHAT] --yes  Remove cache (default), arch tree, or all
   help                This message
 
 Environment:
-  UV_MANAGER_ROOT      Base directory for per-user uv state (set by the module)
-  UV_MANAGER_PIN       uv version to provision and select
-  UV_MANAGER_REFRESH   Non-empty forces re-provisioning
-  UV_MANAGER_PLATFORM  Override the architecture key (default: uname -m)
+  UV_MANAGER_ROOT        Base directory for per-user uv state (set by the module)
+  UV_MANAGER_PIN         uv version to provision and select
+  UV_MANAGER_PLATFORM    Override the architecture key (default: uname -m)
+  UV_MANAGER_INSTALL_URL Installer base URL, for sites mirroring Astral
+  UV_MANAGER_LOCK_TIMEOUT / UV_MANAGER_LOCK_STALE
+                         Provisioning lock wait and staleness, in seconds
 
 'uvm' is a short alias for 'uv-manager'. The same script is also installed as
 'uv' and 'uvx', which pass through to the real uv for this node's architecture.
@@ -725,22 +776,25 @@ EOF
 uvm_manager_main() {
   local cmd="${1:-status}"
   shift || true
+
+  # These two are the reason uvm_init is deferred: they have to work on a node
+  # where no state root is configured, because they are what tells you so.
   case "${cmd}" in
-    status)      uvm_export_env; uvm_status ;;
+    help|-h|--help) uvm_help; return 0 ;;
+    --version)      printf '%s\n' "${uvm_version}"; return 0 ;;
+  esac
+
+  uvm_init
+  case "${cmd}" in
+    status)      uvm_set_paths; uvm_status ;;
     versions)    uvm_list_versions ;;
-    env)         uvm_env ;;
-    help|-h|--help) uvm_help ;;
-    --version)   printf '%s\n' "${uvm_version}" ;;
-    install)     uvm_install "${1:-}"; uvm_export_env; uvm_trampolines
-                 note "selected $("${real_uv}" --version 2>/dev/null || echo '?')" ;;
-    use)         [[ -n "${1:-}" ]] || die "use: expected a version"
-                 [[ -x "${uvm_versions}/$1/uv" ]] || die "version $1 is not installed for ${arch}; try: uv-manager install $1"
-                 uvm_point_current "$1"; note "selected uv $1" ;;
-    refresh)     refresh=1; uvm_install "${pin}"; uvm_export_env; uvm_trampolines
-                 note "selected $("${real_uv}" --version 2>/dev/null || echo '?')" ;;
-    trampolines) uvm_export_env; uvm_trampolines; note "trampolines synced in ${uvm_neutral_bin}" ;;
-    doctor)      uvm_export_env; uvm_doctor ;;
+    doctor)      uvm_set_paths; uvm_doctor ;;
     clean)       uvm_clean "${1:-cache}" "${2:-}" ;;
+    trampolines) uvm_export_env; uvm_trampolines
+                 note "trampolines synced in ${uvm_neutral_bin}" ;;
+    install)     if [[ -n "${1:-}" ]]; then uvm_install "$1" ""; else uvm_install "" 1; fi
+                 uvm_export_env; uvm_trampolines
+                 note "selected $("${real_uv}" --version 2>/dev/null || echo '?')" ;;
     *)           die "unknown command: ${cmd} (try: uv-manager help)" ;;
   esac
 }
@@ -749,39 +803,26 @@ uvm_manager_main() {
 
 if [[ "${mode}" == "manager" ]]; then
   uvm_manager_main "$@"
-  exit 0
+  exit $?
 fi
+
+uvm_init
 
 uvm_cmd=""
 uvm_subcmd=""
+uvm_rest=()
 uvm_parse_command "$@"
-
-# `uv status` is kept as a deprecated alias for `uv-manager status`. Prefer
-# the dedicated basename: uv keeps adding subcommands, and one of them may
-# eventually be `status`.
-if [[ "${mode}" == "uv" && "${uvm_cmd}" == "status" && -z "${uvm_subcmd}" ]]; then
-  uvm_export_env
-  uvm_status
-  exit 0
-fi
 
 uvm_ensure_uv
 uvm_export_env
 
-if [[ "${mode}" == "uv" && "${uvm_cmd}" == "self" && "${uvm_subcmd}" == "update" ]]; then
-  # Re-scan for the arguments that follow `self update`.
-  found=0
-  update_args=()
-  for a in "$@"; do
-    if (( found )); then update_args+=("${a}"); continue; fi
-    [[ "${a}" == "update" ]] && found=1
-  done
-  uvm_self_update ${update_args[@]+"${update_args[@]}"}
+if [[ "${uvm_cmd}" == "self" && "${uvm_subcmd}" == "update" ]]; then
+  uvm_self_update ${uvm_rest[@]+"${uvm_rest[@]}"}
 fi
 
 # Commands that change what is installed also change what needs a trampoline,
 # so these cannot be exec'd; they run to completion and then resync.
-if [[ "${mode}" == "uv" && ( "${uvm_cmd}" == "tool" || "${uvm_cmd}" == "python" ) ]]; then
+if [[ "${uvm_cmd}" == "tool" || "${uvm_cmd}" == "python" ]]; then
   set +e
   "${real_uv}" "$@"
   rc=$?
