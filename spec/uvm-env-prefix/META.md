@@ -14,6 +14,10 @@
   `<compatibility behavior, once the human has chosen>`, and the instruction to treat draft R-IDs as
   input rather than contract is what turned that placeholder into the single blocking question instead
   of a guess.
+- `uvm-plan` Step 3's **high-blast-radius exception**, which overrode `appetite: small` and forced the
+  research fan-out. It changed the outcome: a lean plan would have shipped a `UVM\?_` scrub patch that
+  silently disables the whole sandbox scrub on macOS, and would have missed that `UV_LOCK_TIMEOUT`
+  already exists upstream — the cycle's strongest justification. The exception earned its cost here.
 
 ## Friction findings
 
@@ -30,4 +34,17 @@
 - **Recommended fix:** extend the template's exception sentence to name the second case: a criterion
   verified by static inspection states its check inline (`git grep -n …`), the way a cluster-only
   criterion states its dependence. Costs one sentence and removes the invented convention.
+- **Confidence:** high · **Effort:** small
+
+## F2 — `uvm-plan` stamps `status: in_progress` before the sign-off gate it then enforces
+`origin=uvm-plan:step-6 severity=low category=instruction status=open target=.agents/skills/uvm-plan/SKILL.md`
+- **What happened:** Step 6 says "Set top `status: in_progress`", so `TECH.md` claims building has
+  begun at the moment the plan is written — while Step 9 stops and requires a human to review
+  `PLAN.md` and `TECH.md` before `/uvm-build` runs. The FSM and the process disagree for the whole
+  duration of the sign-off gate.
+- **Skill cause:** `_fsm.py:48` accepts `planned` as a top status and nothing in the factory ever
+  writes it. The value is unreachable because this instruction hard-codes the next one, so the
+  enum's most accurate state for this moment is dead.
+- **Recommended fix:** Step 6 sets `status: planned`; `/uvm-build` flips it to `in_progress` on its
+  first phase, alongside the phase-status change it already makes.
 - **Confidence:** high · **Effort:** small
