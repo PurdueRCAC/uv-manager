@@ -135,8 +135,15 @@ Run the phase's `verify:` command, plus any additional drive the change warrants
 asserted post-condition held** — the observed tree, symlink target, exit code or stderr line is
 correct — not merely that the command exited 0.
 
-A **new or retuned** `verify:` gets one step before you trust it: run it as `/bin/sh -c '…'`, and
-confirm it is red before the fix and green after. The string is authored in this session's interactive
+A **new or retuned** `verify:` gets one step before you trust it: run it under `/bin/sh`, and confirm
+it is red before the fix and green after.
+```
+uv run .agents/factory/bin/run_verify.py spec/{slug}/TECH.md --phase {id}
+```
+That reads the gate out of the folded YAML and execs it as `/bin/sh -c '…'`, erroring rather than
+exiting 0 when the string is empty. Copying a wrapped gate by hand means reflowing it, and reflowing is
+where a quoting error enters; `/bin/sh -c ''` exits 0, so a reader that silently produced nothing
+satisfies the red check while proving nothing. The string is authored in this session's interactive
 shell and executed later by `lint.sh`, by CI, and by anyone reading `TECH.md` under plain `sh`, where
 aliases, shell functions and GNU-versus-BSD utilities all diverge — a `grep` that is a shell function
 here is `/usr/bin/grep` there. A gate never observed failing is not a gate.

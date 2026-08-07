@@ -33,9 +33,9 @@ Claude-specific variable.
 
 ## The Python scripts and `uv`
 
-`next_phase.py`, `set_phase.py` and `meta_status.py` carry **PEP 723 inline metadata**, so
-`uv run .agents/factory/bin/next_phase.py …` resolves their one dependency (PyYAML) into a cached
-ephemeral environment. There is no `pyproject.toml`, no virtualenv to create, and nothing to install
+`next_phase.py`, `set_phase.py`, `run_verify.py` and `meta_status.py` carry **PEP 723 inline
+metadata**, so `uv run .agents/factory/bin/next_phase.py …` resolves their one dependency (PyYAML)
+into a cached ephemeral environment. There is no `pyproject.toml`, no virtualenv to create, and nothing to install
 first. `meta_status.py` is stdlib-only by design — the `META.md` finding format is deliberately not
 YAML so that appending to it cannot corrupt it and reading it needs no dependency.
 

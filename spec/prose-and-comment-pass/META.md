@@ -195,7 +195,7 @@ is skipped by the parser:
 - **Confidence:** high · **Effort:** small
 
 ## F9 — Step 4 requires running a gate under `/bin/sh`, with no supported way to get the string out
-`origin=uvm-build:step-4 severity=low category=tooling status=open target=.agents/factory/bin/`
+`origin=uvm-build:step-4 severity=low category=tooling status=applied target=.agents/factory/bin/`
 - **What happened:** Step 4 says to run a retuned gate as `/bin/sh -c '…'` and confirm it is red before
   the fix and green after. The gate lives in `TECH.md` as folded YAML across a dozen wrapped lines, so
   it cannot be copied by hand without reflowing it — and reflowing is where a quoting error enters. I
