@@ -105,8 +105,12 @@ Launch a fresh `general-purpose` reviewer via `Agent`. Give it, inline, **only**
 
 - the full text of `spec/{slug}/GOAL.md` — the contract, the R-IDs;
 - the command to produce the diff: `git diff {base}...HEAD -- . ':(exclude)spec/'`, plus
-  `git log --oneline {base}..HEAD`. Never a bare `git diff {base}...HEAD`, which leaks the committed
-  spec artifacts into the reviewer's context;
+  `git log --oneline {base}..HEAD -- . ':(exclude)spec/'`. Never a bare `git diff {base}...HEAD`,
+  which leaks the committed spec artifacts into the reviewer's context — and the same pathspec belongs
+  on the log, a channel the diff's cannot close: review-cycle commits touch only `spec/` and vanish
+  under it, but a build subject reads `[fix] Build {slug} P1: F1 — …` and names a prior cycle's
+  finding along with its remediation. On `review.cycle` ≥ 1 drop the subjects too (`--format=%h`), or
+  omit the log. Anchoring on a prior verdict is the exact bias this pass exists to remove;
 - the full text of `invariants.md` and `review-rubric.md`;
 - the instruction: work in the runnable repo; follow the refutation protocol; **run** the relevant
   gates — `bash -n bin/uv-manager`, `.agents/factory/bin/lint.sh`, and behavioral drives through

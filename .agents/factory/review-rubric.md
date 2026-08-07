@@ -15,7 +15,9 @@ it reaches a cluster.
 - ✅ `GOAL.md` — the locked contract (R-IDs)
 - ✅ the branch diff **excluding `spec/`** (`git diff <base>...HEAD -- . ':(exclude)spec/'` — the spec
   artifacts are committed on the branch, so an unfiltered diff would hand the reviewer PLAN/TECH,
-  research, and any prior cycle's REVIEW.md) and the full runnable repo
+  research, and any prior cycle's REVIEW.md) and the full runnable repo. The commit log carries the
+  same pathspec, and on a second cycle its **subjects** are dropped as well — they name the prior
+  verdict and the finding ids that were remediated
 - ✅ [`invariants.md`](invariants.md) and `AGENTS.md`
 - ❌ **NOT** `PLAN.md`, `TECH.md`, `research/`, or `META.md` (`META.md` is the harness
   self-improvement log and leaks author intent, same as PLAN/TECH). The ban is on the content reaching

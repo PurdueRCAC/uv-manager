@@ -211,7 +211,7 @@ is skipped by the parser:
 - **Confidence:** high · **Effort:** small
 
 ## F10 — the blind reviewer is handed `git log`, whose subjects carry the prior cycle's verdict and findings
-`origin=uvm-review:step-2 severity=high category=instruction status=open target=.agents/skills/uvm-review/SKILL.md`
+`origin=uvm-review:step-2 severity=high category=instruction status=applied target=.agents/skills/uvm-review/SKILL.md`
 - **What happened:** Step 2 says to give the reviewer `git diff {base}...HEAD -- . ':(exclude)spec/'`
   **plus** `git log --oneline {base}..HEAD`. On a second cycle that log reads
   `[docs] Review {slug}: cycle 1 — changes-requested` and
