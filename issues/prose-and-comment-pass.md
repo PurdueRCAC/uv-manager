@@ -18,7 +18,7 @@ script that is otherwise correct.
 The voice rules are now written down in `AGENTS.md` § *Prose and comments* — declarative statements,
 the *why* rather than the what, concrete failure modes, no filler, no marketing adjectives, no emoji,
 no restatements of the adjacent line. What has not happened is a pass applying them to the text that
-already exists: 848 lines of `bin/uv-manager` comments, 563 lines of `README.md`, the
+already exists: 848 lines of `bin/uv-manager` comments, 570 lines of `README.md`, the
 `etc/uv-manager.conf.example` commentary, and the modulefile's design notes.
 
 The existing prose is largely good — it was written to that standard before the standard was written
@@ -52,7 +52,7 @@ nothing in it triggers the "this was generated" reflex. Shorter than it is now.
 - R3 is the honest guard against a "polish" pass that adds words. If a section genuinely needs more
   explanation, another has to lose it.
 - Worth deciding during shaping whether `README.md` is in scope in full, or only the sections a reader
-  hits first. It is 563 lines and its later sections are reference material, where density is a
+  hits first. It is 570 lines and its later sections are reference material, where density is a
   feature.
 - The `uvm_help` heredoc and the wrapper's error messages are user-facing strings, not comments. They
   are in scope and are the highest-value target: the "cannot determine where to keep per-user uv state"

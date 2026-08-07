@@ -29,7 +29,7 @@ It is large and independent — it explains a methodology, not this repository, 
 a mechanical adaptation of the source.
 
 More importantly, it should be written **after** the harness has been driven through real cycles.
-Three are already queued (`uvm-env-prefix`, `prose-and-comment-pass`, `test-harness`). A guide written
+One has shipped (`uvm-env-prefix`); `prose-and-comment-pass` and `test-harness` are queued. A guide written
 now would describe the design; a guide written after those would describe what actually happened,
 including where the factory got in the way. The second document is worth far more than the first to a
 reader deciding whether any of this is credible, and the difference is entirely in whether it can cite
