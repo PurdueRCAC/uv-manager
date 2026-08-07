@@ -64,3 +64,23 @@
   against its own checklist items and against any text the phase quotes from `research/`, and
   reconcile before writing. Cheapest at plan time; at build time it costs a red gate and a rewrite.
 - **Confidence:** high · **Effort:** small
+
+## F4 — the blindness rule covers reading files but not searching them
+`origin=uvm-review:step-2 severity=high category=instruction status=open target=.agents/skills/uvm-review/SKILL.md`
+- **What happened:** the reviewer honored "do not read `PLAN.md`, `TECH.md`, `research/`, or
+  `META.md`" and never opened one, but two recursive `grep -rn` sweeps returned matching *lines* from
+  all four into its context. It disclosed this itself. The pass's blindness was partially eroded by an
+  action the instructions did not cover.
+- **Skill cause:** Step 2 spends a paragraph on the one leak it anticipated — the `':(exclude)spec/'`
+  pathspec on the diff, flagged as "load-bearing, not cosmetic" — and then states the artifact ban in
+  terms of *reading*. `grep -rn`, `rg`, and a `Glob`/`Explore` sweep all surface the same content
+  without opening a file, and a reviewer inventorying occurrences of a renamed symbol will reach for
+  exactly those. The gap is between the diff rule, which is precise about pathspecs, and the artifact
+  rule, which is not.
+- **Recommended fix:** state the ban in terms of *content reaching context*, not reading, and give the
+  reviewer the exclusion to append to every repository-wide search
+  (`-- . ':(exclude)spec/'` for `git grep`, `--glob '!spec/**'` for `rg`). One clause in the Step 2
+  bullet and one line in `review-rubric.md` § *What the reviewer sees*.
+- **Severity note:** `high` because the fix protects blind-review integrity, a non-negotiable gate —
+  the pass has no other defense against plan-sycophancy.
+- **Confidence:** high · **Effort:** small

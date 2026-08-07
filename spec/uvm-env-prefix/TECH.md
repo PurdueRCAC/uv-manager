@@ -3,7 +3,7 @@ slug: uvm-env-prefix
 title: Rename the UV_MANAGER_* environment prefix to UVM_*
 kind: refactor
 appetite: small
-status: in_review
+status: blocked
 branch: feature/uvm-env-prefix
 base: main
 current_phase: done
@@ -76,10 +76,10 @@ phases:
     && git ls-files -s CLAUDE.md .claude bin/uv bin/uvx bin/uvm | grep -c ^120000
     | grep -qx 5 && .agents/factory/bin/lint.sh >/dev/null'
 review:
-  last_reviewed_commit: ''
-  verdict: none
-  blocked_reason: ''
-  cycle: 0
+  last_reviewed_commit: 6fc41245bc6f23e0039827051e7de75c17a68e22
+  verdict: changes-requested
+  blocked_reason: stale scrub sentence in issues/test-harness.md
+  cycle: 1
 ---
 # TECH.md — Rename the `UV_MANAGER_*` environment prefix to `UVM_*`
 
