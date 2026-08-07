@@ -13,12 +13,12 @@ See `AGENTS.md` for why.
 ## Queued
 
 ### 1. Rename the environment prefix to `UVM_*`
-**Seed:** [`issues/uvm-env-prefix.md`](issues/uvm-env-prefix.md) · `refactor` · appetite small
+**Seed:** [`issues/uvm-env-prefix.md`](issues/uvm-env-prefix.md) · `refactor` · appetite small ·
+**adopted** as [`spec/uvm-env-prefix/`](spec/uvm-env-prefix/GOAL.md)
 
 `UV_MANAGER_*` sits inside `uv`'s own namespace, so a reader cannot tell which names Astral honors and
 which the wrapper invented. `UVM_*` is unambiguously ours. Six variables, 61 occurrences across four
-files. The open question is compatibility for sites already running 0.2.0, and it is a shaping
-question, not an implementation one.
+files. The compatibility question is settled: clean break, no shim, because nothing is deployed.
 
 ### 2. Prose pass over every comment and document
 **Seed:** [`issues/prose-and-comment-pass.md`](issues/prose-and-comment-pass.md) · `refactor` ·
