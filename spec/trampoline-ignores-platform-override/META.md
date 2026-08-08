@@ -83,3 +83,19 @@
   `.agents/factory/review-rubric.md` § *Verification traps*, alongside the `zsh` pathspec and
   `grep`-is-not-`grep` entries, since it is the same class of silent false result.
 - **Confidence:** high · **Effort:** small
+
+## F4 — Nothing tells the orchestrator when to escalate to `debate`
+`origin=uvm-review:step2 severity=medium category=missing-guidance status=open target=.claude/skills/uvm-review/SKILL.md`
+- **What happened:** the diffstat put the change inside `uvm_trampolines` and against §1 — the two
+  things `review-rubric.md` § *Optional debate variant* names as the trigger for two independent
+  reviewers — but `SKILL.md` § *Argument Parsing* makes `debate` purely opt-in. The two documents
+  point different ways and the skill states no rule, so the escalation decision fell to the
+  orchestrator's judgement with nothing to ground it.
+- **Skill cause:** the rubric describes when debate is warranted; the skill never tells the
+  orchestrator to detect that condition. A user typing `/uvm-review` on the highest-risk diff in the
+  repository gets the same single pass as one on a typo fix, and never learns the option existed.
+- **Recommended fix:** in Step 1, after resolving the diff, check whether it touches a
+  high-blast-radius region or §1/§2/§6; if so, surface the recommendation and let the human choose.
+  Not automatic — the rubric is right that it costs twice as much, and that is the human's call — but
+  the choice should be offered rather than silently skipped.
+- **Confidence:** high · **Effort:** small
