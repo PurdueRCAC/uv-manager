@@ -20,8 +20,8 @@
 --
 --   PATH               <prefix>/bin          the wrapper itself
 --   UVM_ROOT           <scratch>/.uv         base of the per-user state tree
---   PATH               <scratch>/.uv/bin     trampolines that re-resolve
---                                            `uname -m` at exec time
+--   PATH               <scratch>/.uv/bin     trampolines that re-resolve the
+--                                            platform key at exec time
 --
 -- The architecture is appended by the wrapper at exec time, on the executing
 -- node. Do not inline $UV_CACHE_DIR, $UV_TOOL_BIN_DIR or any other
@@ -119,8 +119,8 @@ if scratch ~= nil then
     setenv("UVM_ROOT", root)
 
     -- Architecture-neutral trampolines for anything `uv tool install` or
-    -- `uv python install` puts on PATH. Each one re-resolves `uname -m` when
-    -- executed, so this single entry is correct on every node type.
+    -- `uv python install` puts on PATH. Each one re-resolves the platform key
+    -- when executed, so this single entry is correct on every node type.
     prepend_path("PATH", pathJoin(root, "bin"))
 end
 

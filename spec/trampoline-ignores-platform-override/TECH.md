@@ -1,39 +1,55 @@
 ---
 slug: trampoline-ignores-platform-override
-title: "Trampolines resolve the platform key the wrapper actually uses"
+title: Trampolines resolve the platform key the wrapper actually uses
 kind: fix
 appetite: small
-status: planned
+status: in_progress
 branch: fix/trampoline-ignores-platform-override
 base: main
-current_phase: P1
-last_updated: "2026-08-07"
+current_phase: P2
+last_updated: '2026-08-08'
 phases:
-  - id: P1
-    name: "Trampolines honor UVM_PLATFORM, with the coupling recorded and the docs that go stale"
-    status: pending
-    satisfies: [R1, R2, R3, R4, R5, R6]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: ".agents/factory/bin/lint.sh && .agents/factory/bin/temp_root.sh --arch x86_64-glibc2.28 sh -c 'set -e; K=x86_64-glibc2.28; N=$(uname -m); mkdir -p \"$UVM_ROOT/$K/bin/shims\" \"$UVM_ROOT/$N/bin/shims\"; for p in \"$K OVERRIDE\" \"$N NATIVE\"; do set -- $p; f=\"$UVM_ROOT/$1/bin/shims/ruff\"; echo \"#!/bin/sh\" > \"$f\"; echo \"echo $2\" >> \"$f\"; chmod +x \"$f\"; done; uvm trampolines >/dev/null 2>&1; T=\"$UVM_ROOT/bin/ruff\"; [ \"$(\"$T\")\" = OVERRIDE ]; [ \"$(UVM_PLATFORM=$N \"$T\")\" = NATIVE ]; [ \"$(env -u UVM_PLATFORM \"$T\")\" = NATIVE ]; UVM_PLATFORM=ppc64le \"$T\" 2>&1 | grep -q \"architecture .ppc64le.\"; ! grep -q \"$K\" \"$T\"; ! grep -q \"$N\" \"$T\"' && /bin/sh -c '! grep -qE \"re-resolves? .uname -m.|.uname -m. (at exec time|when invoked)\" README.md share/modulefiles/uv/main.lua bin/uv-manager'"
-  - id: P2
-    name: "Discretionary: the per-node caution and the troubleshooting entry"
-    status: pending
-    satisfies: []
-    depends_on: [P1]
-    parallel: false
-    hammerable: true
-    hill: downhill
-    verify: ".agents/factory/bin/lint.sh && /bin/sh -c 'grep -A6 \"^# Override the architecture key\" etc/uv-manager.conf.example | grep -q \"executing node\"'"
+- id: P1
+  name: Trampolines honor UVM_PLATFORM, with the coupling recorded and the docs that
+    go stale
+  status: done
+  satisfies:
+  - R1
+  - R2
+  - R3
+  - R4
+  - R5
+  - R6
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: .agents/factory/bin/lint.sh && .agents/factory/bin/temp_root.sh --arch x86_64-glibc2.28
+    sh -c 'set -e; K=x86_64-glibc2.28; N=$(uname -m); mkdir -p "$UVM_ROOT/$K/bin/shims"
+    "$UVM_ROOT/$N/bin/shims"; for p in "$K OVERRIDE" "$N NATIVE"; do set -- $p; f="$UVM_ROOT/$1/bin/shims/ruff";
+    echo "#!/bin/sh" > "$f"; echo "echo $2" >> "$f"; chmod +x "$f"; done; uvm trampolines
+    >/dev/null 2>&1; T="$UVM_ROOT/bin/ruff"; [ "$("$T")" = OVERRIDE ]; [ "$(UVM_PLATFORM=$N
+    "$T")" = NATIVE ]; [ "$(env -u UVM_PLATFORM "$T")" = NATIVE ]; UVM_PLATFORM=ppc64le
+    "$T" 2>&1 | grep -q "architecture .ppc64le."; ! grep -q "$K" "$T"; ! grep -q "$N"
+    "$T"' && /bin/sh -c '! grep -qE "re-resolves? .uname -m.|.uname -m. (at exec time|when
+    invoked)" README.md share/modulefiles/uv/main.lua bin/uv-manager'
+- id: P2
+  name: 'Discretionary: the per-node caution and the troubleshooting entry'
+  status: pending
+  satisfies: []
+  depends_on:
+  - P1
+  parallel: false
+  hammerable: true
+  hill: downhill
+  verify: .agents/factory/bin/lint.sh && /bin/sh -c 'grep -A6 "^# Override the architecture
+    key" etc/uv-manager.conf.example | grep -q "executing node"'
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — Trampolines resolve the platform key the wrapper actually uses
 
 The **context engine and finite-state machine** for building this fix. The YAML frontmatter above is
@@ -65,18 +81,18 @@ per-phase checklists below are the work.
 legible at both sites, and every sentence the change invalidates moves with it. This is the whole
 contract; P2 adds nothing the GOAL requires.
 
-- [ ] `bin/uv-manager:476` — `a=\$(uname -m)` becomes `a=\${UVM_PLATFORM:-\$(uname -m)}`. Both
+- [x] `bin/uv-manager:476` — `a=\$(uname -m)` becomes `a=\${UVM_PLATFORM:-\$(uname -m)}`. Both
       backslashes are required: the heredoc delimiter is unquoted, and they are what defer evaluation
       to the trampoline's runtime instead of the generator's. `:-` and not `-`, matching
       `uvm_init:145`, so an exported-but-empty value falls back to `uname -m` at both sites.
-- [ ] Nothing else in `uvm_trampolines` changes — not the union scan, the `uvm_tramp_marker` ownership
+- [x] Nothing else in `uvm_trampolines` changes — not the union scan, the `uvm_tramp_marker` ownership
       test, the temp-write-and-`mv`, or the orphan sweep.
-- [ ] Coupling comment at the platform-key banner (`bin/uv-manager:130`–`142`) and at the trampoline
+- [x] Coupling comment at the platform-key banner (`bin/uv-manager:130`–`142`) and at the trampoline
       banner (`:425`–`435`): these two expressions resolve the same key and must move together;
       when they disagree the tool is installed in one tree and looked for in another, and every
       trampoline exits 127 naming a key the wrapper never used. Declarative, the *why* not the what,
       no restatement of the line below.
-- [ ] Retire the five stale trampoline descriptions — say *platform key* where the text says
+- [x] Retire the five stale trampoline descriptions — say *platform key* where the text says
       `uname -m`: `bin/uv-manager:431`, `README.md:261`, `README.md:455`,
       `share/modulefiles/uv/main.lua:24`, `:122`. `README.md:345` § *The platform key* already owns
       the term. Leave every site listed as correct in [`research/04`](research/04-doc-surface.md)

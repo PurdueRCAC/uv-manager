@@ -257,8 +257,8 @@ be `aarch64`. Something like `setenv("UV_CACHE_DIR", scratch .. "/.uv/x86_64/cac
 wrong for every `aarch64` job, and would fail silently.
 
 `UVM_ROOT` is safe because the architecture is appended by the wrapper at exec time, on the node
-that is actually running. So is `$UVM_ROOT/bin`, which holds trampolines that re-resolve
-`uname -m` when invoked. Do not inline the `UV_*` variables into the modulefile.
+that is actually running. So is `$UVM_ROOT/bin`, which holds trampolines that re-resolve the
+platform key when invoked. Do not inline the `UV_*` variables into the modulefile.
 
 Two other deliberate omissions:
 
@@ -452,7 +452,7 @@ advisory, makes switching between downloaded versions instant, and makes rollbac
 does not depend on `flock`, which `uv` itself requires but which is not enabled everywhere.
 
 **Architecture-neutral trampolines.** The only way to have one `PATH` entry that is correct on both
-node types. Each is a short `sh` script that re-resolves `uname -m` at exec time. They are
+node types. Each is a short `sh` script that re-resolves the platform key at exec time. They are
 generated for the union of names across all architectures, so invoking a tool on an architecture
 where it is not installed gives a useful message instead of `Exec format error`.
 
