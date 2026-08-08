@@ -312,8 +312,7 @@ Almost everything is one variable.
 
 ### The state root
 
-Set `UVM_ROOT` (be that from the modulefile, or from `/etc/profile.d/`, or from your `~/.bashrc`,
-etc).  This is the preferred way of teeing things off.
+Set `UVM_ROOT` from your modulefile, from `/etc/profile.d`, or from a user's own shell profile.
 
 If `UVM_ROOT` is unset, the wrapper tries, in order:
 
@@ -321,9 +320,8 @@ If `UVM_ROOT` is unset, the wrapper tries, in order:
 $CLUSTER_SCRATCH   $RCAC_SCRATCH   $SCRATCH   $PSCRATCH   $WORK   $PROJECT
 ```
 
-appending `/.uv` to the first that names an existing, writable directory. If you truly have to,
-you can adjust the `uvm_candidates` array near the top of `bin/uv-manager` if your site uses
-something else:
+appending `/.uv` to the first that names an existing, writable directory. Adjust the
+`uvm_candidates` array near the top of `bin/uv-manager` if your site uses something else:
 
 | Site | Variable |
 | --- | --- |
@@ -333,8 +331,9 @@ something else:
 | TACC | `$SCRATCH`, `$WORK`, `$WORK2` |
 | OLCF | `$MEMBERWORK/<proj>`, `$PROJWORK/<proj>` |
 
-(but note that then it'd be on you to re-patch after each update to your `uv-manager`
-deployment).  Consider again that setting `UVM_ROOT` is the simplest and easiest way.
+Adjusting the array patches the deployed script, and that patch cannot coexist with an update:
+`git pull` aborts, `rsync -a` overwrites it silently. Somebody re-applies the edit after every
+update, or every user drops back to the stock cascade. Setting `UVM_ROOT` has no such cost.
 
 There is deliberately no `/tmp` fallback. If nothing resolves, the wrapper prints every candidate
 it tried along with why each failed, and exits non-zero. A silent fallback to node-local storage
