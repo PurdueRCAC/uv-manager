@@ -78,7 +78,10 @@
 # Override the architecture key. Default is `uname -m`. Set this if login and
 # compute images differ in a way `uname -m` does not capture — glibc version
 # skew, musl, or x86-64 microarchitecture levels. Keep it cheap to compute:
-# the wrapper evaluates it on every single invocation.
+# the wrapper evaluates it on every single invocation. Compute it on the
+# executing node — a login node's value, inherited as a literal through
+# `sbatch --export=ALL`, sends the wrapper and every trampoline into another
+# node's tree.
 #export UVM_PLATFORM="$(uname -m)-glibc$(getconf GNU_LIBC_VERSION | awk '{print $2}')"
 
 

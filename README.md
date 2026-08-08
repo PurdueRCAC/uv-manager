@@ -513,7 +513,8 @@ automation context that did not inherit a login shell.
 has outbound HTTPS.
 
 **A tool prints "is not installed for architecture 'aarch64'".** That is the trampoline working as
-intended. Run `uv tool install <package>` on that architecture.
+intended. The quoted name is the platform key, which a site may have overridden; install the tool
+from a node that resolves to it.
 
 **`ImportError` from something that used to work** is usually a partial purge. Run
 `uv-manager doctor`.

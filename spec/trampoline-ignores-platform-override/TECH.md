@@ -3,10 +3,10 @@ slug: trampoline-ignores-platform-override
 title: Trampolines resolve the platform key the wrapper actually uses
 kind: fix
 appetite: small
-status: in_progress
+status: in_review
 branch: fix/trampoline-ignores-platform-override
 base: main
-current_phase: P2
+current_phase: done
 last_updated: '2026-08-08'
 phases:
 - id: P1
@@ -35,7 +35,7 @@ phases:
     invoked)" README.md share/modulefiles/uv/main.lua bin/uv-manager'
 - id: P2
   name: 'Discretionary: the per-node caution and the troubleshooting entry'
-  status: pending
+  status: done
   satisfies: []
   depends_on:
   - P1
@@ -114,13 +114,13 @@ contract; P2 adds nothing the GOAL requires.
 **Goal:** close the documentation gap the fix creates. Neither item is in the contract, and the human
 may strike this phase whole without touching the fix.
 
-- [ ] `etc/uv-manager.conf.example`, the `UVM_PLATFORM` block: one sentence that the value must be
+- [x] `etc/uv-manager.conf.example`, the `UVM_PLATFORM` block: one sentence that the value must be
       evaluated on the **executing node**. The file recommends a computed value and says only that it
       must be cheap; inherited as a literal through `sbatch --export=ALL` it now sends the whole
       system — wrapper and trampolines both — into another node's tree. Rationale in
       [`research/02`](research/02-env-semantics.md); this is an addition to a file the standing bias
       says should shrink, so keep it to one sentence.
-- [ ] `README.md:515` troubleshooting — decide by reading whether *"is not installed for architecture
+- [x] `README.md:515` troubleshooting — decide by reading whether *"is not installed for architecture
       'aarch64'"* needs qualifying now that the quoted key can be a site override rather than a
       `uname -m` value, and that "run it on that architecture" is thin advice for an operator whose
       key encodes a glibc version. Defensible either way. **Changing nothing is an acceptable
