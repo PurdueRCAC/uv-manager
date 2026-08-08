@@ -18,6 +18,12 @@
 - `uvm-feature` Step 4's `status:` triage made the shaping obligation unambiguous: `unshaped` meant the
   seed's draft R-IDs were input rather than contract, so the three open design questions went to the
   human instead of being guessed.
+- `uvm-plan` Step 3's **high-blast-radius exception** earned itself here. `appetite: small` and
+  `kind: fix` both said "skip the fan-out" for what is a one-line change; the exception overrode them
+  because `uvm_trampolines` is on the list. The research is what found the five stale documentation
+  sites that refute `GOAL.md` Q3, and a lean plan would have shipped against a wrong assumption.
+- `uvm-plan` Step 3's sequential fallback for an unavailable fan-out is stated plainly enough to follow
+  without improvisation, and the deliverable really is the same four briefs.
 
 ## Friction findings
 
@@ -37,4 +43,43 @@
   alongside the issue. If it records a sequencing dependency and the cycles it names have not landed,
   surface the reordering for sign-off before shaping, and record the decision as a Clarification and a
   Non-goal. `git ls-tree main --name-only spec/` shows what has landed.
+- **Confidence:** high · **Effort:** small
+
+## F2 — Gates are red-tested but never green-tested, and the safe way to green is undocumented
+`origin=uvm-plan:6 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-plan/SKILL.md`
+- **What happened:** Step 6 requires running every `verify:` against the current tree and confirming
+  it exits non-zero, which catches an *inert* gate. It says nothing about confirming the gate turns
+  green once the change exists, which is the other half — a gate can be red because the command is
+  broken (a typo, a missing flag, a tool absent), and that gate stays red through the build, burning
+  the `--record-attempt` counter toward the circuit breaker at 3 while the code is actually correct.
+  I proved green by copying the repo to `/tmp`, applying the one-line change to the copy, and running
+  the gate against the copy's `temp_root.sh`. Devising that took real thought, because Step 6 sits
+  under a Safety Principle reading "Never build. No edits to `bin/uv-manager`."
+- **Skill cause:** The instructions specify one direction of the test and leave the complementary one
+  unstated, while a prominently-placed prohibition makes the obvious way to perform it look
+  forbidden. Nothing tells the planner that a throwaway copy outside the working tree is the
+  sanctioned route, so each run either re-derives it or skips the check.
+- **Recommended fix:** Extend Step 6: after confirming red, confirm green by applying the change to a
+  scratch copy of the repository (`cp -R . /tmp/<slug>-probe`) and running the gate there. Add a
+  clause to the "Never build" principle noting that a throwaway copy outside the working tree is not
+  a build and is the intended way to prove a gate is not merely red.
+- **Confidence:** high · **Effort:** small
+
+## F3 — Nothing warns that `verify:` strings are YAML scalars, where `\n` is not a shell escape
+`origin=uvm-plan:6 severity=medium category=template status=open target=.agents/factory/templates/TECH.md`
+- **What happened:** My first draft of P1's gate built its fixture with
+  `printf "#!/bin/sh\necho OVERRIDE\n"`. In a YAML **double-quoted** scalar — the style the `TECH.md`
+  template demonstrates, because deferring `$` expansion into `sh -c '…'` requires it — `\n` is a YAML
+  escape and becomes a real newline, splitting the command before the parser or the shell ever
+  complains. I restructured the whole gate to contain no backslash except the `\"` escapes. The
+  template's example happens to have no `\n` in it, so the trap is invisible to anyone copying it.
+- **Skill cause:** Template and skill both treat `verify:` as "a shell command" when it is a shell
+  command *inside a YAML scalar*, with a second escaping layer whose rules differ. The `verify` field
+  reference in the template covers post-conditions and sandboxing and says nothing about quoting
+  style. A corrupted gate here fails in a way that reads as a broken phase, not a broken plan.
+- **Recommended fix:** Add a line to the template's `verify` field reference: the value is a YAML
+  scalar, so in double-quoted style `\n`, `\t` and `\\` are YAML escapes, not shell ones — keep the
+  command free of backslashes apart from `\"`, or use a block scalar. This also belongs in
+  `.agents/factory/review-rubric.md` § *Verification traps*, alongside the `zsh` pathspec and
+  `grep`-is-not-`grep` entries, since it is the same class of silent false result.
 - **Confidence:** high · **Effort:** small
