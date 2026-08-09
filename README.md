@@ -222,9 +222,10 @@ wrapper cannot fully solve.
 git clone https://github.com/purduercac/uv-manager /apps/external/uv/main
 ```
 
-Use `git clone` or `rsync -a` so the symlinks stay symlinks. `cp -r` without `-a` dereferences
-them into four independent copies, which still dispatch correctly (mode comes from the invoked
-name, not from whether it is a symlink) but will drift apart on the next update.
+Use `git clone` or `rsync -a` so the symlinks stay symlinks. `cp -r` is not portable here: GNU
+coreutils preserves them, macOS and the BSDs dereference them into four independent copies, which
+still dispatch correctly (mode comes from the invoked name, not from whether it is a symlink) but
+will drift apart on the next update. `cp -R` and `cp -a` preserve them on both.
 
 Do not install this as `~/.local/bin/uv`. That is the standalone installer's default
 `UV_INSTALL_DIR`, so the wrapper would overwrite, or be overwritten by, a user's own real `uv`.
