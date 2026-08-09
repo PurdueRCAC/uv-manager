@@ -94,6 +94,12 @@ STOP.
 Clean tree; non-empty → STOP. Confirm you are on `main`; this skill does not run on a feature branch,
 because a seed retired on a branch that never merges takes the backlog entry with it.
 
+One exception, because the alternative is circular: when the tree is dirty *only* with the repair that
+made this skill loadable, commit that as its own `[harness]` commit and continue. The STOP is there to
+keep a retirement from being tangled with unrelated work; a fix to the factory is not unrelated work,
+it is the reason the sweep can run at all. Anything else in the tree still STOPs, and the repair is
+never folded into a retirement commit.
+
 ### Step 2 — Find the adopted seeds and classify each
 ```
 grep -rl "^status: adopted:" issues .security/issues 2>/dev/null || true
