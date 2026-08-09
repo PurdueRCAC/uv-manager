@@ -28,7 +28,7 @@
 ## Friction findings
 
 ## F1 — Promotion never reads the seed's ROADMAP entry, where sequencing lives
-`origin=uvm-feature:4 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-feature/SKILL.md`
+`origin=uvm-feature:4 severity=medium category=missing-guidance status=applied target=.agents/skills/uvm-feature/SKILL.md`
 - **What happened:** Step 4 directs you to the `issues/{slug}.md` frontmatter and body, and only
   mentions `ROADMAP.md` later as a file to *edit*. This seed's roadmap entry carried a constraint its
   issue file did not: "Deliberately sequenced **after** the test harness so the fix lands with a

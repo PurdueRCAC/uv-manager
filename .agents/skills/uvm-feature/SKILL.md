@@ -139,6 +139,14 @@ draft R-IDs — and its body mirrors this template, so promotion is a move-and-f
 - **`declined` / `accepted-behaviour`** — terminal records, not candidates. STOP and show the human
   the recorded reasoning before doing anything.
 
+Read the seed's `ROADMAP.md` entry too. The two halves of a deferral hold different information: the
+issue holds the evidence, the entry holds the position and the reasoning for that position. An entry
+recording a sequencing dependency — "after the test harness, so the fix lands with a regression test"
+— is a decision a human made, and promoting out of order overrides it.
+`git ls-tree main --name-only spec/` shows which cycles have landed; if the named ones have not,
+surface the reordering for sign-off before shaping, and record what was decided as a Clarification and
+a Non-goal.
+
 When the GOAL lands, leave the `issues/` file in place, set its `status:` to `adopted:{slug}`, and
 update that seed's `ROADMAP.md` entry in the same commit. The seed stays accurate until the branch
 actually lands, so a cycle that bounces at review or is abandoned still has the evidence that
