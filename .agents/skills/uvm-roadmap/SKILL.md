@@ -132,6 +132,17 @@ Anything cut and still wanted does not die with the seed. Either rewrite the see
 remainder and reset `status:` to `unshaped`, re-wording its ROADMAP entry to match, or file a fresh
 seed for it. Only a seed with no live remainder is deleted.
 
+**A non-goal that discharges itself by pointing elsewhere is conditional, and the condition is what
+you verify.** "Record it there", "the harness cycle must cover this", "that is a seed for `issues/`" —
+each of those is the reason the cycle was allowed to ship without the work. Open the file it names and
+confirm the obligation is *in* it. An intention stated in `GOAL.md`, in `PLAN.md`, or in the ROADMAP
+entry is not the record; the named destination is. Where it is missing, put it there first, in the
+retirement's own commit.
+
+Check this before deleting, not after. The obligation is frequently written in exactly one place — the
+roadmap entry the retirement removes — so the deletion is what makes the loss irreversible, and this
+is the one failure in the sweep that costs work rather than leaving litter.
+
 ### Step 4 — Preview, confirm, retire
 Present per seed: the file to delete, the ROADMAP entry to remove, any remainder being preserved, and
 the cross-references Step 5 will repair. Confirm with `AskUserQuestion`.
