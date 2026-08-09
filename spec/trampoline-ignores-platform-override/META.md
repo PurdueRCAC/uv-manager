@@ -66,7 +66,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F3 — Nothing warns that `verify:` strings are YAML scalars, where `\n` is not a shell escape
-`origin=uvm-plan:6 severity=medium category=template status=open target=.agents/factory/templates/TECH.md`
+`origin=uvm-plan:6 severity=medium category=template status=applied target=.agents/factory/templates/TECH.md`
 - **What happened:** My first draft of P1's gate built its fixture with
   `printf "#!/bin/sh\necho OVERRIDE\n"`. In a YAML **double-quoted** scalar — the style the `TECH.md`
   template demonstrates, because deferring `$` expansion into `sh -c '…'` requires it — `\n` is a YAML
