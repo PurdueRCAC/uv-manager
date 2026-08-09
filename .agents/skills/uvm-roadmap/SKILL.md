@@ -46,8 +46,8 @@ Additional instructions provided with the invocation: $ARGUMENTS
 
 - Branch: !`git branch --show-current`
 - Tree: !`git status --porcelain | head -n 20`
-- Adopted seeds: !`grep -rl "^status: adopted:" issues .security/issues 2>/dev/null`
-- Queued entries: !`grep -c "^### " ROADMAP.md 2>/dev/null`
+- Adopted seeds: !`grep -rl "^status: adopted:" issues .security/issues 2>/dev/null || true`
+- Queued entries: !`grep -c "^### " ROADMAP.md 2>/dev/null || true`
 
 ## Argument Parsing
 

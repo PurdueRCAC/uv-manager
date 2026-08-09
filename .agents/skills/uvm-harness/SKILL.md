@@ -46,8 +46,8 @@ matter, what direction to take a fix, what to reject): $ARGUMENTS
 
 - Branch: !`git branch --show-current`
 - Tree: !`git status --porcelain | head -n 20`
-- META.md files present: !`ls -1 spec/*/META.md 2>/dev/null`
-- Recent ledger entries: !`tail -n 24 .agents/factory/harness-log.md 2>/dev/null`
+- META.md files present: !`ls -1 spec/*/META.md 2>/dev/null || true`
+- Recent ledger entries: !`tail -n 24 .agents/factory/harness-log.md 2>/dev/null || true`
 
 ## Argument Parsing
 

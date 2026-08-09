@@ -42,7 +42,7 @@ Additional instructions provided with the invocation: $ARGUMENTS
 
 - Branch: !`git branch --show-current`
 - Tree (must be clean): !`git status --porcelain | head -n 20`
-- Version (the only source): !`grep -n '^readonly uvm_version=' bin/uv-manager`
+- Version (the only source): !`grep -n '^readonly uvm_version=' bin/uv-manager || true`
 - Recent tags: !`git tag -l --sort=-v:refname | head -n 8`
 - main tip: !`git log --oneline -3 main 2>/dev/null`
 - Default remote branch: !`gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo "(gh unavailable)"`
