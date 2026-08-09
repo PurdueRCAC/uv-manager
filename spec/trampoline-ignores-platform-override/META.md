@@ -116,3 +116,36 @@
   `rsync -a` recommendation — that recommendation was always right, the caveat is the part that was
   wrong. Cross-check the wording against `README.md` § deployment, which now reads correctly.
 - **Confidence:** high · **Effort:** small
+
+## F6 — Harness friction found during a release is routed to a skill that cannot receive it
+`origin=uvm-release:10 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-release/SKILL.md`
+- **What happened:** the 0.4.0 release surfaced a factual defect in another skill's instructions (F5).
+  `uvm-release` § *Safety Principles* says it "never writes `META.md` findings" and that "harness
+  friction here goes to `/uvm-harness`" — but `uvm-harness` states twice that it **never writes
+  `META.md` findings** either. It is an applier over findings that already exist; it has no intake. No
+  step in either skill names a destination, so the finding survived only because the human read it in
+  the final report and asked for it to be recorded. Otherwise it would have died with the session.
+- **Skill cause:** "goes to `/uvm-harness`" names a consumer, not a destination, and the two skills
+  together form a closed loop with no writer. Every lifecycle skill has an explicit `META.md` write
+  step; the operational siblings deliberately do not, which leaves friction found outside a lifecycle
+  cycle with nowhere to land.
+- **Recommended fix:** give Step 10 a one-line rule — record harness friction found during a release
+  as a finding against the most recently merged cycle's `spec/{slug}/META.md`, using the `uvm-review`
+  meta-note format — or state plainly that release findings are surfaced to the human and left to
+  them. Either closes it; silence does not. `/uvm-roadmap` has the same hole and does not mention
+  `META.md` at all.
+- **Confidence:** high · **Effort:** small
+
+## F7 — Nothing says which path form `target=` takes, and `.claude` is a symlink to `.agents`
+`origin=uvm-review:step4 severity=low category=template status=open target=.agents/factory/templates/META.md`
+- **What happened:** F4 in this file records `target=.claude/skills/uvm-review/SKILL.md` while F1, F2,
+  F3 and F5 record `.agents/…`. Both resolve to the same file, because `.claude` is a symlink to
+  `.agents`. The finding schema specifies only `target=<best-guess file>`.
+- **Skill cause:** the template names the field without constraining its form, so an author writes
+  whichever path the skill they were invoked through happened to be loaded from. `/uvm-harness --all`
+  weighs "recurrence across jobs" to escalate a finding, and two spellings of one file make that
+  judgement harder than it needs to be — an agent can still see they match, which is why this is a
+  consistency defect and not a detection failure.
+- **Recommended fix:** state in the template's schema line that `target` is repo-relative and always
+  spelled `.agents/…`, never through the `.claude` symlink. Normalize F4's value when this is applied.
+- **Confidence:** high · **Effort:** small
