@@ -209,3 +209,68 @@ Read `origin`, `severity` and `category` from the finding in `META.md`; this led
   harness commit omit the suffix and let this ledger carry the finding linkage. Left as an observation
   because `uvm-harness` never writes `META.md` findings (Safety §5) and a self-edit mid-run is the
   meta-on-meta the same rule forbids.
+
+## 2026-08-09 — trampoline-ignores-platform-override F1: promotion never read the roadmap entry
+`decision=applied commit=56dd89c target=.agents/skills/uvm-feature/SKILL.md`
+- **Rationale:** extends `2d5c897`, which moved the `ROADMAP.md` *edit* into Step 4 and left the
+  *read* out. The two halves of a deferral carry different things — evidence in the issue, position
+  and the reasoning for that position in the entry — and only the entry can say a promotion jumps
+  recorded order. Confirmed live before writing: the trampoline entry carries "Deliberately sequenced
+  after the test harness", and `issues/trampoline-ignores-platform-override.md` does not. Guidance
+  rather than a gate: it surfaces the reordering for sign-off, it does not refuse the promotion.
+
+## 2026-08-09 — trampoline-ignores-platform-override F2: gates were red-tested but never green-tested
+`decision=applied commit=e935214 target=.agents/skills/uvm-plan/SKILL.md`
+- **Rationale:** extends `87473cc`, which added the red check and treated red as proof. **Rejected
+  the finding's blanket form** — green-proving every gate against a scratch copy makes plan time
+  rehearse each phase's change, which is the build. Took the cheap always-applicable half instead:
+  red is necessary, not sufficient, so read the failure output and confirm the gate died on its
+  asserted post-condition rather than on a typo or a mangled string. The scratch copy is named as the
+  sanctioned stronger proof when the output does not settle it, with the "Never build" carve-out that
+  made it look forbidden. The recipe was executed here before it was written down — `cp -R` to a
+  temp dir, `temp_root.sh --offline uv --version` from inside the copy, `uv 9.9.9 (fixture)`.
+
+## 2026-08-09 — trampoline-ignores-platform-override F3: `verify:` is a YAML scalar first
+`decision=applied commit=3ce4978 target=.agents/factory/templates/TECH.md`
+- **Rationale:** **rejected the finding's second site.** It also wanted the trap in
+  `review-rubric.md` § *Verification traps* next to the `zsh` and `grep` entries added by `65fa2c6`,
+  but that section's audience is the blind reviewer, who grades a diff and never authors `verify:`
+  YAML; `run_verify.py` (`2895fc1`) removed the hand-reflow path that was the only way it could have
+  reached them. The template's field reference is read by `uvm-plan` Step 6 and by `uvm-build` when
+  it amends a phase, which is everyone the trap can bite. One site, not two.
+
+## 2026-08-09 — trampoline-ignores-platform-override F4: nothing offered the debate variant
+`decision=applied commit=b01bbe2 target=.agents/skills/uvm-review/SKILL.md`
+- **Rationale:** the rubric named the condition and the skill never told the orchestrator to detect
+  it, so `/uvm-review` on the highest-risk diff in the repository ran the same single pass as one on
+  a typo fix. Offered, never automatic: the rubric is right that a second reviewer costs twice as
+  much, and that is the human's call. A future run proposing to make it fire automatically is
+  re-litigating this.
+
+## 2026-08-09 — trampoline-ignores-platform-override F5: a false `cp` fact steering PR bodies
+`decision=applied commit=7f65759 target=.agents/skills/uvm-publish/SKILL.md`
+- **Rationale:** `0745a25` fixed the claim in `README.md` and left the skill's copy standing, where
+  it steers what an agent writes into a PR body — and it did, into the first draft of the 0.4.0
+  release notes. Named the platform split rather than dropping the clause, matching the README's
+  now-accurate wording and pointing at it, so the next drift is a one-file check. The lesson the
+  finding actually carries: a fact corrected in the product documentation has to be chased into the
+  harness, which no step currently does.
+
+## 2026-08-09 — trampoline-ignores-platform-override F6: the operational siblings had no intake
+`decision=applied commit=bced44f target=.agents/skills/uvm-release/SKILL.md`
+- **Rationale:** `uvm-release` routed friction to `/uvm-harness`, which states twice that it never
+  writes findings — a consumer named as a destination, so the loop had no writer and F5 survived only
+  because the human read it in the final report. Re-derivation turned up what the finding did not
+  know: the obvious destination collides with `uvm-roadmap`'s own "Never edit `spec/{slug}/`" and
+  with `uvm-release`'s "touches no `spec/`". Resolved by naming `META.md` the explicit exception —
+  it is the harness log, not the dated design record — and keeping the write human-gated, which is
+  how F5, F6 and F7 actually reached this file (`69434b1`, `93848da`). **Widened to `/uvm-roadmap`**,
+  which the finding named as having the same hole. Both skills gain `Write`: the target cycle may
+  have no `META.md` yet, and every lifecycle skill's phrasing is "create from the template if absent".
+
+## 2026-08-09 — trampoline-ignores-platform-override F7: `target=` had two spellings for one file
+`decision=applied commit=b3650fe target=.agents/factory/templates/META.md`
+- **Rationale:** `.claude` is a symlink to `.agents`, so F4 recorded a file that F1, F2, F3 and F5
+  recorded under another name, in one `META.md`. Pinned the form in the template's schema paragraph
+  and normalized F4's stored value in the same commit. Consistency, not detection: `--all` weighs
+  recurrence across jobs and an agent can still see the two match, which is why this stayed `low`.
