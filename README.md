@@ -11,7 +11,7 @@ $ module load uv
 $ uv --version
 uv 0.12.2
 $ uv-manager status
-uv-manager:            0.3.0
+uv-manager:            0.4.0
 invoked as:            uv-manager  (/apps/external/uv/main/bin/uv-manager)
 architecture:          x86_64
 state root:            /anvil/scratch/x-lentner/.uv  (from UVM_ROOT)
