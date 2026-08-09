@@ -85,7 +85,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F4 — Nothing tells the orchestrator when to escalate to `debate`
-`origin=uvm-review:step2 severity=medium category=missing-guidance status=applied target=.claude/skills/uvm-review/SKILL.md`
+`origin=uvm-review:step2 severity=medium category=missing-guidance status=applied target=.agents/skills/uvm-review/SKILL.md`
 - **What happened:** the diffstat put the change inside `uvm_trampolines` and against §1 — the two
   things `review-rubric.md` § *Optional debate variant* names as the trigger for two independent
   reviewers — but `SKILL.md` § *Argument Parsing* makes `debate` purely opt-in. The two documents
@@ -137,7 +137,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F7 — Nothing says which path form `target=` takes, and `.claude` is a symlink to `.agents`
-`origin=uvm-review:step4 severity=low category=template status=open target=.agents/factory/templates/META.md`
+`origin=uvm-review:step4 severity=low category=template status=applied target=.agents/factory/templates/META.md`
 - **What happened:** F4 in this file records `target=.claude/skills/uvm-review/SKILL.md` while F1, F2,
   F3 and F5 record `.agents/…`. Both resolve to the same file, because `.claude` is a symlink to
   `.agents`. The finding schema specifies only `target=<best-guess file>`.

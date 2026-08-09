@@ -27,7 +27,9 @@ Zero or more findings, appended below — each a markdown **section**, so append
 operation and a stdlib parser can read them
 (`uv run .agents/factory/bin/meta_status.py spec/{slug}/META.md`). Skills always write `status=open`;
 only `/uvm-harness` flips it. `target` is a best-guess file with **no line number** — re-derive the
-exact edit at apply time to avoid staleness. If an equivalent finding already exists, append
+exact edit at apply time to avoid staleness — written repo-relative and always spelled `.agents/…`,
+never through the `.claude` symlink, so `/uvm-harness --all` sees one file as one file. If an
+equivalent finding already exists, append
 "· seen again" to its title instead of duplicating: recurrence is signal, not bloat.
 
 Field enums — `severity`: `high` (a safety, gate, or correctness gap) `| medium | low`; `category`:
