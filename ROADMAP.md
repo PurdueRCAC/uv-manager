@@ -17,16 +17,18 @@ See `AGENTS.md` for why.
 
 ## Queued
 
-### A run entry point that survives a purge, at job scale
-**Seed:** [`issues/purge-resilient-run.md`](issues/purge-resilient-run.md) · `feature` · appetite big
+### Repairing a purged tree in place, at job scale
+**Seed:** [`issues/purge-resilient-run.md`](issues/purge-resilient-run.md) · `feature` · appetite big ·
+**adopted** as [`spec/purge-resilient-run/`](spec/purge-resilient-run/GOAL.md)
 
 `uvm doctor` finds a partially purged tree and then prints instructions for a human, which is no use
-to a compute node at 03:00 or to automation. Repair, coordinated so that one process does it and the
-rest wait, is the missing half. The same cycle owns the cost side: the wrapper's ~6.5 ms of overhead
-is about a quarter unconditional `mkdir -p`, and a ten-thousand-rank job pays that against one
-metadata server. An integrity check has to be bounded, because the one `doctor` performs is
-proportional to the number of installed files. Taken first because both halves are live operational
-gaps on production storage.
+to a compute node at 03:00 or to automation. Shaping settled the entry point as an opt-in knob,
+`UVM_REPAIR`, on the existing dispatch rather than the `uvm run` subcommand the request arrived as —
+automation runs `uvx foo` and will not be rewritten to opt in. When set and damage is found, one
+process repairs the tree to `doctor`'s standard under the `mkdir` lock while the rest wait. The same
+cycle owns the cost side, because the sentinel that makes the unconditional six-directory `mkdir -p`
+conditional is the same marker a bounded integrity check needs; `doctor`'s walk stays the exhaustive
+authority, since a bounded check cannot promise its coverage.
 
 ### A curl-installable bootstrap
 **Seed:** [`issues/uvm-bootstrap.md`](issues/uvm-bootstrap.md) · `feature` · appetite medium

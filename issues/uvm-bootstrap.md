@@ -64,6 +64,15 @@ Open questions for shaping, each with a real trade-off:
 - **Where it installs, and whether it touches `PATH` at all.** This is the direct collision with
   `bin/uv-manager:9-12`. Printing an `export PATH=…` line for the user to paste honors "opt-in" and
   costs a step; editing a shell profile removes the step and breaks the rule.
+- **A variable naming the install location — `UVM_INSTALL` or similar — read by the hosted `uvm.sh`**
+  for where it stashes the local copy of the wrapper for the next exec. The location becomes something
+  an operator or an automation harness states rather than something `uvm.sh` picks, which is most of
+  what makes the collision above dangerous: nobody is surprised by a path they named. Two questions
+  come with it. How does it relate to `UVM_ROOT` — the same scratch tree keeps everything in one place
+  and costs no second decision, but then a purge that removes the wrapper removes the thing that would
+  have repaired the tree, which is exactly the failure `issues/purge-resilient-run.md` is about. And
+  what is the default when it is unset, given `~/.local/bin/uv` is forbidden. — the maintainer,
+  2026-08-09.
 - **The `curl | sh` posture.** The project already fetches uv this way (`uvm_fetch`, `:249`, and the
   piped `sh` at `:341`), so the precedent is uv's own. Decide whether a tag pin, a published checksum,
   and a documented download-inspect-run path are required rather than optional, given this is
