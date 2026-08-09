@@ -85,7 +85,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F4 — Nothing tells the orchestrator when to escalate to `debate`
-`origin=uvm-review:step2 severity=medium category=missing-guidance status=open target=.claude/skills/uvm-review/SKILL.md`
+`origin=uvm-review:step2 severity=medium category=missing-guidance status=applied target=.claude/skills/uvm-review/SKILL.md`
 - **What happened:** the diffstat put the change inside `uvm_trampolines` and against §1 — the two
   things `review-rubric.md` § *Optional debate variant* names as the trigger for two independent
   reviewers — but `SKILL.md` § *Argument Parsing* makes `debate` purely opt-in. The two documents

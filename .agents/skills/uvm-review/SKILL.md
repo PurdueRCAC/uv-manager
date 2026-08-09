@@ -100,6 +100,12 @@ original shaping commit means the locked contract moved mid-build. Surface those
 before grading: post-shape clarifications happen legitimately, but a silently drifted requirement
 would make this review grade the wrong contract.
 
+**Debate check:** if the diff touches a high-blast-radius region or an §1/§2/§6 invariant — the
+condition [`review-rubric.md`](../../factory/review-rubric.md) § *Optional debate variant* names —
+recommend the `debate` variant and let the human choose. It costs twice as much, so it is their call
+and not an automatic escalation; what is not acceptable is the option never being offered on the
+highest-risk diff in the repository. Skip this when `debate` was already requested.
+
 ### Step 2 — Delegate the correctness pass (fresh subagent)
 Launch a fresh `general-purpose` reviewer via `Agent`. Give it, inline, **only**:
 
