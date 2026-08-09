@@ -29,7 +29,8 @@ It is large and independent — it explains a methodology, not this repository, 
 a mechanical adaptation of the source.
 
 More importantly, it should be written **after** the harness has been driven through real cycles.
-One has shipped (`uvm-env-prefix`); `prose-and-comment-pass` and `test-harness` are queued. A guide written
+Three have shipped — `uvm-env-prefix`, `prose-and-comment-pass` and
+`trampoline-ignores-platform-override` — and three more are queued ahead of this one. A guide written
 now would describe the design; a guide written after those would describe what actually happened,
 including where the factory got in the way. The second document is worth far more than the first to a
 reader deciding whether any of this is credible, and the difference is entirely in whether it can cite
@@ -58,7 +59,10 @@ this repository as the evidence.
 - Source to adapt: `.agents/factory/getting-started.html` in the HyperShell repository. Its structure
   is worth keeping; its examples are all HyperShell's and none of them transfer.
 - R4 is the criterion that makes the document credible to the intended audience. A guide that reports
-  only successes reads as marketing, which is the exact failure mode being defended against.
+  only successes reads as marketing, which is the exact failure mode being defended against. It now
+  has a real case to cite: the trampoline defect was pre-existing on `main`, exited 127 for every tool
+  at any site setting `UVM_PLATFORM`, and was found by the harness port rather than by any gate that
+  was supposed to catch it. `spec/trampoline-ignores-platform-override/` is the account.
 - `/uvm-harness` Step 6 currently has no staleness check for an onboarding page, because there is no
   page. Add it in the same cycle (R5).
 - Found by: the harness port, as a deliberate scope reduction.
