@@ -11,7 +11,7 @@ description: >-
   worktree first. Operational, NOT a lifecycle step.
 disable-model-invocation: true
 argument-hint: "<release|pre-release> <version> [--skip-dry-run] | status"
-allowed-tools: Read, Edit, Grep, Glob, AskUserQuestion, Bash(uv run *), Bash(.agents/factory/bin/*), Bash(bash -n *), Bash(git status *), Bash(git branch *), Bash(git rev-parse *), Bash(git log *), Bash(git show *), Bash(git diff *), Bash(git fetch *), Bash(git pull *), Bash(git switch *), Bash(git add *), Bash(git commit *), Bash(git push *), Bash(git tag *), Bash(git worktree *), Bash(git clone *), Bash(git ls-files *), Bash(git ls-remote *), Bash(gh release *), Bash(gh repo *), Bash(mktemp *), Bash(head *), Bash(tail *), Bash(ls *)
+allowed-tools: Read, Edit, Write, Grep, Glob, AskUserQuestion, Bash(uv run *), Bash(.agents/factory/bin/*), Bash(bash -n *), Bash(git status *), Bash(git branch *), Bash(git rev-parse *), Bash(git log *), Bash(git show *), Bash(git diff *), Bash(git fetch *), Bash(git pull *), Bash(git switch *), Bash(git add *), Bash(git commit *), Bash(git push *), Bash(git tag *), Bash(git worktree *), Bash(git clone *), Bash(git ls-files *), Bash(git ls-remote *), Bash(gh release *), Bash(gh repo *), Bash(mktemp *), Bash(head *), Bash(tail *), Bash(ls *)
 ---
 
 # uvm-release — cut a version, human-gated
@@ -83,8 +83,9 @@ exist, follow whatever the existing ones do rather than this paragraph.
 - **Signed tags only.** `git tag -s`, verified with `git tag -v` **before** any push.
 - **Never force-push, never rewrite `main`.** The bump is an ordinary commit on `main`.
 - **Never `rm`.** Use `del`; `git worktree remove` cleans the rehearsal.
-- **Operational, not meta.** This skill never writes `META.md` findings and never recurses. Harness
-  friction here goes to `/uvm-harness`.
+- **Operational, not meta.** This skill never recurses and never records a finding unasked. Harness
+  friction found here is named in the Step 10 report and recorded only on the human's say-so.
+  `/uvm-harness` applies findings; it does not receive them, so it is a consumer, not a destination.
 - Use `[release]` subjects on the bump commit. Keep the `Co-Authored-By` trailer.
 
 ## Procedure
@@ -186,6 +187,14 @@ point where you expect. Clean up with `del "$d"`.
 Mode, version, tag SHA and signature status, the release URL, whether "Latest" moved, the results of
 the fresh-clone check, and any caveat. Note explicitly whether sites tracking a moving `main` will
 pick this up automatically or need to be told to re-clone a tag.
+
+Name any **harness friction** this release exposed — a skill instruction that was wrong or ambiguous,
+a command that had to be hand-fixed — and offer to record it. `/uvm-harness` reads only
+`spec/*/META.md`, so an unrecorded finding dies with the session. On the human's OK, write it to the
+`META.md` of a cycle in this release's commit range (the newest, if several) — create it from
+[`templates/META.md`](../../factory/templates/META.md) if absent, else append — with
+`origin=uvm-release:<step>` and `status=open`, as its own `[harness]` commit. No cycle in range, or no
+OK: report it and stop.
 
 ## Examples
 

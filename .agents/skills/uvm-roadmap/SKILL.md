@@ -9,7 +9,7 @@ description: >-
   releases (see .agents/factory/methodology.md).
 disable-model-invocation: true
 argument-hint: "[--dry-run] [slug] [--all] [status]"
-allowed-tools: Read, Grep, Glob, Edit, AskUserQuestion, Bash(git status *), Bash(git branch *), Bash(git log *), Bash(git ls-tree *), Bash(git rev-parse *), Bash(git add *), Bash(git commit *), Bash(grep *), Bash(del *), Bash(ls *), Bash(head *)
+allowed-tools: Read, Grep, Glob, Edit, Write, AskUserQuestion, Bash(git status *), Bash(git branch *), Bash(git log *), Bash(git ls-tree *), Bash(git rev-parse *), Bash(git add *), Bash(git commit *), Bash(grep *), Bash(del *), Bash(ls *), Bash(head *)
 ---
 
 # uvm-roadmap — retire what shipped, keep the index true
@@ -79,7 +79,8 @@ Additional instructions provided with the invocation: $ARGUMENTS
 - **Never edit `spec/{slug}/`.** It is a dated record of what was true when written. A retired seed
   leaves a dangling `Seed:` link in `GOAL.md` § *Related materials*, and that link stays: it is the
   signpost that makes `git log --diff-filter=D -- issues/{slug}.md` a two-step recovery instead of
-  archaeology.
+  archaeology. The one exception is `META.md`, the harness feedback log rather than part of the design
+  record; Step 7 says when.
 - **One commit per retirement**, `[harness]` category, keeping the `Co-Authored-By` trailer. Never
   push.
 
@@ -161,6 +162,11 @@ One commit per retirement; fold Step 5's repairs into the commit that caused the
 ### Step 7 — Report
 Seeds retired, seeds left in flight, stale markers found and what was done about them, remainders
 preserved, and cross-references repaired. Name anything you chose not to touch.
+
+Name any **harness friction** this sweep exposed and offer to record it, on the same rule
+`/uvm-release` Step 10 carries: `/uvm-harness` reads only `spec/*/META.md`, so on the human's OK it
+goes to the retired cycle's `spec/{slug}/META.md` with `origin=uvm-roadmap:<step>` and `status=open`,
+as its own `[harness]` commit.
 
 ## Examples
 

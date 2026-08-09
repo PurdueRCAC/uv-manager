@@ -118,7 +118,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F6 — Harness friction found during a release is routed to a skill that cannot receive it
-`origin=uvm-release:10 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-release/SKILL.md`
+`origin=uvm-release:10 severity=medium category=missing-guidance status=applied target=.agents/skills/uvm-release/SKILL.md`
 - **What happened:** the 0.4.0 release surfaced a factual defect in another skill's instructions (F5).
   `uvm-release` § *Safety Principles* says it "never writes `META.md` findings" and that "harness
   friction here goes to `/uvm-harness`" — but `uvm-harness` states twice that it **never writes
