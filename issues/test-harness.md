@@ -27,7 +27,8 @@ turn out not to be, and the groundwork already exists in `.agents/factory/bin/`:
   run.
 - **Architecture.** `UVM_PLATFORM` lets one sandbox hold several architectures, so the
   heterogeneous-cluster behavior the project exists for is reachable on a laptop. This is how the
-  trampoline defect in `issues/trampoline-ignores-platform-override.md` was found.
+  trampoline defect fixed in [`spec/trampoline-ignores-platform-override/`](../spec/trampoline-ignores-platform-override/GOAL.md)
+  was found.
 
 What is missing is a runner, a corpus of cases, and a coverage measurement.
 
@@ -50,6 +51,10 @@ were never executed.
   `self update` interception, and the `tool`/`python` non-exec path.
 - **R3** — The suite SHALL cover the documented failure paths: no state root resolvable, no egress,
   a wrong-architecture binary, a stale lock, a lock timeout, and a partially purged tree.
+- **R3a** — The suite SHALL cover a generated trampoline resolving its target WHILE `UVM_PLATFORM` is
+  set, asserting it execs under the override rather than under `uname -m`. This case is owed: the
+  trampoline cycle shipped its fix without a regression test on the written condition that the harness
+  cover it.
 - **R4** — The suite SHALL assert post-conditions on the state tree, not merely exit status.
 - **R5** — The suite SHALL run on bash 3.2 and on bash 5, and SHALL run in CI on both Linux and macOS.
 - **R6** — The suite SHALL report a coverage measurement over `bin/uv-manager`.
@@ -73,4 +78,8 @@ Open questions for shaping, each with a real trade-off:
 - **Relationship to the factory.** The suite should become the `verify:` command that phases use, and
   `lint.sh` should probably grow a `--with-tests` mode or be joined by a sibling. Decide whether the
   suite lives under `.agents/factory/` (harness) or at `tests/` (product). It is product.
+- **R3a is inherited debt, not a new idea.** `spec/trampoline-ignores-platform-override/GOAL.md`
+  § *Non-goals* made "no committed regression test" conditional on this suite covering the case. That
+  condition was written down in one place — the roadmap entry the shipped fix then retired — so it is
+  restated here, where the cycle that owes it will read it.
 - Found by: the maintainer, ahead of the third post-harness cycle.

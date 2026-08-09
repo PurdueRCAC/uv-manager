@@ -219,8 +219,8 @@ the sign-off gate: review `spec/{slug}/GOAL.md`, then run **`/uvm-plan`**. Stop.
 
 - `/uvm-feature make the trampolines honor UVM_PLATFORM` — infer `feature`, derive slug
   `trampoline-platform-override`, create the branch, shape the GOAL.
-- `/uvm-feature issues/trampoline-ignores-platform-override.md` — promote the recorded deferral: shape
-  its draft R-IDs into a contract, then flip the issue to `status: adopted:{slug}`.
+- `/uvm-feature issues/test-harness.md` — promote the recorded deferral: shape its draft R-IDs into a
+  contract, then flip the issue to `status: adopted:{slug}`.
 - `/uvm-feature fix the provisioning lock is not released when the node is preempted` — `kind: fix`,
   appetite small, branch `fix/{slug}`.
 - `/uvm-feature spec/doctor-record-check/GOAL.md` — adopt the hand-written GOAL and refine in place.

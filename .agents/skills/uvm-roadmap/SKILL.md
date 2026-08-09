@@ -101,10 +101,10 @@ grep -rl "^status: adopted:" issues .security/issues 2>/dev/null || true
 Plain `grep`, not `git grep`: `.security/` is gitignored, and `git grep` searches tracked files only,
 so it would skip that lane while appearing to work. The `|| true` is load-bearing — with `.security/`
 absent `grep` exits 2 while still printing its matches, so anything branching on the exit status reads
-"no adopted seeds" off a list of them. Match on the frontmatter, never on the filename —
-the seed's filename and the cycle slug are different strings (`issues/trampoline-ignores-platform-override.md`
-promotes to slug `trampoline-platform-override`), so a filename guess deletes nothing, or deletes the
-wrong thing.
+"no adopted seeds" off a list of them. Match on the frontmatter, never on the filename — nothing
+constrains a seed's filename and its cycle slug to agree, because `/uvm-feature` derives the slug in
+the shaping conversation rather than copying it off the file it promotes. A filename guess deletes
+nothing, or deletes the wrong thing.
 
 Read the `{slug}` out of each `status: adopted:{slug}` value and classify:
 
