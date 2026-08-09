@@ -144,6 +144,23 @@ Remove its `### ` block from `ROADMAP.md`. Security-lane seeds are moved, not de
 rule above.
 
 ### Step 5 — Repair what the removal broke
+Find the references; do not recall them. Both strings matter, and Step 2 already says they need not be
+the same:
+
+```
+grep -rn '{seed-filename}\|{slug}' --include='*.md' --include='*.lua' --include='*.sh' . \
+    | grep -v '^\./\.git/'
+```
+
+Triage every hit by where it lands, because two of these destinations are deliberately left alone:
+
+| Where the hit is | Action |
+|---|---|
+| `ROADMAP.md`, other `issues/*.md` | Repair. This is the work described below. |
+| `.agents/` skills, templates, factory docs | Repair. An example citing a file this sweep deletes is drift; one asserting something the promotion never did is a wrong instruction. |
+| `spec/**` | **Leave.** Never edit `spec/{slug}/`. The dangling `Seed:` link is the signpost that makes recovery two steps instead of archaeology. |
+| `.agents/factory/harness-log.md` | **Leave.** A dated record of what was decided, not an index of what exists. |
+
 Entries carry no numbers, so removing one renumbers nothing. What still breaks is prose:
 
 - A cross-reference to the retired cycle by name (`Follows the rename`, `the same line as …`). The
