@@ -274,3 +274,45 @@ Read `origin`, `severity` and `category` from the finding in `META.md`; this led
   recorded under another name, in one `META.md`. Pinned the form in the template's schema paragraph
   and normalized F4's stored value in the same commit. Consistency, not detection: `--all` weighs
   recurrence across jobs and an agent can still see the two match, which is why this stayed `low`.
+
+## 2026-08-09 — roadmap-sweep F1: a skill's own state injection could brick it
+`decision=applied commit=4844780 target=.agents/factory/bin/lint.sh`
+- **Rationale:** `/uvm-roadmap` could not load at all. `grep -r` over an absent `.security/issues`
+  exits 2 while still printing every match, and the harness aborts the whole skill on the status, so
+  the correct answer arrived rendered as a fault. Step 2 had documented the `|| true` as load-bearing
+  since the skill was written; the injection line on 49 never got it, and the same shape was latent in
+  `uvm-harness` and `uvm-release` where no `META.md` and no match are both normal. Fixed in `0a2346b`;
+  this entry records the generalization. Empty state is only reachable from a repository in that
+  state, so a written rule would not have held — `lint.sh` now executes all 29 injections and fails on
+  a non-zero exit, verified red by reintroducing the unguarded grep. The rule is in `portability.md`
+  because that is where the injection affordance is already specified.
+- **Note on provenance:** this and F2–F4 below have no `spec/{slug}/META.md`. They were raised and
+  remediated inside the same sweep at the maintainer's direction, and the only cycle available to file
+  them against was one this sweep retired, which would have misfiled them.
+
+## 2026-08-09 — roadmap-sweep F2: the pre-flight STOP was circular for a self-repair
+`decision=applied commit=6e93092 target=.agents/skills/uvm-roadmap/SKILL.md`
+- **Rationale:** Step 1 STOPs on a dirty tree and named no remedy, so a sweep blocked by a defect in
+  this skill could not proceed — repairing it dirties the tree, and the dirty tree stops the sweep.
+  Narrowed deliberately: only a repair that made the skill loadable passes, it commits separately, and
+  it is never folded into a retirement commit. **Not widened** — `uvm-harness` Step 1 already says
+  "commit, stash, or discard first" and does not have the hole.
+
+## 2026-08-09 — roadmap-sweep F3: Step 5 named the breakage but not how to find it
+`decision=applied commit=1a816cb target=.agents/skills/uvm-roadmap/SKILL.md`
+- **Rationale:** the step described the *kinds* of stale reference a retirement leaves and left
+  discovery to whoever thought to grep. This sweep's three real hits — a dangling seed link in
+  `issues/test-harness.md` and two skill examples, one asserting a slug the promotion never produced —
+  were found that way and could as easily have been missed. Added the search over both the filename
+  and the slug, and a triage table, because the hit list is mostly destinations that must be left
+  alone: an agent handed one without the table edits `spec/`, which a safety principle forbids.
+
+## 2026-08-09 — roadmap-sweep F4: a conditional non-goal was never verified as landed
+`decision=applied commit=faf0bca target=.agents/skills/uvm-roadmap/SKILL.md`
+- **Rationale:** the highest-severity of the four, and the only one that loses work. A non-goal that
+  discharges itself by pointing elsewhere — "the harness cycle must cover this" — is conditional, and
+  the condition is the whole reason the cycle shipped without the work. Step 3 read as "check nothing
+  was cut", which passes, rather than "check the named destination has it", which did not:
+  `issues/test-harness.md` never carried the trampoline regression case, and the obligation existed
+  only in the ROADMAP entry the retirement deletes. Caught by reading the non-goals closely, which is
+  not a control. The step now requires opening the named file before deleting anything.
