@@ -116,6 +116,44 @@ else
     fail "cannot find 'readonly uvm_version=' in bin/uv-manager"
 fi
 
+# ---- 4. skill state injections ---------------------------------------------
+#
+# A `!`cmd`` line under "Current state" runs when the skill loads, and the harness
+# aborts the entire skill when one exits non-zero — rendering the failure with that
+# command's own output inside it, so a correct answer arrives looking like a fault.
+# `grep -r` over an absent .security/issues exits 2 while still listing every match,
+# and that alone made /uvm-roadmap unrunnable.
+#
+# The commands execute at every skill load regardless; running them here only moves
+# the discovery to a developer who is watching. Empty state is the case that breaks
+# them, and it is reachable only from a repository in that state, which is why this
+# is a gate rather than a rule someone remembers. portability.md carries the rule.
+
+inject_tmp="${TMPDIR:-/tmp}/uvm-lint-inject.$$"
+trap 'rm -f "$inject_tmp"' EXIT INT TERM
+
+inject_ok=1
+inject_n=0
+for f in .agents/skills/*/SKILL.md; do
+    [ -f "$f" ] || continue
+    # One injection per line: between the first !` and the last ` on that line.
+    # The backticks are the markdown delimiter being matched, not a substitution.
+    # shellcheck disable=SC2016
+    sed -n 's/^[^!]*!`\(.*\)`.*$/\1/p' "$f" > "$inject_tmp"
+    while IFS= read -r cmd; do
+        [ -n "$cmd" ] || continue
+        inject_n=$(( inject_n + 1 ))
+        if ! ( eval "$cmd" ) >/dev/null 2>&1; then
+            fail "$f: injected state command exits non-zero, so the skill cannot load: $cmd"
+            inject_ok=0
+        fi
+    done < "$inject_tmp"
+done
+
+if [ "$inject_ok" -eq 1 ]; then
+    note "OK    $inject_n skill state injections all exit 0"
+fi
+
 # ---- report ----------------------------------------------------------------
 
 if [ "$failed" -eq 0 ]; then

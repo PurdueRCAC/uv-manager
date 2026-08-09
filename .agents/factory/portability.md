@@ -24,6 +24,16 @@ here.
 > admits arbitrary Python. They exist to stop fat-fingered mutations, which is why `git checkout` (a
 > silent working-tree discard) is deliberately absent, not to confine a determined adversary.
 
+> **An injected command must exit 0.** Claude Code aborts the whole skill when one does not, and
+> renders the failure with that command's own output inside it — so the correct answer arrives
+> looking like a fault, and the skill cannot be run at all until someone edits it. Guard anything
+> whose exit status is not guaranteed by its output: `grep -r` over a directory that does not exist
+> exits 2 while still printing every match, `grep -c` exits 1 on a count of zero, and `ls` of an
+> unmatched glob exits 1 or 2. Empty state is normal state — no adopted seeds, no `META.md`, no
+> commits on the branch — and none of it is a failure. `|| true` keeps both the output and the
+> diagnosis; `|| echo "(unavailable)"` is better where a blank field would read as a fact. `lint.sh`
+> executes every injection and fails on a non-zero exit.
+
 ## Already portable — no action
 
 `git`, `gh`, the FSM scripts, `temp_root.sh`, `lint.sh`, file read/edit/grep/glob, and every artifact
