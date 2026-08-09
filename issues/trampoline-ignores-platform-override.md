@@ -1,5 +1,5 @@
 ---
-status: unshaped
+status: adopted:trampoline-ignores-platform-override
 kind: fix
 appetite: small
 lane: public
