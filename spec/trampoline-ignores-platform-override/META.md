@@ -101,7 +101,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F5 — The deployment note states a `cp -r` behavior that is false on Linux
-`origin=uvm-publish:notes severity=medium category=instruction status=open target=.agents/skills/uvm-publish/SKILL.md`
+`origin=uvm-publish:notes severity=medium category=instruction status=applied target=.agents/skills/uvm-publish/SKILL.md`
 - **What happened:** the Notes section tells the publishing agent that "`git clone` and `rsync -a`
   preserve the `bin/` symlinks; a `cp -r` without `-a` does not", and frames it as something to
   remember "before recommending a deployment step in a PR body". Lowercase `-r` dereferences only on

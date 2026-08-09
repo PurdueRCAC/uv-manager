@@ -159,6 +159,7 @@ in a PR body or a report.
   PLAN and research as historical.
 - This skill does not bump the version or tag. That is `/uvm-release`.
 - Sites deploy this repository by cloning it, so what lands on `main` is what a site can pick up.
-  `git clone` and `rsync -a` preserve the `bin/` symlinks; a `cp -r` without `-a` does not. That is
-  the operator's problem, but it is worth remembering before recommending a deployment step in a PR
-  body.
+  `git clone` and `rsync -a` preserve the `bin/` symlinks, and those are what to recommend in a PR
+  body. `cp` splits by platform — GNU coreutils preserves symlinks under `-r`, `-R` and `-a` alike;
+  macOS and the BSDs dereference under lowercase `-r` — so name the platform or leave `cp` out.
+  `README.md` § *For administrators: deployment* carries the accurate wording.
