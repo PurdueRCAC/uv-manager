@@ -3,11 +3,11 @@ slug: trampoline-ignores-platform-override
 title: Trampolines resolve the platform key the wrapper actually uses
 kind: fix
 appetite: small
-status: in_review
+status: done
 branch: fix/trampoline-ignores-platform-override
 base: main
 current_phase: done
-last_updated: '2026-08-08'
+last_updated: '2026-08-09'
 phases:
 - id: P1
   name: Trampolines honor UVM_PLATFORM, with the coupling recorded and the docs that
