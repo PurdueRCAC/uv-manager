@@ -99,3 +99,20 @@
   Not automatic — the rubric is right that it costs twice as much, and that is the human's call — but
   the choice should be offered rather than silently skipped.
 - **Confidence:** high · **Effort:** small
+
+## F5 — The deployment note states a `cp -r` behavior that is false on Linux
+`origin=uvm-publish:notes severity=medium category=instruction status=open target=.agents/skills/uvm-publish/SKILL.md`
+- **What happened:** the Notes section tells the publishing agent that "`git clone` and `rsync -a`
+  preserve the `bin/` symlinks; a `cp -r` without `-a` does not", and frames it as something to
+  remember "before recommending a deployment step in a PR body". Lowercase `-r` dereferences only on
+  macOS and the BSDs; GNU coreutils preserves symlinks under `-r`, `-R` and `-a` alike, and every site
+  deploying this runs GNU. The claim propagated: the first draft of the 0.4.0 release notes repeated
+  it, and only an adversarial audit caught it before publication.
+- **Skill cause:** the sentence is stated as a portable fact with no platform qualifier, and it is
+  positioned as guidance for what to write into a PR body, so it travels outward to operators instead
+  of staying an internal reminder. `README.md` carried the same error and was corrected in `0745a25`;
+  the copy inside the skill was left behind, which is how a fixed fact stays wrong in the harness.
+- **Recommended fix:** name the platform split, or drop the `cp` clause and keep only the `git clone` /
+  `rsync -a` recommendation — that recommendation was always right, the caveat is the part that was
+  wrong. Cross-check the wording against `README.md` § deployment, which now reads correctly.
+- **Confidence:** high · **Effort:** small
