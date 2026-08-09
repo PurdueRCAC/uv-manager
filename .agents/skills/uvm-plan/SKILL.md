@@ -56,7 +56,8 @@ Additional instructions provided with the invocation: $ARGUMENTS
   `README.md` § *Design notes* (the record of rejected alternatives), and `uv`'s own documentation or
   source. Reach for the web only for genuinely external unknowns — Astral's installer behavior, an
   open `astral-sh/uv` issue, a filesystem semantic.
-- **Never build.** No edits to `bin/uv-manager`. That is `/uvm-build`.
+- **Never build.** No edits to `bin/uv-manager`. That is `/uvm-build`. A throwaway copy outside the
+  working tree is not a build: it is the sanctioned way to prove a `verify:` gate can go green.
 - **The invariant gate is mandatory**, at both checkpoints. Any bend gets recorded in PLAN's deviation
   table, never applied silently.
 
@@ -164,6 +165,14 @@ until proven otherwise, and will still be inert when `/uvm-build` reads its gree
 that motivates this is silent: a census gate whose pathspec is interpolated from a variable searches
 one nonexistent path under `zsh`, which does not word-split, and reports a clean tree with thirteen
 hits in it. Write the paths literally.
+
+Red is necessary, not sufficient. Read the failure output and confirm the gate died on the asserted
+post-condition rather than on itself — a typo, a missing flag, a tool that is not installed, a string
+the YAML layer mangled. A gate red for its own reasons stays red through the build, walking
+`--record-attempt` toward the circuit breaker at 3 while the code is correct. When the output does not
+settle it, prove the gate can go green: copy the repository outside the working tree
+(`cp -R . "$(mktemp -d)/probe"`), apply the phase's change to the copy, and run the gate from inside
+it.
 
 Set top `status: planned`, `current_phase` to the first phase, and `last_updated` to today. The plan is
 written but not signed off; `/uvm-build` flips the top status to `in_progress` when it completes the

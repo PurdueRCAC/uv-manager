@@ -46,7 +46,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F2 — Gates are red-tested but never green-tested, and the safe way to green is undocumented
-`origin=uvm-plan:6 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-plan/SKILL.md`
+`origin=uvm-plan:6 severity=medium category=missing-guidance status=applied target=.agents/skills/uvm-plan/SKILL.md`
 - **What happened:** Step 6 requires running every `verify:` against the current tree and confirming
   it exits non-zero, which catches an *inert* gate. It says nothing about confirming the gate turns
   green once the change exists, which is the other half — a gate can be red because the command is
