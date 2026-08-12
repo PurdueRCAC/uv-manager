@@ -14,6 +14,12 @@
   immediately: the entry is where "Taken first because both halves are live operational gaps" lives,
   which is what confirmed this promotion jumped no recorded ordering and turned the missing test
   harness into a clean non-goal rather than a violated dependency.
+- `uvm-plan:3`'s research fan-out, and specifically the instruction to prefer driving the script over
+  reading it, is what made this cycle's outcome possible. Three conclusions that would have shipped
+  broken — a stamp file that leaves a purged tree unrepaired, a repair lock that produces two
+  concurrent repairers on shipped defaults, and an acceptance oracle satisfiable with zero repair
+  code — were each caught by running the thing, not by inspection. The adversarial pass over the
+  briefs earned its cost: it overturned load-bearing claims in three of the six.
 
 <!-- Real findings are appended below this line by the lifecycle skills. -->
 
@@ -41,3 +47,54 @@
   separation as a non-goal. Where it is genuinely ambiguous which cycle owns it, ask — merging two
   seeds is an appetite decision, not a parsing one.
 - **Confidence:** high · **Effort:** small
+
+## F2 — The same-commit list omits the two files that record the invariants, so revising one ships a self-contradicting repository
+
+`origin=uvm-plan:2 severity=high category=missing-guidance status=open target=AGENTS.md`
+
+- **What happened:** R1 reverses a decision asserted as an invariant in
+  `.agents/factory/invariants.md:122-123` ("`mkdir -p` runs unconditionally rather than behind a
+  sentinel"). The same-commit rule in `AGENTS.md`, and the four-file list recited by `uvm-plan`,
+  `uvm-build` and `uvm-publish`, names the help heredoc, `README.md`, the conf example and the
+  modulefile. None names `AGENTS.md` or `invariants.md`. A cycle that follows the skills faithfully
+  therefore lands correct code that its own invariant file declares a violation of — and because
+  `invariants.md` is what `uvm-review` grades against, the result is an **auto-CRITICAL §8 finding on
+  correct code**, inside a high-blast-radius region (`uvm_export_env`), which forces a mandatory human
+  sign-off gate. I found it only by fanning a research agent at the documentation surface; nothing in
+  the procedure would have surfaced it.
+- **Skill cause:** the same-commit rule enumerates user-facing surfaces and stops there, treating the
+  invariant record as a thing that describes the code rather than a thing that gates it. `AGENTS.md`
+  states that `invariants.md` is maintained in lockstep with it and that `AGENTS.md` wins, but no step
+  in any skill ever checks the lockstep, and the gate that consumes it is not on the list of things a
+  behavior change invalidates. Related drift found the same way: `invariants.md:122-123` has **no**
+  counterpart in `AGENTS.md` at all, so it is a derived claim that already drifted in the direction
+  the lockstep rule says loses.
+- **Recommended fix:** extend the same-commit rule in `AGENTS.md` — and the recitation in the three
+  skills — to: "a change that revises a load-bearing invariant updates `AGENTS.md` § *Invariants* and
+  `.agents/factory/invariants.md` in the same commit." Add a line to `uvm-plan` Step 5 (invariant gate
+  #2) making the deviation table's output explicit: a bend that is accepted becomes an edit to both
+  files, not just a table row. Marked `severity=high` because it silently mis-fires a non-negotiable
+  gate rather than merely omitting documentation.
+- **Confidence:** high · **Effort:** small
+
+## F3 — A GOAL found unbuildable at plan time has no route back to shaping
+
+`origin=uvm-plan:5 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-plan/SKILL.md`
+
+- **What happened:** research established that three of this GOAL's eight criteria cannot be built as
+  written — R4's acceptance oracle is satisfiable with zero implementation, R3 promises detection no
+  bounded check delivers, and R3 and R4 contradict each other on managed pythons. The human chose to
+  narrow the cycle. `uvm-plan` may not edit `GOAL.md`, and `uvm-feature` refuses to run anywhere but
+  `main` on a clean tree, so there is no defined transition: the branch holds committed research and a
+  contract that must change, and every documented next step is closed. Step 1 already contemplates
+  "STOP and send the human back to `/uvm-feature`" for unresolved clarification markers, which has the
+  same dead end.
+- **Skill cause:** the lifecycle is written as a one-way pipeline. Discovering that the contract is
+  wrong is a *success* of the research step — buying down risk before code is the stated purpose — but
+  it is the one outcome with no procedure. The absence bites hardest exactly when research worked.
+- **Recommended fix:** give `uvm-plan` a "bounce to shaping" step: commit `research/` and the digest,
+  leave `PLAN.md` and `TECH.md` unwritten, and state the two ways back — re-shape `GOAL.md` in place
+  on the branch, or park the branch and re-promote from `main`. Correspondingly, let `uvm-feature`
+  accept an existing feature branch whose only committed artifacts are `GOAL.md`, `META.md` and
+  `research/`, treating it as a re-shape rather than a collision.
+- **Confidence:** high · **Effort:** medium
