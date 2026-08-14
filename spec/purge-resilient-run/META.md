@@ -205,3 +205,52 @@
   authoring pass: if the gate names fewer paths than the criterion's prose does, one of the two is
   wrong.
 - **Confidence:** high · **Effort:** small
+
+## F8 — The blind-review boundary is drawn at `spec/`, but `issues/` and `ROADMAP.md` restate the research on the same branch
+
+`origin=uvm-review:step-2 severity=medium category=missing-guidance status=open target=.agents/factory/review-rubric.md`
+
+- **What happened:** the cycle-2 reviewer disclosed, unprompted, that author rationale reached it
+  through the legitimately-scoped diff. `issues/purge-tree-repair.md` and
+  `issues/doctor-detection-gaps.md` cite `spec/purge-resilient-run/research/*` by filename and digest
+  id and restate their verdicts; `ROADMAP.md:24-31` states that "the oracle passed with zero
+  implementation" — a research conclusion. The `':(exclude)spec/'` pathspec is load-bearing and was
+  applied to the diff, the log and every sweep, and it still let the plan's reasoning through, because
+  a deferral cycle is *required* by `AGENTS.md` to write that reasoning into public files outside
+  `spec/`.
+- **Skill cause:** the rule is written as a directory exclusion — "keep `PLAN.md`, `TECH.md`,
+  `research/` and `META.md` out of context" — which encodes the assumption that author intent lives
+  only under `spec/`. On any cycle that defers work, it does not: the seed and the roadmap entry are
+  where the deferral's evidence is recorded, by design. The two rules compose into a boundary that
+  reads airtight and is not. Nothing tells the orchestrator to look at what the diff's *own* new files
+  say before believing the pass is blind.
+- **Recommended fix:** state the limit honestly in the rubric's "What the reviewer sees" — the
+  exclusion bounds the artifacts, not the rationale, and a diff that adds `issues/*.md` or rewrites
+  `ROADMAP.md` carries plan reasoning the reviewer will read. Add a line to Step 2: when the diff adds
+  or rewrites seeds, say so in the reviewer's prompt and instruct it to treat their conclusions as
+  claims to verify, not as findings already adjudicated. Excluding `issues/` outright is the wrong
+  fix — the seeds are part of the graded delta.
+- **Confidence:** high · **Effort:** small
+
+## F9 — Scoping a later cycle to "named findings" contradicts the rule that drops the prior cycle's finding ids
+
+`origin=uvm-review:step-3 severity=medium category=instruction status=open target=.agents/skills/uvm-review/SKILL.md`
+
+- **What happened:** the maintainer scoped this cycle to the docs/comment delta. Step 3 sanctions that
+  — "the human may instead scope it to verifying the remediation of named findings" — while Step 2
+  requires dropping the log subjects on `review.cycle` ≥ 1 precisely because a subject like
+  `Build {slug} P1: F1 — …` names a prior finding, and "anchoring on a prior verdict is the exact bias
+  this pass exists to remove". Naming the findings to the reviewer is the thing Step 2 forbids. I
+  resolved it by hand: describe the *surface* (four files, prose only) and state that the code was
+  graded elsewhere, never which findings or what verdict. That worked — the reviewer re-derived the
+  cycle-1 exemption independently — but the skill does not say to do it.
+- **Skill cause:** the two steps were written against different concerns and never reconciled. Step 3
+  is about the human's authority to bound cost; Step 2 is about anchoring. Neither says how to convey
+  a scope without conveying the verdict that produced it, so the natural reading of Step 3 — paste the
+  findings in — silently defeats Step 2 on exactly the cycle where anchoring is most likely.
+- **Recommended fix:** in Step 3's scoped-cycle clause, add the translation rule: a scoped cycle is
+  communicated to the reviewer as a *diff range and a graded surface*, never as finding ids, severities
+  or a prior verdict. Note the corollary the rubric already half-states — when the scope is prose, the
+  hunk-scoping inverts and the reviewer grades at file and repository scope, which has to be said
+  explicitly or a prose-scoped pass grades only the moved lines and cannot see an omission.
+- **Confidence:** high · **Effort:** small

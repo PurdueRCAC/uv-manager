@@ -66,11 +66,11 @@ phases:
     \ --offline --arch aarch64 sh -c 'uvm status | grep -q \"^architecture:      \
     \    aarch64\"'"
 review:
-  last_reviewed_commit: 6531a2dcca0dd6ace78d3dc6c8337b63f3c9ab23
-  verdict: changes-requested
+  last_reviewed_commit: 6782b0383d301473964f05eb908d5f6dafe50759
+  verdict: approved
   blocked_reason: 'Two LOW prose findings: depth-dependent mkdir(2) constant; stale
     7 ms in issues/uvm-bootstrap.md'
-  cycle: 1
+  cycle: 2
 ---
 # TECH.md — Stop paying for the state-directory `mkdir` on every invocation
 

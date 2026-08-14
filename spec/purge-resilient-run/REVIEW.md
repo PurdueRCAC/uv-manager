@@ -174,3 +174,99 @@ disagreement — nothing the *ship* reviewer ran contradicts F1.
 ## Optional completeness sub-pass (separate reviewer; may see TECH.md)
 
 Not run this cycle.
+
+---
+
+# Review cycle 2 — approved (2026-08-14)
+
+- **Reviewed commit:** 6782b0383d301473964f05eb908d5f6dafe50759  ·  **Base:** `main`
+- **Verdict:** approved
+- **Cycle:** 2 of ≤3
+
+**Mode: scoped, by the maintainer's instruction** — "limited scope to the minor docs/comment changes
+(no code changes)". The graded surface is the cycle-2 remediation delta,
+`git diff 6531a2d..HEAD -- . ':(exclude)spec/'`: four files, +16/−14, `bin/uv-manager` comment-only.
+The guard itself was graded in cycle 1 by two independent reviewers across ~15 state configurations
+and was not re-litigated. One fresh blind reviewer, given `GOAL.md`, `invariants.md` and the rubric
+inline, with `spec/` excluded from the diff, from the log (hashes only, subjects withheld) and from
+every repository-wide search.
+
+Because prose is this pass's deliverable, the rubric's hunk-scoping inverted: R3 and R4 were graded at
+file and repository scope, not only over the moved lines.
+
+## Verification run
+
+- `bash -n bin/uv-manager` and `.agents/factory/bin/lint.sh` → clean (bash 3.2.57, shellcheck, symlink
+  integrity, version single-source `0.4.0`).
+- **The factual claim the remediation turns on was traced, not modelled.** Cycle 1's F1 could only
+  establish depth-dependence by timing, because `dtruss` is unavailable under SIP. This pass ran GNU
+  coreutils 9.1 under `strace` in a container: `mkdir -p` over the wrapper's real six operands issues
+  one `EEXIST`-failing `mkdirat(2)` per path component of every operand, with no cross-operand
+  memoization. Root depth 2 → **25** calls, all `EEXIST`; root depth 5 → **43**. Closed form `6·D+13`;
+  the retracted "twenty-five" was a depth-2 artifact and the replacement is the correct
+  generalization. Traced outside the repository.
+- **No site restates a depth-dependent count as a constant:**
+  `git grep -n -i -E 'twenty-five|\b25 (mkdir|EEXIST)' -- . ':(exclude)spec/'` → no hits. The three
+  rewritten sites are arithmetically consistent with each other and with `ROADMAP.md:28`.
+  `README.md`'s surviving "roughly a quarter of the wrapper's own overhead" back-solves to ≈6.7 ms
+  pre-guard, consistent with the 7→5 ms correction.
+- **R5 as a comment-only proof:** the two revisions of `bin/uv-manager` compared with comments and
+  blank lines stripped are **identical** — the delta changes no executable line. The three named drives
+  (`temp_root.sh uvm status`, `--offline uv --version`, `--offline --arch aarch64 uvm status`) reach
+  `rc=0`, `uv 9.9.9 (fixture)`, `current -> versions/9.9.9`, `architecture: aarch64`, with installer
+  chatter on stderr and the fixture's `UV_INSTALL_DIR` / `CARGO_DIST_FORCE_INSTALL_DIR` scrub assertion
+  passing.
+- **Prose graded against `AGENTS.md` § *Prose and comments*:** no filler, hedging or marketing
+  adjectives, no "This ensures/allows", no emoji, no restatement of adjacent code, and
+  `git grep -n -E '\b(R[0-9]|P[0-9]|F[0-9])\b' -- bin/uv-manager README.md` → no hits. Two overlong
+  README lines were weighed and dropped as house practice, not a violation. **No §12 finding.**
+- **Same-commit rule (§12):** `etc/uv-manager.conf.example`, `share/modulefiles/uv/main.lua` and the
+  `uvm_help` heredoc carry no `mkdir` or timing claim; none is invalidated.
+- Both named gates re-run by the orchestrator: `git grep -q "rather than behind a sentinel" -- bin/uv-manager README.md .agents/factory/invariants.md`
+  → exit 1, and `git grep -q "roughly 7 ms" -- AGENTS.md README.md` → exit 1, paths written literally.
+- `git status --porcelain` empty on hand-back; all instrumentation lived under `/tmp`.
+
+## Requirement → evidence matrix
+
+| R-ID | Status | Evidence |
+|------|--------|----------|
+| R1, R2 | out of scope | Guard behavior graded in cycle 1; the delta changes no executable line, proven by the comment-stripped comparison above. |
+| R3 | ✅ | Named gate exit 1 (exit 0 at `main`, so the gate is live). All three sites rewritten and graded on voice; cycle 1's F1 inaccuracy is corrected and independently re-verified by syscall trace. |
+| R4 | ✅ | Named gate exit 1. Repository-wide sweep for `N ms` variants: `AGENTS.md:109` and `README.md:141` read "roughly 5 ms"; `issues/uvm-bootstrap.md:86` now "5 ms budget", closing cycle 1's F2. Remaining hits are the seed below. |
+| R5 | ✅ | `lint.sh` passes; no executable line changed; three drives reach the cycle-1 post-conditions. |
+
+Unmapped changes: none. Taken on trust: none.
+
+## Findings
+
+### [LOW/PLAUSIBLE] The adopted seed still carries the retracted claim and the old figure, and only `/uvm-roadmap` removes it
+
+- **Where:** `issues/purge-resilient-run.md:43`, `:106` (and the present-tense unconditional-`mkdir`
+  claims at `:29`, `:44`, `:74`, `:110`), linked from `ROADMAP.md:21`.
+- **Failure scenario:** a reader following the roadmap index lands on a cost analysis describing code
+  that no longer exists. R4's quantifier is "wherever it is stated", and this delta demonstrably treats
+  `issues/` as in scope, since it corrected `issues/uvm-bootstrap.md`.
+- **Evidence:** `/bin/sh -c "git grep -n '7 ms' -- . ':(exclude)spec/'"` → one hit,
+  `issues/purge-resilient-run.md:106`. Frontmatter reads `status: adopted:purge-resilient-run`.
+- **Why PLAUSIBLE and not CONFIRMED.** This is not a defect in what ships; it is a dependency on a
+  lifecycle step. `AGENTS.md` § *Where a deferral goes* has `/uvm-roadmap` **delete** an adopted seed
+  and its `ROADMAP.md` entry once the cycle lands, with `spec/{slug}/` as the retained account and git
+  history holding the file. Correcting figures in a file scheduled for deletion is churn, and the
+  `:38-41` measurement table is a record of a measurement that happened and should not be rewritten.
+  The cycle-2 gate excludes the file by literal pathspec rather than pretending it is absent. Both
+  cycle-1 reviewers reached this exemption independently, and so did this cycle's reviewer, unprompted
+  and blind to theirs. **It becomes a real defect only if the seed is not retired at merge** — so the
+  action is to run `/uvm-roadmap`, not to edit the file.
+
+No other findings. No CONFIRMED findings at any severity.
+
+## Human-gate triggers
+
+**None.** No CONFIRMED finding, and the only change inside a high-blast-radius region
+(`uvm_export_env`) is a comment on a hunk proven to leave every executable line untouched. Cycle 1's
+gate was triggered and cleared by the maintainer; nothing re-triggers it. No §1, §2 or §6 invariant is
+implicated.
+
+## Optional completeness sub-pass
+
+Not run.
