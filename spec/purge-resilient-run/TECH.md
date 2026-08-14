@@ -1,0 +1,165 @@
+---
+slug: purge-resilient-run
+title: "Stop paying for the state-directory mkdir on every invocation"
+kind: feature
+appetite: small
+status: planned
+branch: feature/purge-resilient-run
+base: main
+current_phase: P1
+last_updated: "2026-08-14"
+phases:
+  - id: P1
+    name: "Guard the state-directory mkdir, and invert the comment defending it"
+    status: pending
+    satisfies: [R1, R2]
+    depends_on: []
+    parallel: false
+    hammerable: false
+    hill: uphill
+    verify: |
+      set -eu
+      if git grep -q "rather than behind a sentinel" -- bin/uv-manager; then
+        echo "FAIL: bin/uv-manager still asserts the unconditional mkdir" >&2; exit 1
+      fi
+      .agents/factory/bin/lint.sh >/dev/null
+      .agents/factory/bin/temp_root.sh --offline sh -c '
+      set -eu
+      R=$(command -v mkdir); L="$UVM_SANDBOX/log"; export R L
+      d="$UVM_SANDBOX/stub"; "$R" -p "$d"
+      cat > "$d/mkdir" <<"EOS"
+      #!/bin/sh
+      echo x >> "$L"
+      exec "$R" "$@"
+      EOS
+      chmod 0755 "$d/mkdir"; PATH="$d:$PATH"; export PATH
+      a=$(uname -m)
+      uv --version >/dev/null 2>&1
+      : > "$L"; uv --version >/dev/null
+      warm=$(wc -l < "$L" | tr -d " ")
+      chmod 0755 "$UVM_ROOT/$a/cache"; uv --version >/dev/null
+      keep=$(stat -c %a "$UVM_ROOT/$a/cache" 2>/dev/null || stat -f %Lp "$UVM_ROOT/$a/cache")
+      chmod 0700 "$UVM_ROOT/$a/cache"
+      rmdir "$UVM_ROOT/$a/tools"
+      : > "$L"; uv --version >/dev/null
+      back=$(wc -l < "$L" | tr -d " ")
+      mode=$(stat -c %a "$UVM_ROOT/$a/tools" 2>/dev/null || stat -f %Lp "$UVM_ROOT/$a/tools")
+      rmdir "$UVM_ROOT/$a/tools"; : > "$UVM_ROOT/$a/tools"
+      set +e; uv --version >/dev/null 2>&1; frc=$?; set -e
+      echo "warm=$warm kept0755=$keep restored=$back mode=$mode file-rc=$frc"
+      test "$warm" -eq 0 && test "$keep" = 755 && test "$back" -ge 1 && test "$mode" = 700 && test "$frc" -ne 0'
+  - id: P2
+    name: "Correct the four documents that assert the reversed decision"
+    status: pending
+    satisfies: [R3, R4, R5]
+    depends_on: [P1]
+    parallel: false
+    hammerable: false
+    hill: uphill
+    verify: |
+      set -eu
+      if git grep -q "rather than behind a sentinel" -- README.md .agents/factory/invariants.md; then
+        echo "FAIL: design note or invariant still asserts the unconditional mkdir" >&2; exit 1
+      fi
+      if git grep -q "roughly 7 ms" -- AGENTS.md README.md; then
+        echo "FAIL: stale wrapper-overhead figure" >&2; exit 1
+      fi
+      .agents/factory/bin/lint.sh >/dev/null
+      .agents/factory/bin/temp_root.sh uvm status >/dev/null
+      .agents/factory/bin/temp_root.sh --offline sh -c 'test "$(uv --version)" = "uv 9.9.9 (fixture)" && test "$(readlink "$UVM_ROOT/$(uname -m)/current")" = versions/9.9.9'
+      .agents/factory/bin/temp_root.sh --offline --arch aarch64 sh -c 'test "$(uv --version)" = "uv 9.9.9 (fixture)" && test "$(readlink "$UVM_ROOT/aarch64/current")" = versions/9.9.9'
+      .agents/factory/bin/temp_root.sh --offline --arch aarch64 sh -c 'uvm status | grep -q "^architecture:          aarch64"'
+review:
+  last_reviewed_commit: ""
+  verdict: none
+  blocked_reason: ""
+  cycle: 0
+---
+
+# TECH.md — Stop paying for the state-directory `mkdir` on every invocation
+
+The **context engine and finite-state machine** for building this feature. The YAML frontmatter above
+is the resume ground truth (read it with
+`uv run .agents/factory/bin/next_phase.py spec/purge-resilient-run/TECH.md`); the per-phase checklists
+below are the work.
+
+- **Vision / requirements (locked):** [`GOAL.md`](GOAL.md) — R-IDs are the contract.
+- **Authoritative design:** [`PLAN.md`](PLAN.md).
+- **Backing research:** [`research/00-digest.md`](research/00-digest.md) plus briefs.
+
+## Conventions (apply to every phase)
+
+- Commit conventions, code style, prose voice and load-bearing invariants come from
+  [`AGENTS.md`](../../AGENTS.md); [`invariants.md`](../../.agents/factory/invariants.md) is the footgun
+  checklist. **This cycle edits `invariants.md` itself** — see P2.
+- One phase per `uvm-build` invocation; one atomic commit containing both the change and the
+  `TECH.md` state update. Subjects follow `[{category}] Build purge-resilient-run P<n>: …`.
+- Keep the `Co-Authored-By: Claude Opus 5` trailer.
+- No feature-scoped spec ids (`R1`, `P3`) in `bin/uv-manager` or `README.md`.
+- **Gate-authoring rule learned in this cycle:** never write an assertion as `! cmd`. Under `set -e` a
+  `!`-prefixed command neither aborts nor fails the script, so the assertion is inert. Use
+  `if cmd; then echo FAIL >&2; exit 1; fi`. Both gates above do.
+
+---
+
+## Phase P1 — Guard the state-directory `mkdir`, and invert the comment defending it
+**Satisfies:** R1, R2 · **Depends on:** —
+**Goal:** the warm path stops forking and exec'ing `/bin/mkdir`, while every case in which the
+unconditional call did something useful still does it.
+
+- [ ] In `uvm_export_env` (`bin/uv-manager:399-422`), wrap the existing `( umask 077; mkdir -p … )` in
+      a six-way `[[ -d ]]` test. **The `if` goes outside the subshell.** Inside, the fork survives and
+      about a third of the saving with it — and the gate below counts `mkdir` execs, so it cannot tell
+      the two apart.
+- [ ] Leave the subshell **byte-identical**. The parity case where a state path has been replaced by a
+      regular file depends on `mkdir` still being what reports it, under `set -e`.
+- [ ] Add no mode check. `mkdir -p` does not `chmod` an existing directory today; R2 pins that.
+- [ ] Rewrite the comment at `:402-404`: the measurement is the warrant, and the surviving half of the
+      old claim — a missing directory is still created, under `umask 077` — is stated. Do not reuse the
+      phrase "rather than behind a sentinel"; the gate greps for it.
+- **Verify:** the gate above. Post-conditions asserted in one drive: warm intact tree issues **0**
+  `mkdir` executions (`main`: 1); a directory left at `0755` is still `0755` after an invocation; a
+  removed directory is recreated at mode `700`; a state path replaced by a regular file still exits
+  non-zero. On `main` this prints `warm=1 kept0755=755 restored=1 mode=700 file-rc=1` and exits 1 —
+  red on exactly one clause. Proven green on a patched probe copy outside the working tree, under
+  `/bin/bash` 3.2.57.
+- **Inspection-only, because the gate is blind to it:** that the `if` is outside the subshell, and that
+  the replacement comment earns its place under `AGENTS.md` § *Prose and comments*. `/uvm-review` must
+  read both rather than trust the green.
+- **Touches:** `bin/uv-manager`.
+
+## Phase P2 — Correct the four documents that assert the reversed decision
+**Satisfies:** R3, R4, R5 · **Depends on:** P1
+**Goal:** no file in the repository still claims the `mkdir -p` is unconditional or that the wrapper
+costs 7 ms.
+
+- [ ] `README.md:462-463` — the design note becomes the record of a rejection **reversed by
+      measurement**, not a deletion. This section is where the project keeps what it turned down and
+      why; removing the entry would lose that.
+- [ ] `.agents/factory/invariants.md:122-123` — rewrite §8's last bullet. Not optional: this file is
+      what `/uvm-review` grades against, so leaving it would make the correct implementation an
+      auto-CRITICAL §8 violation inside a high-blast-radius region.
+- [ ] `AGENTS.md:109` and `README.md:141` — replace "roughly 7 ms". State the wrapper's overhead above
+      the exec'd binary as about 5 ms.
+- [ ] State no cluster number anywhere. Every measurement is macOS on APFS; the figure that transfers
+      is the syscall reduction (25 `EEXIST`-failing `mkdir(2)` plus 6 stats, down to 6 stats), not the
+      milliseconds. See `PLAN.md` §5.
+- [ ] Leave `ROADMAP.md` and `issues/` alone — already updated when the cycle was narrowed.
+- **Verify:** the gate above — both scoped greps clean, `lint.sh`, and the three baseline drives
+  asserting `uv 9.9.9 (fixture)` and `current -> versions/9.9.9` on both the native and the `aarch64`
+  key, rather than exit 0 alone. Pathspecs are literal: the research briefs under `spec/` quote the old
+  text verbatim, so an unscoped grep would never go green.
+- **Inspection-only:** whether the rewritten design note and invariant bullet read like the rest of the
+  file. No command decides that.
+- **Touches:** `README.md`, `.agents/factory/invariants.md`, `AGENTS.md`.
+
+---
+
+## How `uvm-build` drives this
+
+1. `next_phase.py` prints the next actionable phase; statuses are authoritative.
+2. Pre-flight: clean tree, on `branch`, `base` reachable.
+3. Execute every `[ ]`, consulting `PLAN.md` and `research/`.
+4. Run the phase's `verify:`. Never advance on a checkbox alone, and never on exit 0 alone.
+5. Amend this file if reality diverges; STOP only on a `GOAL.md` contradiction.
+6. Mark the phase `done`, advance `current_phase`, `--touch`; one commit; stop and report.

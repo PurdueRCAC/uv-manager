@@ -20,6 +20,12 @@
   concurrent repairers on shipped defaults, and an acceptance oracle satisfiable with zero repair
   code — were each caught by running the thing, not by inspection. The adversarial pass over the
   briefs earned its cost: it overturned load-bearing claims in three of the six.
+- `uvm-plan:6`'s rule to run every `verify:` against the current tree *and read the failure output*
+  caught a gate of mine that was red for its own reasons: it asserted a `current` symlink target after
+  `uvm status`, which is read-only and provisions nothing, so no arch tree existed to read. Left in, it
+  would have stayed red through the whole build while the code was correct. The rule works; the
+  half of it that earns its keep is "confirm it died on the asserted post-condition", not "confirm it
+  is red".
 
 <!-- Real findings are appended below this line by the lifecycle skills. -->
 
@@ -98,3 +104,27 @@
   accept an existing feature branch whose only committed artifacts are `GOAL.md`, `META.md` and
   `research/`, treating it as a re-shape rather than a collision.
 - **Confidence:** high · **Effort:** medium
+
+## F4 — Gate-authoring guidance misses the `!` prefix, which silently disables an assertion under `set -e`
+
+`origin=uvm-plan:6 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-plan/SKILL.md`
+
+- **What happened:** I wrote a phase gate whose documentation assertion was `! git grep -q "..." -- bin/uv-manager`,
+  inside a `set -eu` script. POSIX exempts a `!`-prefixed pipeline from `set -e`, so a failing
+  assertion neither aborts the script nor affects its status: `sh -c 'set -e; ! true; echo REACHED'`
+  prints `REACHED` and **exits 0**. The gate appeared red only because a later drive failed. Had the
+  code landed and the comment not, that gate would have gone green with the phase item unmet. I found
+  it by noticing the drive output printed at all, which it should not have if the earlier assertion had
+  aborted — not by running the gate, which is what the step instructs.
+- **Skill cause:** Step 6 is thorough about gates that are *inert because the post-condition already
+  holds* and about YAML mangling, and it gives one worked example (a pathspec interpolated from a
+  variable, word-split away under `zsh`). It says nothing about assertions that are inert because of
+  shell semantics, and its prescribed check — run the gate, confirm it is red — cannot detect this
+  class, because a multi-clause gate is red for whatever clause does work. The failure is strictly
+  worse than the one the step does cover: an inert `!` assertion goes green when the work is skipped.
+- **Recommended fix:** add to Step 6, beside the literal-pathspec rule: never write a gate assertion as
+  `! cmd`; use `if cmd; then echo "FAIL: …" >&2; exit 1; fi`, which also names the failure. Extend the
+  "read the failure output" instruction to "confirm the gate failed on the *first* unmet clause" —
+  output appearing from a later clause means an earlier assertion did not abort. Worth a line in
+  `templates/TECH.md` too, where the `verify:` field reference lives.
+- **Confidence:** high · **Effort:** small
