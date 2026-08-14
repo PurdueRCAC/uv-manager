@@ -399,14 +399,30 @@ uvm_set_paths() {
 uvm_export_env() {
   uvm_set_paths
 
-  # mkdir -p unconditionally rather than behind a sentinel: it is a handful
-  # of metadata operations, and it repairs a tree that a scratch purge has
-  # partially removed.
-  (
-    umask 077
-    mkdir -p "${UV_CACHE_DIR}" "${UV_TOOL_DIR}" "${UV_TOOL_BIN_DIR}" \
-             "${UV_PYTHON_INSTALL_DIR}" "${UV_PYTHON_BIN_DIR}" "${uvm_neutral_bin}"
-  )
+  # Guarded, not unconditional. Resolving six directories that already exist
+  # costs a fork, an exec, and — under GNU coreutils — 25 mkdir(2) calls that
+  # all fail with EEXIST: 2 ms of a 12 ms invocation, on the path `uv run`
+  # takes inside loops that call it thousands of times, issued by every rank of
+  # a job at once against a single metadata server. Six builtin tests cost
+  # 15 us and spawn nothing.
+  #
+  # The test stays outside the subshell. Moved inside, the fork survives and a
+  # third of the saving goes with it.
+  #
+  # A missing directory is still created, under umask 077. That is the half of
+  # the old unconditional call that was load-bearing — it restores the shape of
+  # a tree a scratch purge has partially removed. It does not repair modes:
+  # mkdir -p never chmods a directory that already exists, so the property is
+  # "directories we create are 0700", not "our directories are 0700".
+  if [[ ! -d "${UV_CACHE_DIR}" || ! -d "${UV_TOOL_DIR}" || ! -d "${UV_TOOL_BIN_DIR}" \
+     || ! -d "${UV_PYTHON_INSTALL_DIR}" || ! -d "${UV_PYTHON_BIN_DIR}" \
+     || ! -d "${uvm_neutral_bin}" ]]; then
+    (
+      umask 077
+      mkdir -p "${UV_CACHE_DIR}" "${UV_TOOL_DIR}" "${UV_TOOL_BIN_DIR}" \
+               "${UV_PYTHON_INSTALL_DIR}" "${UV_PYTHON_BIN_DIR}" "${uvm_neutral_bin}"
+    )
+  fi
 
   # Both the arch-specific shim dirs (correct for this node, for anything we
   # exec) and the arch-neutral trampoline dir (correct everywhere, and what

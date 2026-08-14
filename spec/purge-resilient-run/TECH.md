@@ -1,81 +1,71 @@
 ---
 slug: purge-resilient-run
-title: "Stop paying for the state-directory mkdir on every invocation"
+title: Stop paying for the state-directory mkdir on every invocation
 kind: feature
 appetite: small
-status: planned
+status: in_progress
 branch: feature/purge-resilient-run
 base: main
-current_phase: P1
-last_updated: "2026-08-14"
+current_phase: P2
+last_updated: '2026-08-14'
 phases:
-  - id: P1
-    name: "Guard the state-directory mkdir, and invert the comment defending it"
-    status: pending
-    satisfies: [R1, R2]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: |
-      set -eu
-      if git grep -q "rather than behind a sentinel" -- bin/uv-manager; then
-        echo "FAIL: bin/uv-manager still asserts the unconditional mkdir" >&2; exit 1
-      fi
-      .agents/factory/bin/lint.sh >/dev/null
-      .agents/factory/bin/temp_root.sh --offline sh -c '
-      set -eu
-      R=$(command -v mkdir); L="$UVM_SANDBOX/log"; export R L
-      d="$UVM_SANDBOX/stub"; "$R" -p "$d"
-      cat > "$d/mkdir" <<"EOS"
-      #!/bin/sh
-      echo x >> "$L"
-      exec "$R" "$@"
-      EOS
-      chmod 0755 "$d/mkdir"; PATH="$d:$PATH"; export PATH
-      a=$(uname -m)
-      uv --version >/dev/null 2>&1
-      : > "$L"; uv --version >/dev/null
-      warm=$(wc -l < "$L" | tr -d " ")
-      chmod 0755 "$UVM_ROOT/$a/cache"; uv --version >/dev/null
-      keep=$(stat -c %a "$UVM_ROOT/$a/cache" 2>/dev/null || stat -f %Lp "$UVM_ROOT/$a/cache")
-      chmod 0700 "$UVM_ROOT/$a/cache"
-      rmdir "$UVM_ROOT/$a/tools"
-      : > "$L"; uv --version >/dev/null
-      back=$(wc -l < "$L" | tr -d " ")
-      mode=$(stat -c %a "$UVM_ROOT/$a/tools" 2>/dev/null || stat -f %Lp "$UVM_ROOT/$a/tools")
-      rmdir "$UVM_ROOT/$a/tools"; : > "$UVM_ROOT/$a/tools"
-      set +e; uv --version >/dev/null 2>&1; frc=$?; set -e
-      echo "warm=$warm kept0755=$keep restored=$back mode=$mode file-rc=$frc"
-      test "$warm" -eq 0 && test "$keep" = 755 && test "$back" -ge 1 && test "$mode" = 700 && test "$frc" -ne 0'
-  - id: P2
-    name: "Correct the four documents that assert the reversed decision"
-    status: pending
-    satisfies: [R3, R4, R5]
-    depends_on: [P1]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: |
-      set -eu
-      if git grep -q "rather than behind a sentinel" -- README.md .agents/factory/invariants.md; then
-        echo "FAIL: design note or invariant still asserts the unconditional mkdir" >&2; exit 1
-      fi
-      if git grep -q "roughly 7 ms" -- AGENTS.md README.md; then
-        echo "FAIL: stale wrapper-overhead figure" >&2; exit 1
-      fi
-      .agents/factory/bin/lint.sh >/dev/null
-      .agents/factory/bin/temp_root.sh uvm status >/dev/null
-      .agents/factory/bin/temp_root.sh --offline sh -c 'test "$(uv --version)" = "uv 9.9.9 (fixture)" && test "$(readlink "$UVM_ROOT/$(uname -m)/current")" = versions/9.9.9'
-      .agents/factory/bin/temp_root.sh --offline --arch aarch64 sh -c 'test "$(uv --version)" = "uv 9.9.9 (fixture)" && test "$(readlink "$UVM_ROOT/aarch64/current")" = versions/9.9.9'
-      .agents/factory/bin/temp_root.sh --offline --arch aarch64 sh -c 'uvm status | grep -q "^architecture:          aarch64"'
+- id: P1
+  name: Guard the state-directory mkdir, and invert the comment defending it
+  status: done
+  satisfies:
+  - R1
+  - R2
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: "set -eu\nif git grep -q \"rather than behind a sentinel\" -- bin/uv-manager;\
+    \ then\n  echo \"FAIL: bin/uv-manager still asserts the unconditional mkdir\"\
+    \ >&2; exit 1\nfi\n.agents/factory/bin/lint.sh >/dev/null\n.agents/factory/bin/temp_root.sh\
+    \ --offline sh -c '\nset -eu\nR=$(command -v mkdir); L=\"$UVM_SANDBOX/log\"; export\
+    \ R L\nd=\"$UVM_SANDBOX/stub\"; \"$R\" -p \"$d\"\ncat > \"$d/mkdir\" <<\"EOS\"\
+    \n#!/bin/sh\necho x >> \"$L\"\nexec \"$R\" \"$@\"\nEOS\nchmod 0755 \"$d/mkdir\"\
+    ; PATH=\"$d:$PATH\"; export PATH\na=$(uname -m)\nuv --version >/dev/null 2>&1\n\
+    : > \"$L\"; uv --version >/dev/null\nwarm=$(wc -l < \"$L\" | tr -d \" \")\nchmod\
+    \ 0755 \"$UVM_ROOT/$a/cache\"; uv --version >/dev/null\nkeep=$(stat -c %a \"$UVM_ROOT/$a/cache\"\
+    \ 2>/dev/null || stat -f %Lp \"$UVM_ROOT/$a/cache\")\nchmod 0700 \"$UVM_ROOT/$a/cache\"\
+    \nrmdir \"$UVM_ROOT/$a/tools\"\n: > \"$L\"; uv --version >/dev/null\nback=$(wc\
+    \ -l < \"$L\" | tr -d \" \")\nmode=$(stat -c %a \"$UVM_ROOT/$a/tools\" 2>/dev/null\
+    \ || stat -f %Lp \"$UVM_ROOT/$a/tools\")\nrmdir \"$UVM_ROOT/$a/tools\"; : > \"\
+    $UVM_ROOT/$a/tools\"\nset +e; uv --version >/dev/null 2>&1; frc=$?; set -e\necho\
+    \ \"warm=$warm kept0755=$keep restored=$back mode=$mode file-rc=$frc\"\ntest \"\
+    $warm\" -eq 0 && test \"$keep\" = 755 && test \"$back\" -ge 1 && test \"$mode\"\
+    \ = 700 && test \"$frc\" -ne 0'\n"
+- id: P2
+  name: Correct the four documents that assert the reversed decision
+  status: pending
+  satisfies:
+  - R3
+  - R4
+  - R5
+  depends_on:
+  - P1
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: "set -eu\nif git grep -q \"rather than behind a sentinel\" -- README.md\
+    \ .agents/factory/invariants.md; then\n  echo \"FAIL: design note or invariant\
+    \ still asserts the unconditional mkdir\" >&2; exit 1\nfi\nif git grep -q \"roughly\
+    \ 7 ms\" -- AGENTS.md README.md; then\n  echo \"FAIL: stale wrapper-overhead figure\"\
+    \ >&2; exit 1\nfi\n.agents/factory/bin/lint.sh >/dev/null\n.agents/factory/bin/temp_root.sh\
+    \ uvm status >/dev/null\n.agents/factory/bin/temp_root.sh --offline sh -c 'test\
+    \ \"$(uv --version)\" = \"uv 9.9.9 (fixture)\" && test \"$(readlink \"$UVM_ROOT/$(uname\
+    \ -m)/current\")\" = versions/9.9.9'\n.agents/factory/bin/temp_root.sh --offline\
+    \ --arch aarch64 sh -c 'test \"$(uv --version)\" = \"uv 9.9.9 (fixture)\" && test\
+    \ \"$(readlink \"$UVM_ROOT/aarch64/current\")\" = versions/9.9.9'\n.agents/factory/bin/temp_root.sh\
+    \ --offline --arch aarch64 sh -c 'uvm status | grep -q \"^architecture:      \
+    \    aarch64\"'\n"
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — Stop paying for the state-directory `mkdir` on every invocation
 
 The **context engine and finite-state machine** for building this feature. The YAML frontmatter above
@@ -107,14 +97,15 @@ below are the work.
 **Goal:** the warm path stops forking and exec'ing `/bin/mkdir`, while every case in which the
 unconditional call did something useful still does it.
 
-- [ ] In `uvm_export_env` (`bin/uv-manager:399-422`), wrap the existing `( umask 077; mkdir -p … )` in
+- [x] In `uvm_export_env` (`bin/uv-manager:399-422`), wrap the existing `( umask 077; mkdir -p … )` in
       a six-way `[[ -d ]]` test. **The `if` goes outside the subshell.** Inside, the fork survives and
       about a third of the saving with it — and the gate below counts `mkdir` execs, so it cannot tell
       the two apart.
-- [ ] Leave the subshell **byte-identical**. The parity case where a state path has been replaced by a
-      regular file depends on `mkdir` still being what reports it, under `set -e`.
-- [ ] Add no mode check. `mkdir -p` does not `chmod` an existing directory today; R2 pins that.
-- [ ] Rewrite the comment at `:402-404`: the measurement is the warrant, and the surviving half of the
+- [x] Leave the subshell's **commands** unchanged (reindented by two, which nesting forces). The parity
+      case where a state path has been replaced by a regular file depends on `mkdir` still being what
+      reports it, under `set -e`.
+- [x] Add no mode check. `mkdir -p` does not `chmod` an existing directory today; R2 pins that.
+- [x] Rewrite the comment at `:402-404`: the measurement is the warrant, and the surviving half of the
       old claim — a missing directory is still created, under `umask 077` — is stated. Do not reuse the
       phrase "rather than behind a sentinel"; the gate greps for it.
 - **Verify:** the gate above. Post-conditions asserted in one drive: warm intact tree issues **0**
