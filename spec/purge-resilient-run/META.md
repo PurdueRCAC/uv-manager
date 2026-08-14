@@ -128,3 +128,53 @@
   output appearing from a later clause means an earlier assertion did not abort. Worth a line in
   `templates/TECH.md` too, where the `verify:` field reference lives.
 - **Confidence:** high · **Effort:** small
+
+## F5 — The injected "Current state" diffstat is silently truncated, and it dropped the two files carrying two R-IDs
+
+`origin=uvm-review:state-injection severity=medium category=tooling status=open target=.agents/skills/uvm-review/SKILL.md`
+
+- **What happened:** the diffstat injected at skill load listed 19 file rows but its own summary line
+  read `21 files changed`. The two missing rows were `.agents/factory/invariants.md` and `AGENTS.md` —
+  the alphabetically first two, so the truncation took the head, not the tail. Those are exactly the
+  files R3 and R4 require to have been corrected. An orchestrator who curated the reviewer's inputs from
+  the injected state would have handed over a diff description asserting that neither file moved, and a
+  reviewer told the diff touches `README.md` and `bin/uv-manager` would grade R3 as two-thirds met and
+  R4 as unmet. I caught it only because the circularity of grading against a possibly-edited
+  `invariants.md` made me re-run the diffstat by hand.
+- **Skill cause:** the injection emits a diffstat with no ellipsis marker and no statement that it may
+  be elided, so it reads as complete. Nothing in Step 1 tells the orchestrator to re-derive the file
+  list, and Step 2 builds the reviewer's prompt from whatever the orchestrator believes the diff
+  contains. The failure is silent and points the wrong way — toward manufactured findings against
+  correct work.
+- **Recommended fix:** inject `git diff --name-only {base}...HEAD -- . ':(exclude)spec/'` alongside (or
+  instead of) the stat, since the file list is what the pass actually needs and it cannot be truncated
+  into looking complete. Failing that, add a line to Step 1: re-derive the changed-file list before
+  curating the reviewer prompt, and reconcile it against the injected summary's count.
+- **Confidence:** high · **Effort:** small
+
+## F6 — The mandatory human gate keys on the *location* of a finding, not on whether it is behavioral
+
+`origin=uvm-review:step-4 severity=high category=instruction status=open target=.agents/factory/review-rubric.md`
+
+- **What happened:** the only two CONFIRMED findings this cycle are inaccurate numbers in prose. One of
+  them cites `bin/uv-manager:403-404` because that is where the comment lives — inside `uvm_export_env`,
+  a high-blast-radius region. Both Step 4 and the rubric's gate section are written purely in terms of
+  what a finding *touches*, so a wrong figure in a comment fires the same mandatory
+  stop-and-get-sign-off as a leaked lock would. I had to interrupt the human to clear a gate on a
+  comment, in a cycle where two independent reviewers drove ~15 state configurations, a 40-way
+  concurrency race and 3-level re-entrancy without producing one behavioral divergence.
+- **Skill cause:** the gate's trigger is a region list and an invariant-section list, with no severity
+  or nature qualifier. That is deliberate and mostly right — the point is that a human sees anything
+  landing in the provisioning path — but the rubric also routes prose violations into scope as §12
+  findings, which are by construction located wherever the prose is. The two rules compose into a gate
+  that fires on typos. Nothing distinguishes "this finding is about code in the region" from "this
+  finding is about a comment that happens to sit in the region".
+- **Recommended fix:** qualify the trigger — a CONFIRMED finding fires the gate when it concerns the
+  *behavior* of a high-blast-radius region, or any §1/§2/§6 invariant at any severity. A finding whose
+  entire content is prose or documentation accuracy is reported at its severity and does not fire it.
+  **Marked `severity=high` because this narrows a non-negotiable gate**, so it must not be applied
+  without a human deciding it: the failure mode of getting it wrong is a behavioral defect in the
+  provisioning path shipping without sign-off, which is strictly worse than the interruption it saves.
+  The safe half can land alone — record in Step 4 that the gate may be cleared inline with the reasoning
+  written into `REVIEW.md`, which is what happened here.
+- **Confidence:** med · **Effort:** small

@@ -3,7 +3,7 @@ slug: purge-resilient-run
 title: Stop paying for the state-directory mkdir on every invocation
 kind: feature
 appetite: small
-status: in_review
+status: blocked
 branch: feature/purge-resilient-run
 base: main
 current_phase: done
@@ -61,10 +61,11 @@ phases:
     \ --offline --arch aarch64 sh -c 'uvm status | grep -q \"^architecture:      \
     \    aarch64\"'\n"
 review:
-  last_reviewed_commit: ''
-  verdict: none
-  blocked_reason: ''
-  cycle: 0
+  last_reviewed_commit: 6531a2dcca0dd6ace78d3dc6c8337b63f3c9ab23
+  verdict: changes-requested
+  blocked_reason: 'Two LOW prose findings: depth-dependent mkdir(2) constant; stale
+    7 ms in issues/uvm-bootstrap.md'
+  cycle: 1
 ---
 # TECH.md — Stop paying for the state-directory `mkdir` on every invocation
 
