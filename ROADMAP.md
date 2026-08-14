@@ -17,16 +17,51 @@ See `AGENTS.md` for why.
 
 ## Queued
 
-### A run entry point that survives a purge, at job scale
-**Seed:** [`issues/purge-resilient-run.md`](issues/purge-resilient-run.md) · `feature` · appetite big
+### Stop paying for the state-directory `mkdir` on every invocation
+**Seed:** [`issues/purge-resilient-run.md`](issues/purge-resilient-run.md) · `feature` · appetite big ·
+**adopted** as [`spec/purge-resilient-run/`](spec/purge-resilient-run/GOAL.md)
 
-`uvm doctor` finds a partially purged tree and then prints instructions for a human, which is no use
-to a compute node at 03:00 or to automation. Repair, coordinated so that one process does it and the
-rest wait, is the missing half. The same cycle owns the cost side: the wrapper's ~6.5 ms of overhead
-is about a quarter unconditional `mkdir -p`, and a ten-thousand-rank job pays that against one
-metadata server. An integrity check has to be bounded, because the one `doctor` performs is
-proportional to the number of installed files. Taken first because both halves are live operational
-gaps on production storage.
+Narrowed in flight to its hot-path half. Research established that the repair half's acceptance
+criteria could not be built as written — the oracle passed with zero implementation, and the bounded
+check promised detection nothing delivers — so repair moved to `issues/purge-tree-repair.md` with the
+evidence, and this cycle ships what the measurement supports: six `[[ -d ]]` tests replacing the
+unconditional six-directory `mkdir -p`, worth 2.0 ms of 12.0 ms and two of three warm-path forks, plus
+the documentation and invariant corrections that reversal drags in. The stamp the original scope
+assumed is dead in both forms; the layout question has a free, self-healing test and the contents
+question has no cheap one.
+
+### `uvm doctor` reports OK on the damage it exists to find
+**Seed:** [`issues/doctor-detection-gaps.md`](issues/doctor-detection-gaps.md) · `fix` · appetite medium
+
+Four pre-existing defects, each reproduced with real uv. Doctor is blind when a purge takes
+`dist-info/RECORD` — the coldest file in a distribution and an early casualty — so it prints `OK` on a
+gutted environment. A `dist-info` with no `RECORD` is not treated as damage. Advisory warnings set the
+exit status, so one receipt-less tool makes doctor exit 1 forever on a tree that works. And two of the
+three remedies it prints do not repair, while the third re-resolves latest and repoints `current` at a
+pinned site. Taken next because doctor is the command every other document points a user at, and
+because the repair cycle needs it as a detector.
+
+### The provisioning lock can be released by a process that does not hold it
+**Seed:** [`issues/lock-ownership-and-hold-time.md`](issues/lock-ownership-and-hold-time.md) · `fix` ·
+appetite medium
+
+`uvm_unlock` matches on path, never on ownership, so once a waiter breaks a lock as stale the original
+holder's unlock removes the *new* holder's directory — captured live, mutual exclusion gone. Nothing
+enforces `UVM_LOCK_TIMEOUT < UVM_LOCK_STALE`, and the inverted order makes a process break its own
+lock and exit 0. Latent on `main`, because every path needs a holder outliving the 600 s stale age,
+and a download rarely does. Sequenced here because a rebuild does, so the repair cycle would otherwise
+inherit a concurrency bug it did not create.
+
+### `uv run` rehydrates a purged tree, gated by `UVM_REPAIR`
+**Seed:** [`issues/purge-tree-repair.md`](issues/purge-tree-repair.md) · `feature` · appetite big
+
+The repair half, re-shaped around what research found. The knob stays: it fires inside `uv`/`uvx`
+after the platform key is resolved on the executing node, which makes it architecture-correct by
+construction where a bring-up subcommand — proposed and rejected during planning — would repair the
+login node's tree and leave the job's untouched. What changed is the contract. Detection has a floor
+no budget removes, since a deleted distribution and every managed interpreter leave no manifest, so
+the criteria must name what is caught and concede the rest. Cost is handled by a verification receipt
+rather than an integrity stamp. Depends on the two fixes above.
 
 ### A curl-installable bootstrap
 **Seed:** [`issues/uvm-bootstrap.md`](issues/uvm-bootstrap.md) · `feature` · appetite medium

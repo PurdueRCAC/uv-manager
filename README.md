@@ -138,7 +138,7 @@ On every invocation it:
    releases itself on signals and breaks itself when abandoned.
 
 4. **Exports the `UV_*` storage variables** and `exec`s the real binary. Because it `exec`s, exit
-   codes and signals are the real `uv`'s. The wrapper adds roughly 7 ms per invocation on top of
+   codes and signals are the real `uv`'s. The wrapper adds roughly 5 ms per invocation on top of
    `uv` itself, which matters only if you are calling it tens of thousands of times.
 
 5. **Intercepts `uv self update`**, which cannot work for an unmanaged install, turning it into a
@@ -459,8 +459,12 @@ where it is not installed gives a useful message instead of `Exec format error`.
 
 **Not overriding `XDG_CONFIG_HOME`.** Storage is the wrapper's business; resolution is not.
 
-**`mkdir -p` on every invocation** rather than behind a sentinel. It is a handful of metadata
-operations, and it repairs a tree that a purge has partially eaten.
+**`mkdir -p` behind a guard.** Running it unconditionally came first, defended as a handful of
+metadata operations. Measured, it is a fork, an exec, and — under GNU coreutils — one `EEXIST`-failing
+`mkdir(2)` per path component of every operand, to resolve six directories that already exist: roughly
+a quarter of the wrapper's own overhead, and more the deeper the scratch path, paid by every rank of
+every job. Six shell builtin tests replace it. A missing directory is still created, under
+`umask 077`, which is what the unconditional call was really protecting.
 
 ---
 

@@ -106,7 +106,7 @@ argv[0] ──► mode (uv | uvx | manager)
                    └─ everything else ─► exec the real uv
 ```
 
-The wrapper adds roughly 7 ms. That budget is real: `uv run` appears inside loops that call it
+The wrapper adds roughly 5 ms. That budget is real: `uv run` appears inside loops that call it
 thousands of times. Anything added to the hot path (a subshell, a `find`, a second `uname`) has to
 justify itself.
 

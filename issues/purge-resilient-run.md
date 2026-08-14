@@ -1,5 +1,5 @@
 ---
-status: unshaped
+status: adopted:purge-resilient-run
 kind: feature
 appetite: big
 lane: public

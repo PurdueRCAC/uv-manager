@@ -119,8 +119,14 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
 - `PATH` prepending is **idempotent**. The exported `PATH` is inherited by everything `uv` spawns, and
   anything that re-enters the wrapper would otherwise add the same three entries at every nesting
   level.
-- `mkdir -p` runs unconditionally rather than behind a sentinel: a handful of metadata operations, and
-  it repairs a tree a scratch purge has partially removed. Directories are created under `umask 077`.
+- `mkdir -p` runs behind a six-way `[[ -d ]]` guard, and the guard sits **outside** the `umask 077`
+  subshell. Unconditionally it cost a fork, an exec and — under GNU coreutils — one `EEXIST`-failing
+  `mkdir(2)` per path component of every operand, to resolve six directories that already existed; the
+  count therefore grows with the depth of `UVM_ROOT`. Moved inside the subshell, the guard keeps the
+  fork and loses a third of the saving. A missing directory is still created, under
+  `umask 077` — that is the behavior the unconditional call was protecting and it has to survive any
+  further change here. Modes are **not** repaired: `mkdir -p` never chmods an existing directory, so
+  the property is "directories we create are 0700", not "our directories are 0700".
 
 ## 9. Trampolines
 
