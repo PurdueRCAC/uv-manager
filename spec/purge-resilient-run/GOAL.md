@@ -1,180 +1,137 @@
-# GOAL — Repair a purged tree in place, at job scale
+# GOAL — Stop paying for the state-directory `mkdir` on every invocation
 
 > **Origin spec.** The *what* and *why* — the locked contract `uvm-review` grades against.
 > The *how* lives in [`PLAN.md`](PLAN.md) and [`TECH.md`](TECH.md), written by `uvm-plan`.
 
 - **slug:** purge-resilient-run
 - **kind:** feature
-- **appetite:** big
+- **appetite:** small
+
+> **Narrowed in flight, 2026-08-14.** This cycle began as "repair a purged tree in place, at job
+> scale" and carried eight criteria across repair, coordination and cost. Research
+> ([`research/00-digest.md`](research/00-digest.md)) established that three of them could not be built
+> as written, and the repair half moved to [`issues/purge-tree-repair.md`](../../issues/purge-tree-repair.md)
+> with the evidence. What remains is the half the measurement supports. The slug is historical; the
+> research record under `research/` is mostly about the deferred work and is retained because that is
+> where its evidence lives.
 
 ## Problem
 
-A scratch purge is per-file on access time, so it removes a tool environment piecemeal while uv still
-records it as installed. The banner above `uvm_doctor` (`bin/uv-manager:644`) states the consequence:
-uv "performs no integrity check on an environment it believes is installed; it will exec a half-deleted
-venv and produce an ImportError." `uvm_doctor` (`:648`) finds exactly that damage, walking every
-`dist-info/RECORD` and stating every file it lists (`:689`). What it does with the answer is print
-three commands for a human to run (`:729`). Nobody reads that from a compute node at 03:00, and
-automation cannot act on it at all. Nothing else covers the gap: `uvm_ensure_uv` (`:370`) guards only
-the uv binary, because `uvm_have` (`:265`) is one `-x` test on `${uvm_current}/uv`, and the
-unconditional `mkdir -p` in `uvm_export_env` (`:405`) restores the *shape* of the tree, not its
-contents. A user whose job has not run in thirty days gets an ImportError, not a re-provision.
+`uvm_export_env` unconditionally issues a six-directory `mkdir -p` inside a `umask 077` subshell
+(`bin/uv-manager:405-409`) on every invocation of `uv`, `uvx` and `uvm`. The comment above it
+(`:402-404`) defends the cost as "a handful of metadata operations", and `README.md:462` and
+`.agents/factory/invariants.md:122` record the same claim as a design decision and as a gate.
 
-The cost side is the same code path and pulls the other way. Measured in the factory sandbox, warm
-tree, 50 invocations, on local SSD: `uv --version` through the wrapper costs 9.6 ms against 3.1 ms for
-the real uv invoked directly, and the six-directory `mkdir -p` — with all six directories already
-present — is 2.4 ms of that. About a quarter of the wrapper's overhead accomplishes nothing on a warm
-tree. The comment at `:402` defends it as "a handful of metadata operations", which is true of one
-process; ten thousand ranks starting `uvx` at once issue those six operations ten thousand times
-against a single metadata server, in a burst, and local SSD is the optimistic case for a number that
-is charged to a parallel filesystem. Any integrity check strong enough to catch a partial purge is far
-more expensive than the `mkdir -p` whose cost is already in question — doctor's walk is proportional
-to the number of installed files — so "check before running" cannot be bolted onto the exec path as it
-stands.
+Measured, the claim is wrong by an order of magnitude in the direction that matters. The construct is
+a fork **and** an exec: `( umask 077; … )` forks, `/bin/mkdir` execs, and resolving six already-existing
+paths costs 25 `mkdir(2)` calls that all fail `EEXIST` plus six `stat`s. On a warm intact tree that is
+**2.0 ms of a 12.0 ms invocation** — 27% of the wrapper's overhead above the exec'd binary, and two of
+the three process creations on the warm path. Six `[[ -d ]]` builtin tests cost 15 µs and no forks.
 
-The audience is a user inside a batch job, or the automation that submitted it. Both have already been
-charged for the allocation by the time the ImportError appears, and neither is in a position to read
-remediation instructions and type them.
+The audience is a user inside a batch job. `uv run` appears inside loops that call it thousands of
+times, and ten thousand ranks starting at once issue those failing `mkdir(2)` calls in a burst against
+a single metadata server. Local SSD is the optimistic case; a failing `mkdir` RPC cannot be served
+from a parallel filesystem's client attribute cache, where a `stat` often can.
+
+The second half of the original claim is not a cost argument and must survive: the unconditional
+`mkdir -p` repairs the *shape* of a tree a purge has partially removed. Any guard has to keep that.
 
 ## Outcome / vision
 
-A site that opts in gets a wrapper that notices its own tree is damaged, repairs it exactly once
-across however many ranks, and proceeds to the command the user actually asked for. Ranks that did not
-win the repair wait for it rather than each re-deriving the same conclusion against the same metadata
-server. A site that does not opt in gets today's behavior, minus the metadata the wrapper currently
-spends on every invocation to no effect: the intact hot path gets cheaper whether or not repair is
-enabled.
+The wrapper stops doing metadata work that accomplishes nothing on a warm tree, and the repository
+stops asserting a cost claim its own measurement refutes. A missing state directory is still created,
+under `umask 077`, and every other behavior is byte-for-byte what it was.
 
 ## Acceptance criteria (the contract)
 
-Unless stated otherwise, each criterion is checked by a sandbox drive under
-`.agents/factory/bin/temp_root.sh`, asserting a post-condition — an exit status, a path, a line on
-stderr, a `uvm doctor` verdict. Two criteria name a substitute where a drive cannot reach.
+Each criterion is checked by a sandbox drive under `.agents/factory/bin/temp_root.sh`, except where a
+grep is named instead.
 
-- **R1** — WHILE the wrapper's state directories all exist, an invocation SHALL NOT issue the
-  six-directory `mkdir -p`; WHEN any of them is missing, it SHALL still be created, under `umask 077`.
-  *Checked by* a counting `mkdir` stub placed first on `PATH` inside the sandbox: a warm drive of
-  `uv --version` on an intact tree SHALL invoke it zero times; the same drive with one state directory
-  removed SHALL invoke it and leave the tree whole again, with mode `700`. *Reported alongside* — the
-  seed's own measurement, 50 warm invocations before and after, so the saving is a number in `PLAN.md`
-  rather than an assertion.
+- **R1** — WHILE all six state directories exist, an invocation SHALL issue no `mkdir`; WHEN any of
+  them is missing, it SHALL be created, under `umask 077`. *Checked by* a counting `mkdir` stub first
+  on `PATH` inside the sandbox: a warm drive of `uv --version` SHALL invoke it **zero** times; the same
+  drive after `rmdir` of one state directory SHALL invoke it at least once and leave that directory
+  present at mode `700`. On `main` the warm count is 1.
 
-- **R2** — WHILE `UVM_REPAIR` is unset, the wrapper SHALL run no integrity check and SHALL attempt no
-  repair. *Checked by* a drive against a deliberately damaged tree with the variable unset: the
-  wrapper SHALL exec as it does on `main`, SHALL create no lock directory, and SHALL write nothing
-  additional to stderr.
+- **R2** — Behavior SHALL be unchanged in every case where the guard and the unconditional `mkdir -p`
+  could differ. *Checked by* four drives asserting parity with `main`: a fresh tree creates all six at
+  `drwx------`; a directory left at mode `0755` is **not** re-moded (the status quo does not `chmod` an
+  existing directory, and R1 does not ask it to start); a state path replaced by a regular file
+  produces the same `mkdir: … File exists` on stderr and the same non-zero exit under `set -e`; and an
+  arch subtree deleted except `current/uv` exits 0 with all six recreated at `700`.
 
-- **R3** — WHERE `UVM_REPAIR` is set, the wrapper SHALL detect a tool environment or python install
-  that a purge has partially removed, and the detection SHALL run in time bounded independently of the
-  number of installed files. *Checked by* two sandboxes whose synthetic installed-file counts differ
-  by two orders of magnitude, asserting the per-invocation cost on an intact tree does not track the
-  count; and by a drive on a damaged tree asserting the damage is found. Any damage class the bounded
-  check cannot see SHALL be named in `README.md`, with `uvm doctor` documented as the exhaustive
-  authority — a bounded check cannot promise doctor's coverage, and the documentation must not imply
-  it does.
+- **R3** — The three places asserting that the `mkdir -p` is unconditional SHALL be corrected in the
+  same commit as the code: the comment at `bin/uv-manager:402-404`, the design note at
+  `README.md:462-463`, and `.agents/factory/invariants.md` §8. *Checked by*
+  `! git grep -q "rather than behind a sentinel" -- bin/uv-manager README.md .agents/factory/invariants.md`.
+  Whether the replacement prose earns its place is *graded by a reviewer* against `AGENTS.md`
+  § *Prose and comments* — no command decides that.
 
-- **R4** — WHEN damage is detected, the wrapper SHALL repair it to the standard `uvm doctor` reports
-  clean: uv itself, damaged tool environments, and damaged python installs — the same three remedies
-  doctor prints today. *Checked by* a drive that damages each of the three, runs the wrapper with
-  `UVM_REPAIR` set, and asserts `uvm doctor` subsequently exits 0. **This is the one criterion the
-  `--offline` fixture cannot cover**: rebuilding a tool environment or a python install means a real
-  resolution against an index, so the drive needs egress and one small real package. Say so in the
-  verification record rather than leaving a reviewer to assume the fixture covered it.
+- **R4** — The documented wrapper overhead SHALL be corrected wherever it is stated, since it falls
+  from about 7 ms to about 5 ms. *Checked by* `! git grep -q "roughly 7 ms" -- AGENTS.md README.md`.
 
-- **R5** — WHEN several processes detect the same damage concurrently, exactly one SHALL perform the
-  repair, under the `mkdir` lock discipline already in `uvm_acquire_lock` rather than `flock`; the
-  others SHALL wait for it and then re-test the repaired state, and SHALL NOT each attempt a repair of
-  their own. The early-out SHALL test the state *this* invocation needs, not merely that some repair
-  happened. *Checked by* a drive launching N concurrent invocations against one damaged sandbox tree
-  and asserting exactly one repair marker on stderr and N successful commands. Correctness on Lustre,
-  GPFS and NFS specifically is *taken on trust from* the existing lock discipline plus a real-cluster
-  drive, which the reviewer records as such — a local temp directory does not exercise those
-  filesystems.
-
-- **R6** — WHEN a repair completes, the command the user asked for SHALL run, and the wrapper's exit
-  status SHALL be that command's own. All repair output SHALL go to stderr. *Checked by* a drive
-  asserting `VER=$(uv --version)` on a damaged tree returns only the version string on stdout, with
-  repair chatter on stderr, and by a drive whose command exits 3 asserting the wrapper exits 3.
-
-- **R7** — IF a repair cannot proceed — the lock times out, or the repair itself fails — THEN the
-  wrapper SHALL report the diagnosis on stderr and exit non-zero, and SHALL NOT exec into an
-  environment it has already determined is damaged. *Checked by* a drive with `UVM_LOCK_TIMEOUT=1`
-  against a held lock, asserting a non-zero exit and a message naming the damage and the lock.
-
-- **R8** — Behavior outside the repair path SHALL be unchanged, and the new knob SHALL be documented
-  wherever the existing knobs are. *Checked by* `.agents/factory/bin/lint.sh` passing; by
-  `temp_root.sh uvm status`, `temp_root.sh --offline uv --version` and
-  `temp_root.sh --offline --arch aarch64 uvm status` reaching the same post-conditions as on `main`;
-  and by `UVM_REPAIR` appearing in the `uvm_help` heredoc, `README.md`, and
-  `etc/uv-manager.conf.example` in the same commit as the code, per the `AGENTS.md` same-commit rule.
+- **R5** — Nothing outside the guard SHALL change. *Checked by* `.agents/factory/bin/lint.sh` passing,
+  and by `temp_root.sh uvm status`, `temp_root.sh --offline uv --version` and
+  `temp_root.sh --offline --arch aarch64 uvm status` reaching the same post-conditions as on `main` —
+  same exit status, same `current` target, same version string.
 
 ## Non-goals (no-gos)
 
-- **No `uvm run` subcommand.** The request arrived in that shape, and it is the wrong one: a Globus
-  Compute endpoint runs `uvx foo`, and asking automation to opt into `uvm run uvx foo` means the
-  resilience reaches only callers who already knew they needed it. A knob on the existing dispatch
-  reaches every caller at a site that enables it, and costs no new user-facing verb.
-- **Not on by default.** `UVM_REPAIR` is opt-in. Automatic repair in the exec path spends the 7 ms
-  budget and changes what `exec` means for every caller at every site, including the ones whose
-  storage is not purged. A site that wants it everywhere sets it in the modulefile, which is a decision
-  its operator makes and can reverse.
-- **No `uvm doctor --repair` flag.** The natural manual counterpart, and a real candidate — but it is
-  additive user-facing surface that nothing in this cycle needs, since `UVM_REPAIR=1 uvm status` drives
-  the same machinery. Record it as a follow-up if the repair proves useful; do not ship it on
-  speculation.
-- **No repair of anything the wrapper does not own.** Project virtualenvs are out: `UV_PROJECT_ENVIRONMENT`
-  is deliberately left unset, so a project's `.venv` is the user's, not ours. Repair covers the arch
-  tree the wrapper created.
-- **No re-tuning of `UVM_LOCK_TIMEOUT` for ten-thousand-rank scale.** R5 makes the timeout load-bearing
-  at a scale it was not sized for, and the honest response is a measurement on a real cluster, not a
-  larger number guessed here. R7 makes the timeout's expiry a clear failure rather than a silent one;
-  that is this cycle's obligation.
-- **No committed regression test.** `issues/test-harness.md` still owns the runner and the layout, and
-  inventing a one-off here would pre-empt its decisions. R5 is precisely the concurrency assertion that
-  seed names as the hardest thing it must cover — record this cycle's cases there.
-- **The bootstrap is a separate cycle.** `uvm.sh`, `UVM_INSTALL`, and where the hosted installer stashes
-  the local wrapper belong to `issues/uvm-bootstrap.md`; the maintainer's note about `UVM_INSTALL` was
-  recorded there in this commit rather than absorbed here.
-- **No change to what the wrapper exports or how it resolves.** `XDG_CONFIG_HOME`, `UV_CONFIG_FILE`,
-  `UV_PROJECT_ENVIRONMENT`, the index variables and `TMPDIR` stay untouched.
+- **No repair, no `UVM_REPAIR`, no integrity check.** All of it moved to
+  [`issues/purge-tree-repair.md`](../../issues/purge-tree-repair.md), which is shaped and carries the
+  research. This cycle adds no knob, no subcommand and no new user-facing surface at all.
+- **No stamp or sentinel file.** Measured against six `[[ -d ]]` tests it saves 12 µs — one part in
+  nine hundred of an invocation — and it fails R1's second clause by construction: a stamp records
+  that the layout was correct once, and a purge that removes a directory does not remove the stamp.
+  The drive with `bin/shims` removed leaves the tree broken.
+- **No mode repair.** `mkdir -p` does not `chmod` an existing directory, so the property today is
+  "directories we create are 0700", never "our directories are 0700". R2 pins the existing behavior
+  rather than improving it; changing it is a separate decision.
+- **No changes to `uvm_doctor`, to the lock, or to `uvm_set_paths`' purity.** The first two have their
+  own seeds ([`doctor-detection-gaps`](../../issues/doctor-detection-gaps.md),
+  [`lock-ownership-and-hold-time`](../../issues/lock-ownership-and-hold-time.md)).
+- **No further hot-path work.** After the guard, the warm path execs `uname -m` and nothing else the
+  wrapper controls. The largest remaining item is the `#!/usr/bin/env bash` shebang's extra exec at
+  ~1.05 ms, which cannot be traded away because bash is not at a fixed path across cluster images.
+- **No committed regression test.** [`issues/test-harness.md`](../../issues/test-harness.md) still owns
+  the runner; R1's counting-stub drive is a case that harness must cover.
 
 ## Clarifications
 
-- **Q:** Is the entry point a new `uvm run` subcommand, a knob on the existing dispatch, or automatic
-  on the `uv`/`uvx` path? — **A:** A knob, `UVM_REPAIR`, off by default. A new subcommand only helps
-  callers who adopt it, which excludes the unattended endpoint that motivates the work; automatic
-  everywhere spends the hot-path budget and changes `exec` semantics for sites that do not need it
-  (resolved 2026-08-09).
-- **Q:** How far does the repair go when it fires? — **A:** As far as `uvm doctor` detects: uv itself,
-  damaged tool environments, damaged python installs. The seed's motivating failure is an ImportError
-  from a half-deleted tool venv, so a repair that stopped at the uv binary would leave the case that
-  justified the cycle unfixed. The cost is that a user who typed `uv --version` on a badly purged tree
-  may wait for reinstalls they did not ask for — acceptable, because they opted in and the alternative
-  is the ImportError (resolved 2026-08-09).
-- **Q:** Is the unconditional `mkdir -p` in this cycle or its own? — **A:** In this cycle. It is not
-  merely adjacent: whatever sentinel makes the `mkdir` conditional is the same class of cheap on-disk
-  marker R3's bounded check needs, and splitting them would have the second cycle rework the first's
-  mechanism. R1 keeps the property the current comment claims for it — a missing directory is still
-  recreated (resolved 2026-08-09).
-- **Q:** Should the knob be named something other than `UVM_REPAIR`? — **A:** `UVM_REPAIR` unless
-  `/uvm-plan` finds a collision or a clearer name; it matches the existing `UVM_*` knobs and it is
-  documented surface, so the GOAL names it rather than leaving the contract to reference an unnamed
-  variable. A rename during planning needs sign-off, not silence (resolved 2026-08-09).
-- **Q:** `ROADMAP.md` sequences this cycle first. Does promoting it now override any recorded
-  ordering? — **A:** No. It is the head of the queue, and `issues/test-harness.md` is sequenced *below*
-  it, so the missing harness is a non-goal here rather than a violated dependency (resolved
-  2026-08-09).
+- **Q:** The GOAL previously recorded, resolved, that R1's sentinel and R3's marker were one mechanism.
+  Does that hold? — **A:** No, and it is **vacated** rather than amended: both halves are gone. The
+  layout question has a free, authoritative, self-healing test in `[[ -d ]]`, and the contents question
+  moved to another cycle. Measurement showed the stamp buys 12 µs and breaks the repair clause
+  (resolved 2026-08-14, on `research/01-hot-path-cost.md` and the adversarial re-measurement in
+  `research/00-digest.md`).
+- **Q:** Where must the guard sit? — **A:** **Outside** `( umask 077; … )`. A guard inside keeps the
+  fork and gives away roughly a third of the saving, and R1's exec-counting gate cannot tell the
+  difference — so the placement is part of the contract, not an implementation detail
+  (resolved 2026-08-14).
+- **Q:** Does the same-commit rule reach `AGENTS.md` and `.agents/factory/invariants.md`? — **A:** It
+  must here. `invariants.md` is what `uvm-review` grades against, so leaving §8 asserting the old
+  decision would make the correct implementation an auto-CRITICAL violation inside a high-blast-radius
+  region. The rule as written names only four user-facing files; that gap is recorded as a harness
+  finding in [`META.md`](META.md) F2 (resolved 2026-08-14).
+- **Q:** Does `AGENTS.md` assert the unconditional `mkdir`, as an earlier pass claimed? — **A:** No.
+  `git grep` finds no such claim there; `invariants.md:122` is a derived bullet with no counterpart,
+  which is pre-existing lockstep drift in the direction the rule says loses. `AGENTS.md`'s obligation
+  here is only the stale 7 ms figure at `:109` (resolved 2026-08-14).
+- **Q:** Do the GOAL's original figures (9.6 / 3.1 / 2.4 ms) stand? — **A:** Not as absolutes; they
+  varied with fixture and method across four independent measurements. The reproducible statement is
+  ~2.0 ms saved, wrapper overhead above the exec'd binary falling from ~7 ms to ~5 ms, and two of three
+  warm-path process creations removed. All macOS on APFS; the cluster figure is unmeasured and the two
+  sources of error run in opposite directions (resolved 2026-08-14).
 
 ## Related materials
 
 - Seed: [`issues/purge-resilient-run.md`](../../issues/purge-resilient-run.md)
-- Sibling cycle: [`issues/uvm-bootstrap.md`](../../issues/uvm-bootstrap.md) — one story for automation.
-  The Anvil MEP endpoint may need to bootstrap the wrapper *and* face a tree purged since the user's
-  last run, in the same invocation.
-- Deferred verification: [`issues/test-harness.md`](../../issues/test-harness.md).
-- High-risk regions this cycle touches, per `AGENTS.md`: `uvm_export_env` / `uvm_set_paths` (R1),
-  `uvm_acquire_lock` / `uvm_unlock` (R5, R7), `uvm_install` / `uvm_point_current` (R4), and the
-  dispatch tail (R6).
-- The code the criteria name: `uvm_export_env` (`bin/uv-manager:399`), `uvm_doctor` and its
-  remediation text (`:644`, `:729`), `uvm_have` (`:265`), `uvm_ensure_uv` (`:370`), the lock timeout
-  (`:233`).
+- Deferred out of this cycle: [`issues/purge-tree-repair.md`](../../issues/purge-tree-repair.md),
+  [`issues/doctor-detection-gaps.md`](../../issues/doctor-detection-gaps.md),
+  [`issues/lock-ownership-and-hold-time.md`](../../issues/lock-ownership-and-hold-time.md)
+- Backing research: [`research/00-digest.md`](research/00-digest.md), and
+  [`research/01-hot-path-cost.md`](research/01-hot-path-cost.md) and
+  [`research/06-surface-and-docs.md`](research/06-surface-and-docs.md) for this cycle specifically.
+- `.agents/factory/invariants.md` §8 (the bullet this cycle rewrites) and §10 (the portability floor —
+  the guard must parse and run under bash 3.2). `uvm_export_env` / `uvm_set_paths` is a high-risk
+  region in `AGENTS.md`.
