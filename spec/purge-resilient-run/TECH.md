@@ -3,7 +3,7 @@ slug: purge-resilient-run
 title: Stop paying for the state-directory mkdir on every invocation
 kind: feature
 appetite: small
-status: in_review
+status: done
 branch: feature/purge-resilient-run
 base: main
 current_phase: done
@@ -68,8 +68,7 @@ phases:
 review:
   last_reviewed_commit: 6782b0383d301473964f05eb908d5f6dafe50759
   verdict: approved
-  blocked_reason: 'Two LOW prose findings: depth-dependent mkdir(2) constant; stale
-    7 ms in issues/uvm-bootstrap.md'
+  blocked_reason: ''
   cycle: 2
 ---
 # TECH.md — Stop paying for the state-directory `mkdir` on every invocation
