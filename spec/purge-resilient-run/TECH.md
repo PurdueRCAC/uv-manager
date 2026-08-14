@@ -3,7 +3,7 @@ slug: purge-resilient-run
 title: Stop paying for the state-directory mkdir on every invocation
 kind: feature
 appetite: small
-status: blocked
+status: in_review
 branch: feature/purge-resilient-run
 base: main
 current_phase: done
@@ -50,16 +50,21 @@ phases:
   hill: uphill
   verify: "set -eu\nif git grep -q \"rather than behind a sentinel\" -- README.md\
     \ .agents/factory/invariants.md; then\n  echo \"FAIL: design note or invariant\
-    \ still asserts the unconditional mkdir\" >&2; exit 1\nfi\nif git grep -q \"roughly\
-    \ 7 ms\" -- AGENTS.md README.md; then\n  echo \"FAIL: stale wrapper-overhead figure\"\
-    \ >&2; exit 1\nfi\n.agents/factory/bin/lint.sh >/dev/null\n.agents/factory/bin/temp_root.sh\
-    \ uvm status >/dev/null\n.agents/factory/bin/temp_root.sh --offline sh -c 'test\
-    \ \"$(uv --version)\" = \"uv 9.9.9 (fixture)\" && test \"$(readlink \"$UVM_ROOT/$(uname\
-    \ -m)/current\")\" = versions/9.9.9'\n.agents/factory/bin/temp_root.sh --offline\
-    \ --arch aarch64 sh -c 'test \"$(uv --version)\" = \"uv 9.9.9 (fixture)\" && test\
-    \ \"$(readlink \"$UVM_ROOT/aarch64/current\")\" = versions/9.9.9'\n.agents/factory/bin/temp_root.sh\
+    \ still asserts the unconditional mkdir\" >&2; exit 1\nfi\nif git grep -q \"twenty-five\"\
+    \ -- README.md .agents/factory/invariants.md; then\n  echo \"FAIL: depth-dependent\
+    \ mkdir(2) count restated as a constant\" >&2; exit 1\nfi\nif git grep -q \"25\
+    \ mkdir(2)\" -- bin/uv-manager; then\n  echo \"FAIL: depth-dependent mkdir(2)\
+    \ count restated as a constant\" >&2; exit 1\nfi\nif git grep -q \"7 ms\" -- .\
+    \ ':(exclude)spec/' ':(exclude)issues/purge-resilient-run.md'; then\n  echo \"\
+    FAIL: stale wrapper-overhead figure outside the retired seed\" >&2; exit 1\nfi\n\
+    .agents/factory/bin/lint.sh >/dev/null\n.agents/factory/bin/temp_root.sh uvm status\
+    \ >/dev/null\n.agents/factory/bin/temp_root.sh --offline sh -c 'test \"$(uv --version)\"\
+    \ = \"uv 9.9.9 (fixture)\" && test \"$(readlink \"$UVM_ROOT/$(uname -m)/current\"\
+    )\" = versions/9.9.9'\n.agents/factory/bin/temp_root.sh --offline --arch aarch64\
+    \ sh -c 'test \"$(uv --version)\" = \"uv 9.9.9 (fixture)\" && test \"$(readlink\
+    \ \"$UVM_ROOT/aarch64/current\")\" = versions/9.9.9'\n.agents/factory/bin/temp_root.sh\
     \ --offline --arch aarch64 sh -c 'uvm status | grep -q \"^architecture:      \
-    \    aarch64\"'\n"
+    \    aarch64\"'"
 review:
   last_reviewed_commit: 6531a2dcca0dd6ace78d3dc6c8337b63f3c9ab23
   verdict: changes-requested
@@ -134,16 +139,34 @@ costs 7 ms.
 - [x] `AGENTS.md:109` and `README.md:141` — replace "roughly 7 ms". State the wrapper's overhead above
       the exec'd binary as about 5 ms.
 - [x] State no cluster number anywhere. Every measurement is macOS on APFS; the figure that transfers
-      is the syscall reduction (25 `EEXIST`-failing `mkdir(2)` plus 6 stats, down to 6 stats), not the
-      milliseconds. See `PLAN.md` §5.
-- [x] Leave `ROADMAP.md` and `issues/` alone — already updated when the cycle was narrowed.
-- **Verify:** the gate above — both scoped greps clean, `lint.sh`, and the three baseline drives
-  asserting `uv 9.9.9 (fixture)` and `current -> versions/9.9.9` on both the native and the `aarch64`
-  key, rather than exit 0 alone. Pathspecs are literal: the research briefs under `spec/` quote the old
-  text verbatim, so an unscoped grep would never go green.
+      is the syscall reduction — one `EEXIST`-failing `mkdir(2)` per path component of every operand,
+      down to six builtin tests — not the milliseconds. See `PLAN.md` §5.
+- [x] Leave `ROADMAP.md` alone — already updated when the cycle was narrowed. **Amended in cycle 2:**
+      `issues/` is no longer exempt; see the F2 item below.
+
+**Cycle-2 remediation (review findings F1, F2).**
+
+- [x] **F1** — the replacement prose stated "25 `mkdir(2)` calls" as a per-invocation constant, but GNU
+      `mkdir -p` issues one per path component per operand, so the count is `6c+13` for a root of `c`
+      components and 25 holds only at `c = 2`. Corrected at all three sites to the per-component rate,
+      which also says the thing that transfers to a cluster: a deep scratch path costs more, not less.
+      `.agents/factory/invariants.md` had additionally dropped the "under GNU coreutils" qualifier the
+      other two sites carry; restored.
+- [x] **F2** — R4 says "wherever it is stated", but the gate was scoped to `AGENTS.md README.md` and so
+      could not see `issues/uvm-bootstrap.md:86`, a seed that `/uvm-roadmap` will **not** retire on
+      merge. Corrected to 5 ms. The two hits in `issues/purge-resilient-run.md` are left: that seed is
+      `adopted:` and is deleted when this cycle lands, and the retuned gate excludes it by literal
+      pathspec rather than pretending it does not exist.
+- **Verify:** the gate above, retuned in cycle 2 from two greps to four. The new clauses are the
+  ones the findings prove were missing: no constant call-count in the script, the README or the
+  invariant, and **no `7 ms` anywhere outside `spec/` and the retired seed** — the repository-wide form
+  R4's "wherever it is stated" always meant. Proven red before the fix on clause 2 (the first unmet
+  clause, not an incidental later one) and green after, both through `run_verify.py` so the string
+  executed is the one the YAML stores, under `/bin/sh`.
 - **Inspection-only:** whether the rewritten design note and invariant bullet read like the rest of the
   file. No command decides that.
-- **Touches:** `README.md`, `.agents/factory/invariants.md`, `AGENTS.md`.
+- **Touches:** `README.md`, `.agents/factory/invariants.md`, `AGENTS.md`, and — from cycle 2 —
+  `bin/uv-manager` (comment only) and `issues/uvm-bootstrap.md`.
 
 ---
 

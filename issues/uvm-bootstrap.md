@@ -83,7 +83,7 @@ Open questions for shaping, each with a real trade-off:
   that property.
 - **Whether "a wrapper around the wrapper" is really a process in the exec path.** The dispatch tail
   `exec`s so that signals, exit codes and process accounting are the real uv's; interposing another
-  shell costs a fork against a 7 ms budget and has to preserve those semantics.
+  shell costs a fork against a 5 ms budget and has to preserve those semantics.
 - **Where it is served from.** The repository is `PurdueRCAC/uv-manager`. A raw-content URL pins to a
   branch and changes under users; a release asset pins to a tag and needs the release process to
   publish it. `/uvm-release` would grow a step either way.

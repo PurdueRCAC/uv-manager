@@ -400,11 +400,12 @@ uvm_export_env() {
   uvm_set_paths
 
   # Guarded, not unconditional. Resolving six directories that already exist
-  # costs a fork, an exec, and — under GNU coreutils — 25 mkdir(2) calls that
-  # all fail with EEXIST: 2 ms of a 12 ms invocation, on the path `uv run`
-  # takes inside loops that call it thousands of times, issued by every rank of
-  # a job at once against a single metadata server. Six builtin tests cost
-  # 15 us and spawn nothing.
+  # costs a fork, an exec, and — under GNU coreutils — one EEXIST-failing
+  # mkdir(2) per path component of every operand, so the syscall count grows
+  # with the depth of UVM_ROOT and a scratch path is deep. Measured at 2 ms of
+  # a 12 ms invocation, on the path `uv run` takes inside loops that call it
+  # thousands of times, issued by every rank of a job at once against a single
+  # metadata server. Six builtin tests cost 15 us and spawn nothing.
   #
   # The test stays outside the subshell. Moved inside, the fork survives and a
   # third of the saving goes with it.

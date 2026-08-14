@@ -460,11 +460,11 @@ where it is not installed gives a useful message instead of `Exec format error`.
 **Not overriding `XDG_CONFIG_HOME`.** Storage is the wrapper's business; resolution is not.
 
 **`mkdir -p` behind a guard.** Running it unconditionally came first, defended as a handful of
-metadata operations. Measured, it is a fork, an exec, and — under GNU coreutils — twenty-five
-`mkdir(2)` calls that all fail `EEXIST`, to resolve six directories that already exist: roughly a
-quarter of the wrapper's own overhead, paid by every rank of every job. Six shell builtin tests
-replace it. A missing directory is still created, under `umask 077`, which is what the unconditional
-call was really protecting.
+metadata operations. Measured, it is a fork, an exec, and — under GNU coreutils — one `EEXIST`-failing
+`mkdir(2)` per path component of every operand, to resolve six directories that already exist: roughly
+a quarter of the wrapper's own overhead, and more the deeper the scratch path, paid by every rank of
+every job. Six shell builtin tests replace it. A missing directory is still created, under
+`umask 077`, which is what the unconditional call was really protecting.
 
 ---
 

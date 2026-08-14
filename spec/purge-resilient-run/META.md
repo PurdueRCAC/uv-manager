@@ -178,3 +178,30 @@
   The safe half can land alone — record in Step 4 that the gate may be cleared inline with the reasoning
   written into `REVIEW.md`, which is what happened here.
 - **Confidence:** med · **Effort:** small
+
+## F7 — Nothing checks a gate's pathspec against the quantifier of the requirement it gates
+
+`origin=uvm-build:P2 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-plan/SKILL.md`
+
+- **What happened:** R4 reads "SHALL be corrected **wherever it is stated**" and its gate was
+  `! git grep -q "roughly 7 ms" -- AGENTS.md README.md`. Two literal paths against an unbounded
+  quantifier. The gate went green while a live `7 ms` sat in `issues/uvm-bootstrap.md:86`, a seed that
+  is *not* deleted on merge — and the same build edited that very file nine lines' worth, so it was not
+  even out of sight. Both review reviewers found it independently; no gate could have. The
+  cycle-2 retune is the repository-wide form with two literal exclusions, which is what the criterion
+  meant from the start.
+- **Skill cause:** `uvm-plan` Step 6's gate-authoring guidance is entirely about gates that are *inert*
+  — the `!`-prefix trap (F4), the `zsh` pathspec collapse, post-conditions that already hold. All three
+  are failures of the assertion. This is a failure of the assertion's *scope*: the command works
+  perfectly and proves a strictly smaller claim than the criterion makes. Narrowing is the natural
+  thing to write, too, because the author knows which files they touched, and a repository-wide grep
+  trips over `spec/` quoting the old text — so the path of least resistance is to enumerate, and
+  nothing pushes back.
+- **Recommended fix:** add a clause to Step 6: when a criterion is universally quantified ("wherever",
+  "every", "no file", "anywhere"), the gate must be quantified the same way — repository-wide with
+  **explicit exclusions**, never an enumeration of the files the author happened to edit. Each
+  exclusion is a claim needing a reason in the phase body (here: `spec/` quotes the old text verbatim;
+  `issues/purge-resilient-run.md` is deleted by `/uvm-roadmap` on merge). A useful tell for the
+  authoring pass: if the gate names fewer paths than the criterion's prose does, one of the two is
+  wrong.
+- **Confidence:** high · **Effort:** small
