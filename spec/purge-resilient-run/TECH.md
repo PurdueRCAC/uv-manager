@@ -3,10 +3,10 @@ slug: purge-resilient-run
 title: Stop paying for the state-directory mkdir on every invocation
 kind: feature
 appetite: small
-status: in_progress
+status: in_review
 branch: feature/purge-resilient-run
 base: main
-current_phase: P2
+current_phase: done
 last_updated: '2026-08-14'
 phases:
 - id: P1
@@ -38,7 +38,7 @@ phases:
     \ = 700 && test \"$frc\" -ne 0'\n"
 - id: P2
   name: Correct the four documents that assert the reversed decision
-  status: pending
+  status: done
   satisfies:
   - R3
   - R4
@@ -124,18 +124,18 @@ unconditional call did something useful still does it.
 **Goal:** no file in the repository still claims the `mkdir -p` is unconditional or that the wrapper
 costs 7 ms.
 
-- [ ] `README.md:462-463` — the design note becomes the record of a rejection **reversed by
+- [x] `README.md:462-463` — the design note becomes the record of a rejection **reversed by
       measurement**, not a deletion. This section is where the project keeps what it turned down and
       why; removing the entry would lose that.
-- [ ] `.agents/factory/invariants.md:122-123` — rewrite §8's last bullet. Not optional: this file is
+- [x] `.agents/factory/invariants.md:122-123` — rewrite §8's last bullet. Not optional: this file is
       what `/uvm-review` grades against, so leaving it would make the correct implementation an
       auto-CRITICAL §8 violation inside a high-blast-radius region.
-- [ ] `AGENTS.md:109` and `README.md:141` — replace "roughly 7 ms". State the wrapper's overhead above
+- [x] `AGENTS.md:109` and `README.md:141` — replace "roughly 7 ms". State the wrapper's overhead above
       the exec'd binary as about 5 ms.
-- [ ] State no cluster number anywhere. Every measurement is macOS on APFS; the figure that transfers
+- [x] State no cluster number anywhere. Every measurement is macOS on APFS; the figure that transfers
       is the syscall reduction (25 `EEXIST`-failing `mkdir(2)` plus 6 stats, down to 6 stats), not the
       milliseconds. See `PLAN.md` §5.
-- [ ] Leave `ROADMAP.md` and `issues/` alone — already updated when the cycle was narrowed.
+- [x] Leave `ROADMAP.md` and `issues/` alone — already updated when the cycle was narrowed.
 - **Verify:** the gate above — both scoped greps clean, `lint.sh`, and the three baseline drives
   asserting `uv 9.9.9 (fixture)` and `current -> versions/9.9.9` on both the native and the `aarch64`
   key, rather than exit 0 alone. Pathspecs are literal: the research briefs under `spec/` quote the old
