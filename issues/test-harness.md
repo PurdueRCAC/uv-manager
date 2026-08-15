@@ -59,6 +59,11 @@ were never executed.
   `mkdir` stub first on `PATH`: a warm invocation against an intact tree SHALL invoke it zero times,
   and the same invocation after one state directory is removed SHALL invoke it and leave that
   directory at mode `700`. Owed on the same terms as R3a.
+- **R3c** — The suite SHALL cover `uvm doctor`'s detection contract on a damaged tree: a `*.dist-info`
+  whose `RECORD` has been removed reported as damage with exit 1; a tool directory missing
+  `pyvenv.cfg` reported with the no-safe-repair wording; a tree whose only finding is a receipt-less
+  tool directory exiting 0; and `uvm doctor | head -1` writing nothing matching `write error` to
+  stderr. Owed on the same terms as R3a and R3b.
 - **R4** — The suite SHALL assert post-conditions on the state tree, not merely exit status.
 - **R5** — The suite SHALL run on bash 3.2 and on bash 5, and SHALL run in CI on both Linux and macOS.
 - **R6** — The suite SHALL report a coverage measurement over `bin/uv-manager`.
@@ -93,4 +98,12 @@ Open questions for shaping, each with a real trade-off:
   counts `mkdir` executions, so it is blind to whether the guard sits outside the `umask 077`
   subshell. A guard moved inside keeps the fork and about a third of the saving, and the count is
   unchanged. That placement needs an assertion of its own — timing, or a structural check.
+- **R3c is the third such debt**, from `spec/doctor-detection-gaps/GOAL.md` § *Non-goals*. Two of its
+  criteria resist the obvious test and the shape matters more than the case list. Its R5 asserts the
+  rewritten `RECORD` walk reaches the verdict `git show main:bin/uv-manager` reaches, which is a
+  moving reference: once the fix lands on `main` that comparison is vacuous, so the suite must pin a
+  fixture tree with an expected verdict rather than diff against a branch. Its R6 asserts doctor takes
+  no lock, and a before/after manifest of paths, mtimes and hashes cannot see a lock directory created
+  and removed inside the run — that needs a counting stub on `PATH`, the R3b trick, not a tree
+  comparison.
 - Found by: the maintainer, ahead of the third post-harness cycle.
