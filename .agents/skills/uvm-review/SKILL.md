@@ -156,7 +156,11 @@ light second-pass sanity check, dropping anything not backed by cited evidence. 
    requirement→evidence matrix, findings most-severe-first, human-gate triggers. **Cycle 2+
    (`review.cycle` ≥ 1): never overwrite.** Append a dated
    `## Review cycle {n} — {verdict} ({YYYY-MM-DD})` section; the file is the cumulative record. A
-   later cycle defaults to a fresh blind pass over the full spec-excluded diff; the human may instead
+   cycle whose measurements disprove or narrow an earlier cycle's finding appends a
+   `### Correction to cycle {n}` note inside its own section — what was claimed, what was measured,
+   which account supersedes — and leaves the earlier section as written; without one, a finding a
+   later cycle overturned still reads as true to whoever triages the PR months from now. A later
+   cycle defaults to a fresh blind pass over the full spec-excluded diff; the human may instead
    scope it to the remediation delta — record which mode was used, and on a scoped cycle the range and
    the graded surface. Step 2 carries the translation: a scope reaches the reviewer as a range and a
    surface, never as the findings that produced it.

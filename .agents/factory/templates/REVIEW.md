@@ -47,6 +47,12 @@ triage). Only CONFIRMED findings auto-loop to `uvm-build`.
 - **Evidence:** <the command run and what it showed>
 - **Touches invariant / requirement:** <§n or R-ID>
 
+### Correction to cycle {n}
+
+Written only when this cycle's measurements overturn or narrow an earlier cycle's finding: what that
+cycle claimed, what was measured here, which account supersedes. The earlier section stays as
+written; without this note its claim reads as current to whoever arrives later.
+
 ## Human-gate triggers
 
 Set if any CONFIRMED finding touches a high-blast-radius region (`uvm_acquire_lock`, `uvm_unlock`,

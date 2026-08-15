@@ -233,7 +233,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F9 — REVIEW.md is append-only with no way to retract a finding a later cycle disproved
-`origin=uvm-review:step-3 severity=medium category=missing-guidance status=open target=.claude/skills/uvm-review/SKILL.md`
+`origin=uvm-review:step-3 severity=medium category=missing-guidance status=applied target=.agents/skills/uvm-review/SKILL.md`
 - **What happened:** cycle 2 measured the behavior cycle 1's finding asserted and found the assertion
   too strong — the observation held, the mechanism attached to it did not. Step 3 says a later cycle
   "**never overwrites**" and appends, which is right for an audit trail, but it says nothing about a
