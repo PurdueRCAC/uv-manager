@@ -68,19 +68,21 @@ repair cycle inherits a lock it can hold for the length of a rebuild.
   pre-existing live lock still present afterwards. The pre-fix behavior is already reproduced —
   `breaking stale provisioning lock (2s old)` followed by the lock's deletion — so the gate has a
   known red state.*
-- **R4** — No lock SHALL be held across `exec`. The wrapper SHALL release before each `exec` in the
-  dispatch tail. *Checked by a sandbox drive asserting the release runs on a path that reaches `exec`,
-  and by `git grep -n 'exec "\${real_' bin/uv-manager` showing every site covered. The claim that this
-  costs the hot path nothing measurable is graded by the reviewer against the implementation — the
-  release must be a builtin test that forks nothing when no lock is held — because a 5 ms budget is
-  below what a timing drive can resolve on a shared machine.*
+- **R4** — No lock SHALL be held across `exec`. The wrapper SHALL release before each `exec` of the
+  real `uv` — the three in the dispatch tail and the one in `uvm_self_update`. *Checked by a sandbox
+  drive asserting the release runs on a path that reaches `exec`, and by
+  `git grep -n 'exec "\${real_' bin/uv-manager` showing every site covered; the census returns four
+  matches today. The claim that this costs the hot path nothing measurable is graded by the reviewer
+  against the implementation — the release must be a builtin test that forks nothing when no lock is
+  held — because a 5 ms budget is below what a timing drive can resolve on a shared machine.*
 - **R5** — The timeout message SHALL NOT advise `rmdir` without also saying how to tell an abandoned
   lock from a live one. *Checked by a sandbox drive to timeout, asserting the message names the
   discriminator — the `owner` file and the host and pid it records.*
 - **R6** — Behavior under the existing single-download hold SHALL be unchanged, and the discipline
   SHALL remain `mkdir`. *Checked by `.agents/factory/bin/temp_root.sh --offline uv --version` still
-  reporting the fixture version and leaving `current -> versions/<fixture>`, plus
-  `git grep -c flock bin/uv-manager` returning 0.*
+  reporting the fixture version and leaving `current -> versions/<fixture>`, plus a census showing no
+  `flock` is invoked — `git grep -n flock bin/uv-manager` matching nothing outside a comment, which
+  retains the rationale comment at `:172` that records why the discipline is `mkdir`.*
 
 ## Non-goals (no-gos)
 
@@ -122,6 +124,22 @@ repair cycle inherits a lock it can hold for the length of a rebuild.
   still hold? — **A:** All but one. `:165-166`, `:177-182`, `:187-189`, `:225-229` and `:234-236` are
   unmoved; the `exec` tail cited as `:854` is now `:947-953`, a line-number move only. Every defect
   reproduces as described (resolved 2026-08-15).
+- **Q:** R4 said "in the dispatch tail", but its own census matches `exec "${real_uv}" --version` in
+  `uvm_self_update` — 295 lines above the dispatch banner, and measured to leak identically. — **A:**
+  Cover all four sites; R4 now says so. The gate was right and the prose was narrow. Under R2 an
+  uncovered site is no longer a bounded leak: `exec` preserves the pid, so the heartbeat's `kill -0
+  "$$"` leash still passes after the wrapper has become the real `uv`, and the orphaned refresher keeps
+  the lock unbreakable for the length of the user's command (resolved 2026-08-15).
+- **Q:** R6's `git grep -c flock bin/uv-manager` returning 0 cannot pass — `:172` names `flock` in the
+  comment recording why the discipline is `mkdir`, so the census returns `bin/uv-manager:1`. — **A:**
+  Restated as "no `flock` invoked", matching nothing outside a comment. Found independently by two
+  briefs and confirmed at the terminal. The literal form was worse than useless:
+  `test "$(git grep -c …)" = 0` is never true even on a clean file, because `git grep -c` emits the
+  filename prefix (resolved 2026-08-15).
+- **Q:** Should a maximum refresher lifetime back up R4's guard, so an orphaned heartbeat cannot hold a
+  lock forever? — **A:** No. `uvm_unlock` reaps the refresher and R4 calls it before every `exec`. A
+  ceiling adds a counter and a documented number, and a hold that outlives it silently loses the
+  protection R2 exists to give — reintroducing the bound this cycle removes (resolved 2026-08-15).
 - **Q:** Should this be promoted before `purge-tree-repair`, to get repair benchmarks sooner? —
   **A:** No; the recorded sequencing stands. The blocking subset is narrower than the whole cycle —
   R1 and R3 are what R7 of the repair cycle strictly needs — but the maintainer chose to take the
