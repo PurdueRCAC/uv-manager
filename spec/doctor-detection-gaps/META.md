@@ -69,7 +69,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F2 — `kind: fix` and `appetite: big` select opposite research paths
-`origin=uvm-plan:step-3 severity=medium category=instruction status=open target=.claude/skills/uvm-plan/SKILL.md`
+`origin=uvm-plan:step-3 severity=medium category=instruction status=applied target=.agents/skills/uvm-plan/SKILL.md`
 - **What happened:** Step 3's first bullet skips the fan-out for "`appetite: small` / `kind: fix` /
   `skip research`" and its second runs the full fan-out for "`appetite: big`". This GOAL is `kind: fix`
   **and** `appetite: big`, so it matches both, and the two bullets prescribe opposite work. I resolved

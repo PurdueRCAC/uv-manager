@@ -76,8 +76,11 @@ neutrality. If the GOAL is fundamentally at odds with an invariant, STOP and esc
 
 ### Step 3 — Research fan-out (appetite-scaled)
 
-- **`appetite: small` / `kind: fix` / `skip research`:** skip the fan-out. Do at most a couple of
-  targeted reads yourself, and proceed to Step 4 with a lean plan; `research/` may be omitted.
+Appetite governs the depth; `kind` does not. `/uvm-feature` already folded `kind` into it, so a fix
+carrying `appetite: big` fans out like any other big change.
+
+- **`appetite: small` / `skip research`:** skip the fan-out. Do at most a couple of targeted reads
+  yourself, and proceed to Step 4 with a lean plan; `research/` may be omitted.
 
   **Exception — diagnostic fixes.** When the GOAL's root cause is *unknown*, or it explicitly requests
   diagnosis, run the full fan-out regardless of `kind`/`appetite`. For such a fix the investigation
