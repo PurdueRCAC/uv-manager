@@ -3,10 +3,10 @@ slug: doctor-detection-gaps
 title: '`uvm doctor` reports OK on the damage it exists to find'
 kind: fix
 appetite: big
-status: in_progress
+status: in_review
 branch: fix/doctor-detection-gaps
 base: main
-current_phase: P4
+current_phase: done
 last_updated: '2026-08-14'
 phases:
 - id: P1
@@ -124,7 +124,7 @@ phases:
     \ 1\nfi\n'\n"
 - id: P4
   name: State the detection floor in README rather than implying the check is exhaustive
-  status: pending
+  status: done
   satisfies:
   - R7
   depends_on:
@@ -275,17 +275,23 @@ tree instead of overriding the site's pin.
 **Satisfies:** R7 · **Depends on:** P3
 **Goal:** the document that sends users to doctor stops implying doctor sees everything.
 
-- [ ] Rewrite `README.md:416-418`. It currently enumerates four detected classes and names the
+- [x] Rewrite `README.md:416-418`. It currently enumerates four detected classes and names the
       `RECORD` walk as the mechanism, which reads as a complete list.
-- [ ] State the two facts that have to survive the edit: a distribution deleted entirely leaves no
+- [x] State the two facts that have to survive the edit: a distribution deleted entirely leaves no
       ground truth, because `uv-receipt.toml` records only the top-level request rather than the
       distributions it resolves to; and managed interpreters carry no manifest, so doctor's oracle is
       `import json, os, ssl`, which survives the removal of `email/`, `xml/` and `unittest/`.
-- [ ] Re-read the `uvm_help` doctor line and `share/modulefiles/uv/main.lua:78,92` against the
+- [x] Re-read the `uvm_help` doctor line and `share/modulefiles/uv/main.lua:78,92` against the
       behavior P1–P3 landed, and change them only if they became untrue. The same-commit rule requires
-      the check, not an edit.
-- [ ] Update the README doctor row at `:180` and the verification block at `:294` if the exit-status
-      contract from P3 invalidated either.
+      the check, not an edit. **Checked, all still true, so nothing moved:** the help line and the
+      modulefile both describe doctor as a check for a purged or damaged tree without claiming
+      completeness or an exit-status contract, and the modulefile's "run it if something that used to
+      work stops importing" is more true after P1 than before it.
+- [x] Update the README doctor row at `:180` and the verification block at `:294` if the exit-status
+      contract from P3 invalidated either. **Neither was invalidated** — the row is a one-line effect
+      description and the verification block runs doctor without asserting a status. The contract is
+      stated instead where it is actionable: beside the job-prologue advice in the rewritten bullet,
+      which is the sentence P3 made true and which is useless without knowing advisories do not fail.
 - **Verify:** the mechanical half asserts the completeness-implying sentence is gone
   (`detects what uv does not`, chosen because it lives on one line — the longer phrase
   `found by walking each distribution` wraps and `git grep` is line-based, which produced a false
@@ -293,8 +299,15 @@ tree instead of overriding the site's pin.
   `OK` and exits 0. **The other half is inspection-only:** no grep can decide whether the replacement
   prose is honest and in the project's voice. `/uvm-review` grades it against the two facts above and
   against `AGENTS.md` § *Prose and comments*, rather than treating the green gate as coverage.
-- **Touches:** `README.md`, and `bin/uv-manager` / `share/modulefiles/uv/main.lua` only if the
-  same-commit check finds them untrue.
+  Observed: the anchor was present and the gate red before the edit, absent and green after, with an
+  intact tree still reporting `OK` and exiting 0. **For the reviewer**, the replacement makes one
+  claim beyond the two required facts — that the walk now starts from the distribution rather than
+  from its manifest — which is what makes "a distribution whose `RECORD` manifest is gone" a
+  detectable class rather than a contradiction. That sentence was rewritten once during this phase
+  because the first draft still said doctor walks each distribution's `RECORD`, which would have been
+  a documented mechanism P1 had already replaced.
+- **Touches:** `README.md`. The same-commit check found `bin/uv-manager` and
+  `share/modulefiles/uv/main.lua` still true, so neither moved.
 
 ---
 
