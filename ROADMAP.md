@@ -17,19 +17,6 @@ See `AGENTS.md` for why.
 
 ## Queued
 
-### `uvm doctor` reports OK on the damage it exists to find
-**Seed:** [`issues/doctor-detection-gaps.md`](issues/doctor-detection-gaps.md) · `fix` · appetite medium ·
-**adopted** as [`spec/doctor-detection-gaps/`](spec/doctor-detection-gaps/GOAL.md)
-
-In flight. Shaping took the seed's four defects and two extra probes as written, and settled the two
-questions it left open: appetite is **big** in the GOAL, since the seed's `medium` is not a value the
-lifecycle interprets, and the fork-free `RECORD` walk stays in this cycle rather than becoming its own,
-because the criterion that probes for a missing `RECORD` rewrites that same loop. Seven criteria: the
-two new probes, an exit status that separates advice from failure, remediation text that repairs,
-the fork-free walk, a read-only assertion, and documentation of the detection floor — a deleted
-distribution and every managed interpreter leave no manifest, and this cycle concedes that rather than
-chasing it. Repair stays with `purge-tree-repair`, which reads doctor as its detector.
-
 ### The provisioning lock can be released by a process that does not hold it
 **Seed:** [`issues/lock-ownership-and-hold-time.md`](issues/lock-ownership-and-hold-time.md) · `fix` ·
 appetite medium
@@ -50,7 +37,8 @@ construction where a bring-up subcommand — proposed and rejected during planni
 login node's tree and leave the job's untouched. What changed is the contract. Detection has a floor
 no budget removes, since a deleted distribution and every managed interpreter leave no manifest, so
 the criteria must name what is caught and concede the rest. Cost is handled by a verification receipt
-rather than an integrity stamp. Depends on the two fixes above.
+rather than an integrity stamp. The detector it reads shipped in 0.5.0; what remains above it is the
+lock fix.
 
 ### A curl-installable bootstrap
 **Seed:** [`issues/uvm-bootstrap.md`](issues/uvm-bootstrap.md) · `feature` · appetite medium

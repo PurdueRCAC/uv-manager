@@ -11,8 +11,8 @@ lane: public
 
 A scratch purge is per-file on access time, so it removes a tool environment piecemeal while uv still
 records it as installed. uv performs no integrity check on an environment it believes is present; it
-execs a half-deleted venv and the user gets an `ImportError`. `uvm_doctor` finds this and prints three
-commands for a human (`bin/uv-manager:729-731`). Nobody reads that from a compute node at 03:00, and
+execs a half-deleted venv and the user gets an `ImportError`. `uvm_doctor` finds this and prints
+commands for a human (`bin/uv-manager:806-831`). Nobody reads that from a compute node at 03:00, and
 automation cannot act on it.
 
 The requirement, in the maintainer's words: put `uv run ...` in a script that launches an application
@@ -110,16 +110,18 @@ Findings from the `purge-resilient-run` research that a promotion must not redis
   `uvx` and `uvm` and nothing else, so a user typing `ruff` on a purged tree still gets the
   `ImportError`. The knob serves the stated requirement, which is about `uv run`; it does not make the
   whole tree self-healing, and the README should not imply it does.
-- **Do not use `uvm doctor`'s exit status as an acceptance oracle.** It returns 0 on a gutted
-  environment whose `RECORD` the purge also took, so a criterion written against it is satisfiable
-  with zero implementation. It also returns 1 forever on a tree with a receipt-less but working tool.
-  Both are fixed by [`issues/doctor-detection-gaps.md`](doctor-detection-gaps.md); until then, assert
-  a `RECORD`-independent post-condition — a captured manifest re-materialised, and the tool's console
-  script actually running.
-- **Sequencing.** After [`issues/doctor-detection-gaps.md`](doctor-detection-gaps.md), which supplies
-  the detector, and after [`issues/lock-ownership-and-hold-time.md`](lock-ownership-and-hold-time.md),
-  whose defects become live the moment anything holds the lock for a rebuild rather than a download.
-  Promoting this first means absorbing both.
+- **`uvm doctor`'s exit status became usable as an acceptance oracle in 0.5.0.** It used to return 0
+  on a gutted environment whose `RECORD` the purge also took, so a criterion written against it was
+  satisfiable with zero implementation, and 1 forever on a tree with a receipt-less but working tool.
+  Both are fixed: a `dist-info` with no manifest is now damage, and failures set the status where
+  advice does not. The floor below still bites, though — a distribution deleted entirely leaves
+  nothing to detect — so a criterion written only against the status concedes that class silently.
+  Pair it with a `RECORD`-independent post-condition: a captured manifest re-materialised, and the
+  tool's console script actually running.
+- **Sequencing.** The detector half is discharged; it shipped in 0.5.0. What remains is
+  [`issues/lock-ownership-and-hold-time.md`](lock-ownership-and-hold-time.md), whose defects become
+  live the moment anything holds the lock for a rebuild rather than a download. Promoting this first
+  means absorbing it.
 - Related: [`issues/uvm-bootstrap.md`](uvm-bootstrap.md) and
   [`issues/test-harness.md`](test-harness.md); R7 is the concurrency assertion that seed names as the
   hardest thing it must cover.
