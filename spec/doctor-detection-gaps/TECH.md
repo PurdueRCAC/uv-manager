@@ -3,7 +3,7 @@ slug: doctor-detection-gaps
 title: '`uvm doctor` reports OK on the damage it exists to find'
 kind: fix
 appetite: big
-status: in_review
+status: done
 branch: fix/doctor-detection-gaps
 base: main
 current_phase: done
