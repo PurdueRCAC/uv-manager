@@ -28,6 +28,9 @@
   whether or not a refresher leaked, because the refresher is a grandchild of the drive shell. The gate
   would have gone green on the one failure mode the phase can introduce. Testing it rather than reading
   it is what exposed that, which is Step 6's other instruction earning its place.
+- `run_verify.py --phase` made re-running three predecessor gates a one-liner, so checking whether a
+  new constraint had invalidated an earlier phase's gate cost nothing once the thought occurred. The
+  thought is what was missing, not the tool — see F9.
 
 ## Friction findings
 
@@ -205,5 +208,79 @@
   assertion reopens the phase.
 - **Confidence:** high · **Effort:** small
 
-**What worked well:** `run_verify.py --phase` made re-running three predecessor gates a one-liner, so
-checking for this cost nothing once the thought occurred.
+## F10 — `uvm-release`'s tag-convention paragraph cancelled itself after the first release
+`origin=harness-audit:release-skill severity=medium category=instruction status=open target=.agents/skills/uvm-release/SKILL.md`
+- **What happened:** the *Tag convention* paragraph in Argument Parsing opens "There are no tags yet,
+  so the first run establishes it" and closes "Once tags exist, follow whatever the existing ones do
+  rather than this paragraph." `git tag -l` returns `0.3.0 0.4.0 0.4.1 0.5.0`. The condition failed
+  1h46m after the paragraph was written in `33a91fb`, and four tagged releases have shipped since.
+  It is not merely inert: it points a `pre-release` run at four suffix-free tags, against the STOP a
+  few lines above it that says `pre-release` REQUIRES a suffix.
+- **Skill cause:** the paragraph was authored with a self-cancelling precondition and no mechanism
+  fires when that precondition expires. The live rules it duplicates already sit in the *Version*
+  bullet — no `v` prefix, matching `uvm_version`, strictly greater than the latest tag, not already a
+  tag — so nothing is lost by removing it.
+- **Recommended fix:** delete the paragraph. Graft its one non-duplicated clause, the rationale "so
+  `git tag -l` and `uv-manager --version` read the same", into the *Version* bullet. Net −3 lines.
+- **Confidence:** high · **Effort:** small
+
+## F11 — three scope claims in the factory's own docs are now false
+`origin=harness-audit:scope-claims severity=medium category=instruction status=open target=.agents/factory/methodology.md`
+- **What happened:** commit `bced44f` gave the operational siblings somewhere to put a finding, and
+  three sentences describing what those siblings touch were left asserting the old scope. All three
+  are false against the current files: `methodology.md` — "None touches `spec/`, the FSM, or product
+  requirements", while `/uvm-roadmap` and `/uvm-release` both now write `spec/{slug}/META.md`;
+  `.agents/skills/uvm-release/SKILL.md` — "it touches no `spec/`", four lines above its own Step 10,
+  which says to write to a cycle's `META.md`, and inside `bced44f`'s own diff;
+  `.agents/skills/uvm-harness/SKILL.md` — "`uvm-harness` is the **only** skill that writes to
+  `.agents/`", while `/uvm-roadmap`'s triage table says "Repair." for `.agents/` hits and `7342ff3`
+  did exactly that to two `SKILL.md` files.
+- **Skill cause:** the fix was applied by addition in two files, and nothing asked which existing
+  sentences the addition falsified — including one in the same diff. This is the mechanism behind
+  F4's family of inaccurate assertions, recurring in the factory's own prose rather than in
+  `invariants.md`.
+- **Recommended fix:** repair all three, naming `META.md` as the exception for `/uvm-roadmap` and
+  `/uvm-release` only, and naming both `/uvm-roadmap` and `/uvm-build` as `.agents/` writers besides
+  `/uvm-harness`. Beware the obvious rewrite of the `methodology.md` sentence: a blanket "all three
+  may append to `spec/{slug}/META.md`" licenses the meta-on-meta recursion that document forbids.
+- **Confidence:** high · **Effort:** small
+
+## F12 — `/uvm-harness` has never said no, and no step asks it to
+`origin=harness-audit:ratchet severity=medium category=missing-guidance status=open target=.agents/skills/uvm-harness/SKILL.md`
+- **What happened:** measured across all 89 commits on `main`: **zero** net-negative `.agents/`
+  commits, no file under `.agents/` has ever shrunk, and excluding the append-only ledger the totals
+  are **4287 lines added against 151 deleted**. The ledger records **53 applied, 1 deferred, 0
+  rejected** in 54 entries. Safety §6's anti-thrash memory has a branch for a fix that "repeats a
+  previously-rejected one" that has never been written to. A 98% apply rate is not a filter.
+- **Skill cause:** no step in the skill ever asks what should come *out*. Step 3 offers `reject` as an
+  option a human may pick, but nothing obliges the run to look for one, and Step 4 previews only the
+  edits that were already chosen. Note that Safety §4's "Prefer adding an **example** or a clarifying
+  sentence over a new hard rule" is *not* the cause — it prefers soft additions over hard rules, not
+  additions over deletions. The gap is an absence, not a wrong instruction.
+- **Recommended fix:** require every run to record either a rejection or a deletion candidate, and to
+  state plainly when it found neither. This **tightens** a guardrail rather than loosening one, so
+  Safety §3's "a finding that argues to loosen a guardrail is itself a warning sign" does not apply —
+  but the edit touches the applier's own safety principles, so it deserves the human's eye either way.
+- **Confidence:** high · **Effort:** medium
+
+## F13 — `harness-log.md` entries run 3x the format the file itself specifies
+`origin=harness-audit:ledger-format severity=high category=instruction status=open target=.agents/factory/harness-log.md`
+- **What happened:** the file's own header specifies one section per decision — header line, metadata
+  line, one `**Rationale:**` bullet. Measured over its 54 entries: **mean 10.1 lines, median 9, max
+  18**, roughly 3x the documented shape. Step 7 of `/uvm-harness` likewise asks for "a one-line
+  rationale". The file is now 559 lines / ~11.4k tokens, 1.99x `AGENTS.md`, the largest file in
+  `.agents/`, and Step 2 reads it **end to end** on every run — 49% of that invocation's payload.
+  Growth is ~110–143 lines per cycle.
+- **Skill cause:** the format is stated once, in the file being appended to, and no step checks a new
+  entry against it. Nothing in the loop measures the payload it is adding to.
+- **Recommended fix:** hold new entries to the documented three-line shape, and reformat the existing
+  54 in one pass (≈378 lines, ~40% off the `/uvm-harness` payload). Forward growth drops from ~10 to
+  ~3 lines per entry.
+- **GATE FLAG — this finding must not be read as licensing pruning.** Do **not** delete, age out or
+  sample entries, and do **not** relax Step 2's end-to-end read. Safety §6 is deliberately
+  asymmetric: "reverts a **recent** change" carries a recency qualifier and "repeats a
+  **previously-rejected** one" does not, so rejection history has no horizon. Compress the entries;
+  keep all 54. Doing otherwise weakens a non-negotiable gate and needs a typed human override, which
+  this finding does not supply. Marked `high` for that reason, not because the format itself is
+  urgent.
+- **Confidence:** high · **Effort:** medium
