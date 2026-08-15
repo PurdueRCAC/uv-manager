@@ -82,7 +82,8 @@ exist, follow whatever the existing ones do rather than this paragraph.
   confirm that is still true rather than assuming it.
 - **Signed tags only.** `git tag -s`, verified with `git tag -v` **before** any push.
 - **Never force-push, never rewrite `main`.** The bump is an ordinary commit on `main`.
-- **Never `rm`.** Use `del`; `git worktree remove` cleans the rehearsal.
+- **Never `rm`.** Use `del`. Tearing down the rehearsal requires `git worktree remove --force` — a
+  worktree holding the bump is refused without it — plus a `del` for the `mktemp` parent it leaves.
 - **Operational, not meta.** This skill never recurses and never records a finding unasked. Harness
   friction found here is named in the Step 10 report and recorded only on the human's say-so.
   `/uvm-harness` applies findings; it does not receive them, so it is a consumer, not a destination.
@@ -111,7 +112,10 @@ Rehearse the whole thing in isolation before any real ref moves:
 1. `dir=$(mktemp -d)` outside the repo, so it never dirties the working tree;
    `git worktree add --detach "$dir/rel" main`.
 2. In that worktree, apply Step 4 (the bump) and run the **full gate** from Step 5.
-3. `git worktree remove "$dir/rel"`. Any red → STOP and report; **nothing in the real tree moved.**
+3. `git -C "$dir/rel" status --porcelain` first, because the next command discards whatever it finds:
+   the bump and nothing else. Then `git worktree remove --force "$dir/rel"` and `del "$dir"` — an
+   uncommitted bump makes a plain `remove` exit 128, and the `mktemp` parent outlives the worktree.
+   Any red → STOP and report; **nothing in the real tree moved.**
 
 A few permission prompts may appear for commands run against the temporary worktree path. That is
 expected.

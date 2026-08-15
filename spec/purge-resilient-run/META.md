@@ -294,7 +294,7 @@
 
 ## F11 — The rehearsal teardown command cannot succeed, because the step before it mandates the modification that blocks it
 
-`origin=uvm-release:2 severity=low category=instruction status=open target=.agents/skills/uvm-release/SKILL.md`
+`origin=uvm-release:2 severity=low category=instruction status=applied target=.agents/skills/uvm-release/SKILL.md`
 
 - **What happened:** Step 2.3 says `git worktree remove "$dir/rel"`. It exited 128 —
   `fatal: '/tmp/uvm-rel.ZhRQjw/rel' contains modified or untracked files, use --force to delete it`.
