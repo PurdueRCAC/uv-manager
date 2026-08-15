@@ -3,7 +3,7 @@ slug: doctor-detection-gaps
 title: '`uvm doctor` reports OK on the damage it exists to find'
 kind: fix
 appetite: big
-status: in_review
+status: blocked
 branch: fix/doctor-detection-gaps
 base: main
 current_phase: done
@@ -146,11 +146,11 @@ phases:
     \ \"OK\"*) ;; *) echo \"FAIL: intact tree did not report OK\" >&2; exit 1 ;; esac\n\
     '\n"
 review:
-  last_reviewed_commit: 01ffcb6101b0d9bbf0515ae074ac89ca9133971b
+  last_reviewed_commit: 4208498a33b14aa8181e50ea945d033f1e892310
   verdict: changes-requested
-  blocked_reason: Remediation block leads with an idiom that exits 1 on a receipt-less
-    orphan
-  cycle: 1
+  blocked_reason: Clearing the receipt-less orphan leaves a dangling shim the block
+    never names
+  cycle: 2
 ---
 # TECH.md — `uvm doctor` reports OK on the damage it exists to find
 

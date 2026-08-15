@@ -102,3 +102,108 @@ region, and touches no architecture-partitioning, `exec`-semantics or installer-
 ## Optional completeness sub-pass (separate reviewer; may see TECH.md)
 
 Not run this cycle.
+
+---
+
+## Review cycle 2 — changes-requested (2026-08-15)
+
+- **Reviewed commit:** 4208498a33b14aa8181e50ea945d033f1e892310  ·  **Base:** main
+- **Mode:** **scoped** to the remediation delta at the human's direction, not a fresh full pass.
+  Range `01ffcb6101b0d9bbf0515ae074ac89ca9133971b..HEAD -- . ':(exclude)spec/'`.
+- **Graded surface:** one file, `bin/uv-manager`, five added lines and no deletions. The delta is
+  user-facing prose inside `uvm_doctor`'s remediation heredoc, and the prose *is* the deliverable, so
+  the rubric's file-versus-hunk rule was resolved to **the containing remediation block as a whole** —
+  is the added paragraph accurate, does it cohere with its neighbours, does the block still read true
+  top-to-bottom. The rest of `bin/uv-manager` was explicitly out of surface.
+- **Prior coverage disclosed to the reviewer:** that an earlier pass graded and verified R1–R7, and
+  nothing else. Not the findings, not their severities, not the verdict.
+
+### Verification run
+
+- `bash -n bin/uv-manager` → rc 0.
+- `.agents/factory/bin/lint.sh` → all checks pass (bash 3.2.57 parse, shellcheck on the script and on
+  `.agents/`, symlink integrity, version single-source `0.4.1`).
+- Wrapper drives through `temp_root.sh` against fabricated damaged trees.
+- Real `uv 0.12.4` under `env -i` with `HOME`, `XDG_CONFIG_HOME`, `UV_TOOL_DIR`, `UV_CACHE_DIR` and
+  `UV_TOOL_BIN_DIR` isolated under `$TMPDIR`, small pure-python wheels only. The missing-`pyvenv.cfg`
+  repair was **not** executed, by instruction: uv escapes to the base interpreter and writes outside
+  any constructible sandbox, which has already left files in this machine's Homebrew Python once.
+
+### The factual claim in the added paragraph — supported, and measured beyond the reference
+
+`04-uv-repair-idioms.md` §4 records only that `uv tool upgrade --all` exits 1 on a receipt-less
+directory. It is silent on whether the other tools are repaired, which is precisely what the delta
+asserts. Measured across three orderings on real `uv 0.12.4`, damage being a deleted `.py` file:
+
+| Orphan position | Damaged tools | rc | Damaged tools repaired |
+|---|---|---|---|
+| first (`pycowsay`) | `tqdm` | 1 | yes |
+| last (`tqdm`) | `pycowsay` | 1 | yes |
+| middle (`pycowsay`) | `cowsay` + `tqdm` | 1 | both |
+
+`Modified <tool> environment` precedes `error: Failed to upgrade … is not installed` in every case, so
+uv defers the orphan's error rather than aborting at it, independent of alphabetical position. "Exits
+1" and "says that tool is not installed" match verbatim. `uv tool install <name>` — the second branch
+of the WARN line the paragraph points at — exits **2** with `Executable already exists`, so only the
+"Remove it" branch works and the paragraph's "clear" resolves to the branch that does.
+
+Two limits carried forward: this is `uv 0.12.4` on macOS/arm64 where the reference was 0.12.3, and
+like the reference's `--reinstall` observation it is observed behavior, not documented contract. A
+future uv that fails fast on the first unreadable receipt would silently falsify the sentence.
+
+**Correction to cycle 1's record.** That cycle's finding was titled "exits 1 **without repairing
+anything**" and reproduced against a probe holding a single tool, where "fails wholesale" and
+"repairs the rest, then fails" emit the same rc 1. The observation was right and the explanation
+attached to it was not. `04-uv-repair-idioms.md` §4 characterized the class from the same single-tool
+shape, which is where the reading came from. Anyone reading cycle 1's finding later should take the
+table above as the correct account.
+
+### Requirement → evidence matrix (delta-scoped)
+
+| R-ID | Disposition | Evidence |
+|------|-------------|----------|
+| R4 | **Re-graded from scratch** — the delta is remediation text, so this is the only criterion it can move | `uv tool upgrade --all --reinstall --no-cache` against a damaged `tqdm` with receipts intact: rc 0, deleted `tqdm/std.py` restored (57344 bytes) — verified directly rather than taken from the reference. `git grep -n 'uv-manager install' -- bin/uv-manager` → one hit at `:602`, in help text far above `uvm_doctor`; none in the block. `uvm doctor 2>err \| head -1` → stderr empty, `grep -c "write error" err` → 0, rc 1. The five added lines contain no `$` or backtick, so the unquoted heredoc renders them literally. |
+| R3 | Re-verified — the delta's whole subject is the advisory class | Sole receipt-less finding → `WARN` on stdout, `OK … (1 advisory finding(s) above)`, rc 0. The block does not print in that case, so the new paragraph only ever surfaces when something else is already broken. |
+| R2 | Not moved; coherence checked | No deletions, `bin/uv-manager:719` untouched. Confirmed the rendered block still carries the no-safe-repair wording immediately after the insertion and that the new paragraph does not contradict it. |
+| R1, R5 | Left to cycle 1 | The `RECORD` walk (`:738-767`) has no changed line; prose inside a heredoc cannot alter detection or fork count. |
+| R6 | Left to cycle 1 | The delta adds no filesystem operation. |
+| R7 | Left to cycle 1 | `README.md` is not in the delta; the diff touches one file. |
+
+### Findings
+
+#### [MEDIUM/CONFIRMED] Clearing the orphan the block recommends creates a new failure the block never mentions
+- **Where:** `bin/uv-manager:817-818` (`uvm_doctor`, remediation heredoc)
+- **Failure scenario:** a tree carries a gutted distribution (`FAIL`) and a receipt-less tool
+  (`WARN`); doctor exits 1 and prints the block. The user runs the first command, gets rc 1, reads the
+  new paragraph, removes the orphan directory, and reruns — rc 0. They then rerun doctor to confirm
+  and get a **new** `FAIL  dangling executable`, which they created by following the instructions.
+  `uv-receipt.toml` is the only record of a tool's entrypoints, so once it is gone nothing can clean
+  the shim automatically — `uv tool uninstall` reports `Removed dangling environment` with rc 0 and
+  leaves the shim standing. No route out of the advisory is shim-clean, and the block names none.
+- **Evidence:** wrapper sandbox, orphan `pycowsay` plus gutted `tqdm` — before: `WARN tool pycowsay
+  has no receipt…` + `FAIL tqdm-4.66.0 is missing 1 of 3 files`, `2 problem(s)`, rc 1. After removing
+  `$A/tools/pycowsay`: `FAIL dangling executable: …/arm64/bin/shims/pycowsay` + the tqdm line,
+  `3 problem(s)`, rc 1. The tidy route measured separately on real `uv 0.12.4`: `uv tool uninstall
+  pycowsay` → `Removed dangling environment for 'pycowsay'`, rc 0, directory gone, shim still present.
+  Mechanism confirmed in the code by the orchestrator: `uvm_set_paths` sets
+  `UV_TOOL_BIN_DIR="${uvm_root}/bin/shims"` (`:389`), which is exactly the directory the dangling-shim
+  walk scans (`:688`).
+- **Touches invariant / requirement:** R4 — "the remediation text SHALL name only idioms that repair a
+  damaged tree." The idioms named do repair; the added advice sends the user down a path that leaves
+  the tree reporting a failure it did not report before.
+- **Disclosed refutation, from the reviewer:** read strictly, "the status" means *the first command's*
+  exit status, and under that reading the sentence is true — rc 1 → 0 after clearing the orphan was
+  measured. The finding is that the other reading is the one available to someone looking at doctor's
+  output, and that the shim consequence is disclosed nowhere. Doctor is not wrong to report the
+  dangling shim; the tree really is broken.
+
+Three candidates were raised and dropped: the added lines' width (84 chars, inside the block's
+existing 79–86 range, and a style nit either way); the paragraph order placing the reassuring caveat
+before the `pyvenv.cfg` danger caveat (judgment call, the adjacent warning is unambiguous); and an
+apparent contradiction between "It repairs every other tool" and the following paragraph's "Neither
+command repairs a tool whose pyvenv.cfg is gone" (ordinary general-statement-then-exception prose).
+
+### Human-gate triggers
+
+Not triggered. The CONFIRMED finding sits in `uvm_doctor`, which is not a high-blast-radius region,
+and touches no §1, §2 or §6 invariant. No `invariants.md` §1–§11 violation was found.

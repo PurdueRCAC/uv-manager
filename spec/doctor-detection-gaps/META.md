@@ -37,6 +37,10 @@
   finding described, because the gate was written from R4's *Checked by* clause rather than from the
   change. Reopening cost less than a new phase would have, and the retuned gate covers the finding
   permanently instead of once.
+- The scoped cycle-2 translation — hand the reviewer a range, a graded surface, and the bare list of
+  R-IDs an earlier pass covered, but never the findings — worked as designed. The reviewer re-graded
+  exactly R4 and R3, declined R1/R5/R6/R7 with reasons of its own, and still found something new in
+  five lines of prose. Scoping did not become a rubber stamp.
 
 ## Friction findings
 
@@ -200,4 +204,23 @@
   either widen the fixture or downgrade the *explanation* to PLAUSIBLE while keeping the observation
   CONFIRMED. A finding whose severity or remedy turns on the mechanism needs a fixture with at least
   two of whatever the mechanism ranges over.
+- **Confidence:** high · **Effort:** small
+
+## F9 — REVIEW.md is append-only with no way to retract a finding a later cycle disproved
+`origin=uvm-review:step-3 severity=medium category=missing-guidance status=open target=.claude/skills/uvm-review/SKILL.md`
+- **What happened:** cycle 2 measured the behavior cycle 1's finding asserted and found the assertion
+  too strong — the observation held, the mechanism attached to it did not. Step 3 says a later cycle
+  "**never overwrites**" and appends, which is right for an audit trail, but it says nothing about a
+  *superseded* claim. Cycle 1's finding still stands in the file as written, in a section a reader has
+  no reason to distrust. I invented a "Correction to cycle 1's record" subsection inside cycle 2 to
+  keep the file honest; nothing in the skill or the template asked for it or says where it goes.
+- **Skill cause:** the file's two jobs collide and the skill only names one. As an audit trail it must
+  not be rewritten; as the durable account of what is true about this change it is read downstream —
+  `uvm-publish` surfaces it in the PR, and a human triaging a PLAUSIBLE finding months later reads it
+  cold. Append-only without a retraction convention means the record's most prominent claims are the
+  oldest ones, and a wrong finding that was already acted on propagates as fact.
+- **Recommended fix:** add one line to Step 3 and a stanza to `templates/REVIEW.md`: when a cycle
+  disproves or narrows an earlier cycle's finding, it appends a **`### Correction to cycle {n}`** note
+  in its own section stating what was claimed, what was measured, and which account supersedes. Never
+  edit the earlier section — the correction is the mechanism, not a rewrite.
 - **Confidence:** high · **Effort:** small
