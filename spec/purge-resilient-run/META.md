@@ -131,7 +131,7 @@
 
 ## F5 — The injected "Current state" diffstat is silently truncated, and it dropped the two files carrying two R-IDs
 
-`origin=uvm-review:state-injection severity=medium category=tooling status=open target=.agents/skills/uvm-review/SKILL.md`
+`origin=uvm-review:state-injection severity=medium category=tooling status=applied target=.agents/skills/uvm-review/SKILL.md`
 
 - **What happened:** the diffstat injected at skill load listed 19 file rows but its own summary line
   read `21 files changed`. The two missing rows were `.agents/factory/invariants.md` and `AGENTS.md` —

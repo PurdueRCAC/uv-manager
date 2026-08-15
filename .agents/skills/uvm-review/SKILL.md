@@ -9,7 +9,7 @@ description: >-
   .agents/factory/review-rubric.md).
 disable-model-invocation: true
 argument-hint: "[debate] [completeness] [status]"
-allowed-tools: Read, Grep, Glob, Write, Agent, ReportFindings, AskUserQuestion, Bash(git status *), Bash(git branch *), Bash(git log *), Bash(git diff *), Bash(git rev-parse *), Bash(git add *), Bash(git commit *), Bash(uv run *), Bash(.agents/factory/bin/*), Bash(tail *)
+allowed-tools: Read, Grep, Glob, Write, Agent, ReportFindings, AskUserQuestion, Bash(git status *), Bash(git branch *), Bash(git log *), Bash(git diff *), Bash(git rev-parse *), Bash(git add *), Bash(git commit *), Bash(uv run *), Bash(.agents/factory/bin/*)
 ---
 
 # uvm-review — adversarial QA (clean context)
@@ -41,8 +41,8 @@ Additional instructions provided with the invocation: $ARGUMENTS
 ## Current state (injected at load)
 
 - Branch: !`git branch --show-current`
-- Base: `main` (confirm from `base:` in TECH.md during Step 1).
-- Diffstat vs main: !`git diff --stat main...HEAD 2>/dev/null | tail -n 20`
+- Base: `main` (confirm from `base:` in TECH.md during Step 1; if it is not `main`, re-derive the list below).
+- Files changed vs main (spec-excluded): !`git diff --name-only main...HEAD -- . ':(exclude)spec/' 2>/dev/null || echo "(cannot diff against main; confirm base in TECH.md)"`
 
 ## Argument Parsing
 
