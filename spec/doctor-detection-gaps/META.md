@@ -211,7 +211,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F8 — the refutation protocol certifies that the bad thing happened, never that the fixture can explain it
-`origin=uvm-build:P3 severity=medium category=missing-guidance status=open target=.agents/factory/review-rubric.md`
+`origin=uvm-build:P3 severity=medium category=missing-guidance status=applied target=.agents/factory/review-rubric.md`
 - **What happened:** cycle 1's finding read "exits 1 **without repairing anything**", CONFIRMED
   against a probe holding one tool. Remediating it meant writing that claim into user-facing prose, so
   I measured it first with two tools — and `uv tool upgrade --all --reinstall --no-cache` restored the

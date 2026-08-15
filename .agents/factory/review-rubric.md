@@ -72,9 +72,16 @@ branch manufactures gaps.
 For every candidate finding, **try to disprove it first**:
 
 1. Reproduce it — run the exact command, construct the exact state, that triggers it.
-2. Reproduced with observed wrong behavior → **CONFIRMED**.
-3. Plausible by reading but not reproduced → **PLAUSIBLE** (human triage; does not auto-loop).
-4. Dissolves under scrutiny → drop it silently.
+2. Name the competing explanation for the same observation and say what in the constructed state
+   rules it out. "Repaired nothing" and "repaired the rest, then failed on one" both exit 1, and a
+   one-item fixture cannot tell them apart. When severity or remedy turns on the mechanism, build
+   at least two of whatever the mechanism ranges over.
+3. Reproduced with the explanation distinguished → **CONFIRMED**. Reproduced with the mechanism
+   still open → the observation stays CONFIRMED, narrowed to what the state showed, and the
+   mechanism goes out separately as **PLAUSIBLE**; a verdict grades the claim a remediation would
+   encode, not the exit code alone.
+4. Plausible by reading but not reproduced → **PLAUSIBLE** (human triage; does not auto-loop).
+5. Dissolves under scrutiny → drop it silently.
 
 Default to dropping when uncertain. A single-model reviewer has self-preference bias even in a fresh
 context, so lean on executed evidence, not opinion.
