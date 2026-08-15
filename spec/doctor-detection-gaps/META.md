@@ -85,7 +85,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F3 — the gate-hazard list omits the prose anchor that wraps across lines
-`origin=uvm-plan:step-6 severity=low category=missing-guidance status=open target=.claude/skills/uvm-plan/SKILL.md`
+`origin=uvm-plan:step-6 severity=low category=missing-guidance status=applied target=.agents/skills/uvm-plan/SKILL.md`
 - **What happened:** the R7 gate asserted a `README.md` sentence was gone via
   `git grep -q 'found by walking each distribution'`. That phrase wraps across two lines in the file
   and `git grep` is line-based, so the gate reported the post-condition met while the sentence was

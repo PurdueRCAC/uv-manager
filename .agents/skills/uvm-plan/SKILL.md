@@ -173,7 +173,11 @@ post-condition the phase has not yet delivered must exit **non-zero**; one that 
 until proven otherwise, and will still be inert when `/uvm-build` reads its green as done. The failure
 that motivates this is silent: a census gate whose pathspec is interpolated from a variable searches
 one nonexistent path under `zsh`, which does not word-split, and reports a clean tree with thirteen
-hits in it. Write the paths literally.
+hits in it. Write the paths literally. A prose anchor fails the same way: `git grep` matches within
+a line, and `README.md` and `AGENTS.md` hard-wrap near 100 columns, so a phrase long enough to be
+unique often spans two of them and never matches — the gate asserting a sentence is gone reads green
+while the sentence is still there. Confirm the anchor matches the file as it stands before gating on
+its absence.
 
 Under `set -e`, POSIX exempts `! cmd` from errexit: `sh -c 'set -e; ! true; echo REACHED'` prints
 `REACHED` and exits 0. A `! cmd` that is the gate's last command, or a link in an `&&` chain, still
