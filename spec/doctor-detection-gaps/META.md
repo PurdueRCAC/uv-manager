@@ -181,7 +181,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F7 — the rubric grades four severities and then routes on one bit · seen again
-`origin=uvm-review:step-4 severity=medium category=instruction status=open target=.agents/factory/review-rubric.md`
+`origin=uvm-review:step-4 severity=medium category=instruction status=applied target=.agents/factory/review-rubric.md`
 - **What happened:** the pass returned exactly one finding, LOW and CONFIRMED — the ordering of a
   printed remediation block, not a defect in what it names. § *Verdict & loop* says "**CONFIRMED**
   findings → `status: blocked` … loop back to `uvm-build`" with no reference to severity, so a LOW

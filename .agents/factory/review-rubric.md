@@ -120,6 +120,13 @@ forbidden to open, so a technique recorded there is rediscovered or walked into 
 - Emit findings via `ReportFindings` (most severe first) **and** write `REVIEW.md`.
 - **CONFIRMED** findings → set `TECH.md` `status: blocked` and `review.verdict: changes-requested`
   (via `set_phase.py`), then loop back to `uvm-build`.
+- **One exception:** a CONFIRMED finding against behavior that predates the diff *and* that a
+  `GOAL.md` criterion requires preserving cannot be repaired this cycle without failing that
+  criterion — the recurring shape is a parity criterion demanding the rewritten code reach the old
+  code's verdict. Record it in `REVIEW.md` and defer it to `issues/{slug}.md` with a `ROADMAP.md`
+  entry, committed *before* `set_phase.py --reviewed-commit`, or `uvm-publish`'s staleness gate reads
+  the seed as post-review drift. The verdict is otherwise unchanged by it. If either condition
+  fails, it blocks.
 - **PLAUSIBLE** findings → surface to the human for triage; do not auto-loop.
 - Clean pass → `review.verdict: approved`; proceed to `uvm-publish`.
 - Cycle 2+ **appends** a dated `## Review cycle {n}` section to `REVIEW.md` — never overwrite an
