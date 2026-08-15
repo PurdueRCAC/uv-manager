@@ -1,5 +1,5 @@
 ---
-status: shaped
+status: adopted:lock-ownership-and-hold-time
 kind: fix
 appetite: medium
 lane: public

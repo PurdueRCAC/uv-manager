@@ -19,14 +19,18 @@ See `AGENTS.md` for why.
 
 ### The provisioning lock can be released by a process that does not hold it
 **Seed:** [`issues/lock-ownership-and-hold-time.md`](issues/lock-ownership-and-hold-time.md) · `fix` ·
-appetite medium
+appetite medium · **adopted** as
+[`spec/lock-ownership-and-hold-time/`](spec/lock-ownership-and-hold-time/GOAL.md)
 
-`uvm_unlock` matches on path, never on ownership, so once a waiter breaks a lock as stale the original
-holder's unlock removes the *new* holder's directory — captured live, mutual exclusion gone. Nothing
-enforces `UVM_LOCK_TIMEOUT < UVM_LOCK_STALE`, and the inverted order makes a process break its own
-lock and exit 0. Latent on `main`, because every path needs a holder outliving the 600 s stale age,
-and a download rarely does. Sequenced here because a rebuild does, so the repair cycle would otherwise
-inherit a concurrency bug it did not create.
+In flight. Shaping accepted the seed's six criteria largely as written — it was already `shaped`, so
+this was acceptance rather than re-negotiation — and settled the two decisions it left open. R4 takes
+the **guard** rather than a documented constraint: releasing before the dispatch tail's `exec`s costs
+a builtin test and no fork, and `purge-tree-repair` acquires later in that path by design, so the
+guard makes the next cycle safe by construction. The early-out predicate generalization goes to
+`purge-tree-repair` as its R11, being needed only once something other than provisioning takes the
+lock. Appetite rounds to **big**. The sequencing stands: the blocking subset the repair cycle strictly
+needs is narrower — R1 and R3 — but the maintainer chose to take the cycle whole and in order rather
+than split it for earlier repair benchmarks.
 
 ### `uv run` rehydrates a purged tree, gated by `UVM_REPAIR`
 **Seed:** [`issues/purge-tree-repair.md`](issues/purge-tree-repair.md) · `feature` · appetite big

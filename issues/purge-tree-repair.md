@@ -64,6 +64,15 @@ knob is unset, and nothing is spent on the second and later invocations within t
   stderr and exit non-zero rather than exec into an environment it knows is damaged.
 - **R10** — The knob's accepted values SHALL be explicit and documented; `UVM_REPAIR=0` SHALL NOT
   enable repair.
+- **R11** — `uvm_acquire_lock`'s early-out SHALL let a caller name the predicate that decides "already
+  satisfied", rather than always asking the provisioning question `uvm_have "${want}"`. R7 makes this
+  cycle the first non-provisioning caller of the lock, and a repairer that early-outs on "is some uv
+  present" skips a repair it was asked to perform. Research prototyped an optional third parameter
+  (`satisfied="${3:-uvm_have}"`, plain indirect invocation — namerefs are bash 4.3 and breach the 3.2
+  floor), which leaves every existing call site unchanged and keeps `uvm_have` the single spelling of
+  the version question. Deferred here from `spec/lock-ownership-and-hold-time/GOAL.md` § *Non-goals*,
+  on the ground that the generalization is only needed once something other than provisioning takes
+  the lock.
 
 ## Notes
 

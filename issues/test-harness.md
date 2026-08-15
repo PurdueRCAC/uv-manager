@@ -64,6 +64,13 @@ were never executed.
   `pyvenv.cfg` reported with the no-safe-repair wording; a tree whose only finding is a receipt-less
   tool directory exiting 0; and `uvm doctor | head -1` writing nothing matching `write error` to
   stderr. Owed on the same terms as R3a and R3b.
+- **R3d** — The suite SHALL cover the lock's ownership and hold-time contract: a release attempted
+  against a lock whose `owner` names another process SHALL leave that lock standing; a live holder
+  SHALL NOT be breakable as stale however long it holds; an inverted
+  `UVM_LOCK_TIMEOUT`/`UVM_LOCK_STALE` SHALL be refused; and no lock SHALL survive an `exec`. Owed on
+  the same terms as R3a through R3c, and the sharpest of the four — R3 above already names a stale
+  lock and a lock timeout, but those are single-process cases, and every defect here needs two
+  processes racing on one tree.
 - **R4** — The suite SHALL assert post-conditions on the state tree, not merely exit status.
 - **R5** — The suite SHALL run on bash 3.2 and on bash 5, and SHALL run in CI on both Linux and macOS.
 - **R6** — The suite SHALL report a coverage measurement over `bin/uv-manager`.
