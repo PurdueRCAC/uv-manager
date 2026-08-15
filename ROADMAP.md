@@ -18,15 +18,17 @@ See `AGENTS.md` for why.
 ## Queued
 
 ### `uvm doctor` reports OK on the damage it exists to find
-**Seed:** [`issues/doctor-detection-gaps.md`](issues/doctor-detection-gaps.md) · `fix` · appetite medium
+**Seed:** [`issues/doctor-detection-gaps.md`](issues/doctor-detection-gaps.md) · `fix` · appetite medium ·
+**adopted** as [`spec/doctor-detection-gaps/`](spec/doctor-detection-gaps/GOAL.md)
 
-Four pre-existing defects, each reproduced with real uv. Doctor is blind when a purge takes
-`dist-info/RECORD` — the coldest file in a distribution and an early casualty — so it prints `OK` on a
-gutted environment. A `dist-info` with no `RECORD` is not treated as damage. Advisory warnings set the
-exit status, so one receipt-less tool makes doctor exit 1 forever on a tree that works. And two of the
-three remedies it prints do not repair, while the third re-resolves latest and repoints `current` at a
-pinned site. Taken next because doctor is the command every other document points a user at, and
-because the repair cycle needs it as a detector.
+In flight. Shaping took the seed's four defects and two extra probes as written, and settled the two
+questions it left open: appetite is **big** in the GOAL, since the seed's `medium` is not a value the
+lifecycle interprets, and the fork-free `RECORD` walk stays in this cycle rather than becoming its own,
+because the criterion that probes for a missing `RECORD` rewrites that same loop. Seven criteria: the
+two new probes, an exit status that separates advice from failure, remediation text that repairs,
+the fork-free walk, a read-only assertion, and documentation of the detection floor — a deleted
+distribution and every managed interpreter leave no manifest, and this cycle concedes that rather than
+chasing it. Repair stays with `purge-tree-repair`, which reads doctor as its detector.
 
 ### The provisioning lock can be released by a process that does not hold it
 **Seed:** [`issues/lock-ownership-and-hold-time.md`](issues/lock-ownership-and-hold-time.md) · `fix` ·

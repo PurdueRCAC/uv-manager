@@ -413,9 +413,15 @@ Mitigations, in order of effectiveness:
 1. **Put `UVM_ROOT` on non-purged storage.** On Anvil that means `$PROJECT`, which is what
    RCAC's documentation already recommends for long-lived Python environments. Scratch is still
    fine for the cache alone if you want to split them.
-2. **`uv-manager doctor`** detects what uv does not: dangling shims, missing receipts, damaged
-   managed interpreters, and files missing from inside an environment, found by walking each
-   distribution's `RECORD` manifest. Reasonable to run from a job prologue for anything long-lived.
+2. **`uv-manager doctor`** looks at every installed distribution and reports the damage uv ignores:
+   dangling shims, a tool directory that lost its `pyvenv.cfg` or its receipt, a damaged managed
+   interpreter, a distribution whose `RECORD` manifest is gone, and files a surviving manifest lists
+   that are no longer on disk. Failures set the exit status and advisories do not, so a job prologue
+   can key on it. Its floor is whatever nothing on disk records. A distribution removed entirely
+   leaves no evidence, because `uv-receipt.toml` names the request — `jupyterlab` — not the 91
+   distributions uv resolved it to; a managed interpreter carries no manifest at all, so the check
+   there is whether `import json, os, ssl` still succeeds, which it does with `email/`, `xml/` and
+   `unittest/` gone. A clean report means nothing detectable is wrong, not that the tree is whole.
 3. **Prefer `uvx` over `uv tool install`.** Ephemeral environments are keyed off the cache and
    rebuild cleanly; installed ones accumulate damage.
 4. **Watch inodes.** Anvil scratch allows 1,000,000 files and community scratch 2,000,000. A

@@ -1,5 +1,5 @@
 ---
-status: shaped
+status: adopted:doctor-detection-gaps
 kind: fix
 appetite: medium
 lane: public
