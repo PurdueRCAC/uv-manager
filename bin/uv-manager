@@ -266,7 +266,7 @@ uvm_age() {
 uvm_acquire_lock() {
   local want="$1" force="$2"
   local lock="${uvm_root}/.install.lock"
-  local waited=0 age holder pid broke="" reason
+  local waited=0 age holder pid broke="" reason absent=0
   # Built before the mkdir, from expansions only. Two command substitutions
   # here left the directory standing with no owner file for 3.0 ms rather
   # than 0.10 ms, and that gap is the only interval in which a stale release
@@ -310,10 +310,18 @@ uvm_acquire_lock() {
     || die "cannot create ${uvm_root} — is ${uvm_base} writable?"
 
   while ! mkdir "${lock}" 2>/dev/null; do
-    # Distinguish contention from a real failure. If the lock is not there,
-    # mkdir failed for some other reason (permissions, quota, ENOSPC) and
-    # waiting will never help.
+    # Why mkdir failed cannot be settled by looking again: it can fail EEXIST
+    # and the holder release before this test runs, and then a lock that was
+    # merely released reads as an unwritable filesystem and the rank dies one
+    # iteration from winning. Measured at 2-4% of ranks in 64-way cold
+    # bursts, on GPFS and on APFS alike. Persistence decides it instead.
+    # Three absences in one wait is a broken mount rather than a race, and
+    # that is not a number a site tunes, so it is a literal and not another
+    # knob. The count never resets, which holds the iterations it can add
+    # to three however the loop alternates.
     if [[ ! -d "${lock}" ]]; then
+      absent=$(( absent + 1 ))
+      (( absent >= 3 )) || continue
       die "cannot create provisioning lock at ${lock} — check permissions and quota on ${uvm_base}"
     fi
 

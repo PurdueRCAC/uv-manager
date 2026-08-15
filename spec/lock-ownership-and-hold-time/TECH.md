@@ -3,10 +3,10 @@ slug: lock-ownership-and-hold-time
 title: The provisioning lock can be released by a process that does not hold it
 kind: fix
 appetite: big
-status: in_progress
+status: in_review
 branch: fix/lock-ownership-and-hold-time
 base: main
-current_phase: P7
+current_phase: done
 last_updated: '2026-08-15'
 phases:
 - id: P1
@@ -246,7 +246,7 @@ phases:
     \ then\n  echo \"FAIL: flock invoked outside a comment\" >&2; exit 1\nfi"
 - id: P7
   name: Stop misreading a released lock as a broken filesystem
-  status: pending
+  status: done
   satisfies:
   - R8
   depends_on:
@@ -576,26 +576,26 @@ answers.
 **Goal:** a failed `mkdir` whose lock is absent is a transient to retry, and only persistence across a
 bounded number of attempts reports a filesystem fault.
 
-- [ ] Add `absent=0` to the `local waited=0 age holder pid` line — the same line P6 adds `broke` to,
+- [x] Add `absent=0` to the `local waited=0 age holder pid` line — the same line P6 adds `broke` to,
       so build P6 first and this is a sequential edit rather than a conflict.
-- [ ] Replace the `[[ ! -d "${lock}" ]]` die with: increment `absent`; `continue` while
+- [x] Replace the `[[ ! -d "${lock}" ]]` die with: increment `absent`; `continue` while
       `absent < 3`; `die` with **today's message, unchanged** at the bound. The message is right when
       it is finally reached; only the evidence for reaching it changes.
-- [ ] The bound is a literal, in the style of `lock_beat`. `GOAL.md`'s non-goals forbid a new
+- [x] The bound is a literal, in the style of `lock_beat`. `GOAL.md`'s non-goals forbid a new
       environment variable, and this needs no site tuning: three consecutive absences is not a
       threshold anyone tunes, it is the difference between a race and a broken mount.
-- [ ] `absent` is **monotonic** — never reset on the lock-present branch. With P6's
+- [x] `absent` is **monotonic** — never reset on the lock-present branch. With P6's
       `[[ -d "${lock}" ]] || continue` in place, an alternation of absent-retry and successful-break
       would otherwise never reach the accounting. "No agent can produce that alternation" is the
       weaker guarantee R7 exists because someone accepted once. Monotonic bounds total iterations at
       `lock_timeout + 3`, each extra one a single `mkdir` syscall.
-- [ ] Do **not** write the retry as a bare `continue`. It would spin forever on EACCES, EDQUOT or
+- [x] Do **not** write the retry as a bare `continue`. It would spin forever on EACCES, EDQUOT or
       ENOSPC — the ordinary operational faults — turning a clean sub-second non-zero exit into a hot
       loop, which is strictly worse than the R7 defect nine lines below it.
-- [ ] Do **not** delete the `die` and do not parse errno. Deleting it stalls every rank for the full
+- [x] Do **not** delete the `die` and do not parse errno. Deleting it stalls every rank for the full
       `UVM_LOCK_TIMEOUT` on a genuinely unwritable mount and then reports the wrong fault; errno means
       parsing a locale-dependent string.
-- [ ] Overturn `invariants.md` §5's contention bullet in this commit — it states the false premise as
+- [x] Overturn `invariants.md` §5's contention bullet in this commit — it states the false premise as
       doctrine, and it is the only place the premise is written down. `AGENTS.md` never states it and
       `README.md` never mentions it, so this is one bullet in one file. The imperative survives; the
       evidence changes from one observation to persistence.
@@ -609,7 +609,21 @@ bounded number of attempts reports a filesystem fault.
   burst is red with probability `1 - 0.995^64 = 0.27`, so twenty leave a false green at
   `0.73^20 ≈ 1.6e-3`. The second drive is green today and green after — it exists so nobody satisfies
   the first by deleting the `die`.
-- **Touches:** `bin/uv-manager`, `.agents/factory/invariants.md`, `AGENTS.md`.
+- **Observed red, then green.** Red at `FAIL: 44/1280 ranks reported a permissions/quota fault on a
+  healthy filesystem` — 3.4%, above the 2.6% the brief measured and within its 2–4% band, with
+  `nonzero` also 44, so the burst lost ranks to this defect and to nothing else. Green after at
+  `misdiagnosed=0/1280 nonzero=0/1280`. The second drive held throughout: an unwritable architecture
+  directory still exits 1 in 0 s carrying `check permissions and quota`, so the three retries cost a
+  genuine fault nothing measurable.
+- **`AGENTS.md` needed no edit after all.** The checklist named it as a *Touches* file on the strength
+  of the same-commit rule, but it never stated the premise — `grep quota AGENTS.md` finds only the
+  project summary's home-directory quota. The overturn is one bullet in `invariants.md`, as the brief
+  said.
+- **The retry reads `(( absent >= 3 )) || continue`, not `(( absent < 3 )) && continue`.** The `||`
+  form leaves the statement's status zero on both paths. The `&&` form's status is the failed
+  arithmetic's when the bound is reached, and this loop runs under `set -e` in a function whose EXIT
+  trap would overwrite the exit status — the same shape that made a bare ordering test exit 0 in P4.
+- **Touches:** `bin/uv-manager`, `.agents/factory/invariants.md`.
 
 ---
 

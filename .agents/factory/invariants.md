@@ -87,8 +87,14 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
   no fork. A new `exec` site owes the same call. Under the heartbeat this stops being hygiene: `exec`
   preserves the pid, so a leaked lock's refresher keeps passing its `kill -0 "$$"` leash and nothing
   can ever break the lock.
-- Distinguish contention from failure: if the lock directory is absent after a failed `mkdir`, the
-  failure is permissions/quota/ENOSPC and waiting will never help — die with that message.
+- **Distinguish contention from failure by persistence, not by a second look.** A `mkdir` that failed
+  `EEXIST` and a holder that released before the `[[ ! -d ]]` test are indistinguishable afterwards,
+  so one absence is evidence of nothing: it reported a released lock as an unwritable filesystem for
+  2–4% of ranks in 64-way cold bursts, on GPFS and on APFS. The waiter retries, and reports the
+  permissions/quota/ENOSPC fault — with the same message — only once a literal bound of attempts has
+  each found the lock gone. The bound is a constant in the script, never an environment variable, and
+  the count never resets: a monotonic count is what stops an alternation of absent-retry and
+  successful break from evading the timeout accounting.
 - The early-out inside the wait loop must test **the version this call was asked for**. Testing "is
   some uv present" silently hands a pinned caller whatever another process was installing, which is
   the one guarantee a pin exists to provide.
