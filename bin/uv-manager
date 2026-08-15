@@ -703,10 +703,15 @@ uvm_doctor() {
       name="$(basename -- "${d%/}")"
       # Advisory, not damage: uv ignores a receipt-less directory, but whatever
       # is installed there keeps working when invoked. The line carries its own
-      # remedy because a tree with no failures prints no remediation block.
+      # remedy because a tree with no failures prints no remediation block, and
+      # the remedy is --force because the receipt is also what records the
+      # entrypoints: a plain reinstall exits 2 on the surviving shim, and
+      # deleting the directory alone strands it into a dangling-executable
+      # failure this same run would report next time.
       if [[ ! -f "${d}uv-receipt.toml" ]]; then
         findings+="WARN  tool ${name} has no receipt; uv ignores it."
-        findings+=" Remove it or reinstall by name."$'\n'
+        findings+=" Rebuild it with uv tool install --force ${name},"
+        findings+=" or delete the directory and its shim."$'\n'
         advisories=$(( advisories + 1 ))
       fi
       # pyvenv.cfg is what marks the directory as a virtualenv. Without it uv
@@ -814,8 +819,8 @@ UVM_PIN.
 
 The first command exits 1 on a tool reported above as having no receipt, and says
 that tool is not installed. It repairs every other tool before it gets there, so the
-failure is about the orphan and not the repair. Clear the orphan as its own line
-says and the status is worth reading again.
+failure is about the orphan and not the repair. Deal with that tool the way its own
+line says, then run this again.
 
 Neither command repairs a tool whose pyvenv.cfg is gone, and neither is safe to run
 against one: uv falls back to the base interpreter and writes outside this tree.

@@ -3,7 +3,7 @@ slug: doctor-detection-gaps
 title: '`uvm doctor` reports OK on the damage it exists to find'
 kind: fix
 appetite: big
-status: blocked
+status: in_review
 branch: fix/doctor-detection-gaps
 base: main
 current_phase: done
@@ -110,9 +110,12 @@ phases:
     \nfind \"$A\" -type f -exec shasum {} + | sort > \"$UVM_SANDBOX/before\"\nfind\
     \ \"$A\" | sort >> \"$UVM_SANDBOX/before\"\nout=$(uvm doctor) || { echo \"FAIL:\
     \ advisory-only tree exited non-zero\" >&2; exit 1; }\ncase \"$out\" in *receipt*)\
-    \ ;; *) echo \"FAIL: advisory line absent\" >&2; exit 1 ;; esac\nfind \"$A\" -type\
-    \ f -exec shasum {} + | sort > \"$UVM_SANDBOX/after\"\nfind \"$A\" | sort >> \"\
-    $UVM_SANDBOX/after\"\nif ! diff \"$UVM_SANDBOX/before\" \"$UVM_SANDBOX/after\"\
+    \ ;; *) echo \"FAIL: advisory line absent\" >&2; exit 1 ;; esac\ncase \"$out\"\
+    \ in *\"install --force\"*) ;; *) echo \"FAIL: advisory line omits the remedy\
+    \ that works\" >&2; exit 1 ;; esac\ncase \"$out\" in *\"and its shim\"*) ;; *)\
+    \ echo \"FAIL: advisory line does not say the shim goes too\" >&2; exit 1 ;; esac\n\
+    find \"$A\" -type f -exec shasum {} + | sort > \"$UVM_SANDBOX/after\"\nfind \"\
+    $A\" | sort >> \"$UVM_SANDBOX/after\"\nif ! diff \"$UVM_SANDBOX/before\" \"$UVM_SANDBOX/after\"\
     \ >/dev/null; then\n  echo \"FAIL: doctor wrote to the state tree\" >&2; exit\
     \ 1\nfi\nunlink \"$S/a/x.py\"\nout2=$(uvm doctor) && { echo \"FAIL: real damage\
     \ did not set the exit status\" >&2; exit 1; }\ncase \"$out2\" in *\"uv-manager\
@@ -276,6 +279,24 @@ tree instead of overriding the site's pin.
       with a single tool in the tree, where "exits 1" and "repairs nothing" are indistinguishable.
       The block therefore states the real behavior rather than warning the command is useless, which
       would have been the wrong repair and would have talked a user out of a command that works.
+- [x] **Remediation, review cycle 2.** The advisory line's own remedy was wrong in both branches, and
+      cycle 1's addition pointed a second reader at it. Measured against real `uv 0.12.4`, isolated
+      roots under `$TMPDIR`, on a directory whose receipt is gone: `uv tool install <name>` exits **2**
+      with `Executable already exists`, and `uv tool uninstall <name>` exits 0 reporting
+      `Removed dangling environment` while leaving the shim standing. The receipt is also what records
+      a tool's entrypoints, so once it is gone uv cannot clean up after itself and neither branch of
+      `Remove it or reinstall by name` leaves a tree doctor calls clean.
+
+      `uv tool install --force <name>` does: rc 0, directory rebuilt, receipt restored, and the
+      surviving shim adopted rather than collided with — measured bare-name, with no version and no
+      `--python`, which is the form a user has available once the receipt that recorded the version is
+      gone. The advisory line now names that, and names deleting the shim alongside the directory as
+      the other honest option. The remediation block's paragraph loses its promise about the status
+      and points at the advisory line instead, which is now worth pointing at.
+- [x] Same-commit check: the `uvm_help` doctor line, `README.md:417`, the modulefile at
+      `share/modulefiles/uv/main.lua:78,92` and `etc/uv-manager.conf.example` were re-read. **None
+      moved** — all four describe what doctor detects or when to run it, and none quotes a remedy
+      string. What changed here is advice, not the detection set or the exit-status contract.
 - **Verify:** post-conditions are that an advisory-only tree exits **0** with the advisory printed and
   the state tree unchanged; that adding a real failure makes it exit **1**; that the output contains
   no `uv-manager install` and does contain `--no-cache`; and that `uvm doctor | head -1` writes
@@ -291,6 +312,13 @@ tree instead of overriding the site's pin.
   before the edit and green after, both under `run_verify.py` so the folded YAML is what executed.
   The anchor sits inside one line of the block: `git grep` is line-based and this file's prose is
   hard-wrapped, which produced a false green once already while authoring P4.
+  **Retuned again in review cycle 2** with two assertions on `out`, the advisory-only tree, where the
+  advisory line is the only thing printed and therefore has to stand alone. Red before the edit on the
+  first of them, green after. The gate gets the text; the claim that the text is *true* was settled by
+  measurement against real uv and is recorded above, the same split P4 uses. The failure scenario was
+  also driven end to end in the sandbox: an orphan whose directory is deleted alone reports
+  `FAIL  dangling executable: …/bin/shims/orph` at rc 1, and the same tree with the shim deleted too
+  reports `OK`, rc 0. The old advice produced the finding; the new advice does not.
 - **Touches:** `bin/uv-manager`.
 
 ## Phase P4 — State the detection floor in `README.md`

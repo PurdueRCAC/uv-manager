@@ -124,6 +124,17 @@
   guards against actually happen once, and watch the gate catch it. `research/01` §4 records this
   lesson for fixtures ("assert that a fixture mutation actually applied"); it belongs in the skill,
   where it applies to every preservation criterion, not just this cycle's.
+- **Recurrence (P3, review cycle 2) — third sighting, and the one that shipped.** R4 governs "the
+  remediation text", and P3's own design put remedy text in **two** places: the block, and the
+  advisory line, which carries its own remedy because a tree with no failures prints no block. The
+  gate asserted the block's idioms hard — no `uv-manager install`, `--no-cache` present — and asserted
+  of the advisory line only that it contained the word `receipt`. So R4's standard was enforced on one
+  of the two surfaces the phase created, and the unenforced one shipped through cycle 1 naming two
+  idioms that both fail: `uv tool install <name>` exits 2 on the surviving shim, and removing the
+  directory strands that shim into a fresh `FAIL`. The cycle-1 remediation then *pointed a second
+  reader at* that line, which is how a half-covered gate turns into a defect that compounds. The
+  generalization the fix needs: when a phase satisfies a criterion in more than one location, the gate
+  must name each location, and text that a later edit cites becomes part of that edit's surface.
 - **Confidence:** high · **Effort:** small
 
 ## F5 — "a red gate is a STOP" does not distinguish iterating from failing
