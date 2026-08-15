@@ -291,3 +291,30 @@
   failure in the sweep that costs work" — and because two confirmed occurrences make it the factory's
   most reliably reproducible defect.
 - **Confidence:** high · **Effort:** small
+
+## F11 — The rehearsal teardown command cannot succeed, because the step before it mandates the modification that blocks it
+
+`origin=uvm-release:2 severity=low category=instruction status=open target=.agents/skills/uvm-release/SKILL.md`
+
+- **What happened:** Step 2.3 says `git worktree remove "$dir/rel"`. It exited 128 —
+  `fatal: '/tmp/uvm-rel.ZhRQjw/rel' contains modified or untracked files, use --force to delete it`.
+  Not a race and not a local quirk: Step 2.2 directs you to "apply Step 4 (the bump)" inside that
+  worktree, so the rehearsal always ends with two modified files, and the teardown always needs
+  `--force`. The two steps guarantee each other's failure, so this fires on every release, for
+  everyone. `.agents/skills/uvm-release/SKILL.md:85` compounds it by asserting in Safety Principles
+  that "`git worktree remove` cleans the rehearsal" — it does not clean the `mktemp -d` parent either,
+  which survives the command and needs its own `del`.
+- **Skill cause:** the teardown was written against the general shape of a worktree rather than
+  against this worktree, whose entire purpose is to hold uncommitted changes. Nothing else in Step 2
+  is wrong — the isolation, the full gate, and the "nothing in the real tree moved" guarantee all held
+  exactly as promised, and the rehearsal did its job. `allowed-tools` already grants
+  `Bash(git worktree *)`, so the fix is not blocked by permissions.
+- **Recommended fix:** Step 2.3 becomes `git worktree remove --force "$dir/rel"`, then
+  `del "$dir"` for the `mktemp` parent, and `:85` drops the claim that the remove alone cleans up.
+  **Keep the inspection beat rather than forcing blind:** add "confirm `git -C "$dir/rel" status
+  --porcelain` shows only the bump before forcing". Reaching for `--force` on a failure is the moment
+  you would most want to look at what you are about to discard, and a naked `--force` in the
+  instructions trains past it. Low severity because the failure is loud, non-destructive and
+  self-diagnosing — git names the fix in its own error — and it cost one round trip, not a bad
+  release.
+- **Confidence:** high · **Effort:** small
