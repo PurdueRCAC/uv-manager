@@ -168,3 +168,20 @@
   not a `uv` CLI model, it is the set that would otherwise be mis-skipped. The banner in the script
   rides with the code fix, which is seeded.
 - **Confidence:** high · **Effort:** small
+
+## F8 — `/uvm-plan`'s invariant gate is not cross-checked against its own phase checklists
+`origin=uvm-build:P3 severity=medium category=missing-guidance status=open target=.claude/skills/uvm-plan/SKILL.md`
+- **What happened:** P3's checklist said to derive `lock_beat=$(( lock_stale / 10 ))` "beside the
+  existing knobs" — at load time. Measured on bash 3.2.57, `UVM_LOCK_STALE=abc` makes that arithmetic
+  fatal under `set -u`, so at load it kills `uvm help` and `uvm --version`. `PLAN.md` §3 rules that
+  out in its own words two sections earlier: "the R3 guard sits inside `uvm_acquire_lock`, so `help`
+  and `--version` still answer on an unconfigured or misconfigured node. Load-time placement was
+  rejected for exactly this reason." The plan contradicted itself and nothing caught it before build.
+- **Skill cause:** `/uvm-plan` writes the § *Invariant gate* and the phase checklists as separate
+  passes, and nothing asks whether the checklists actually obey the gate the same document just
+  asserted. The gate reads as a compliance statement about the design rather than a constraint the
+  roadmap is checked against.
+- **Recommended fix:** after drafting the phases, re-read § *Invariant gate* against each checklist
+  item and record any item that lands on the wrong side of one. A single "which phase would violate
+  this?" pass per gate bullet would have caught it.
+- **Confidence:** high · **Effort:** small

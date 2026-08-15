@@ -92,6 +92,18 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
 - The early-out inside the wait loop must test **the version this call was asked for**. Testing "is
   some uv present" silently hands a pinned caller whatever another process was installing, which is
   the one guarantee a pin exists to provide.
+- **Age is measured from the heartbeat, not from acquisition.** `uvm_acquire_lock` spawns a detached
+  refresher that rewrites `${lock}/owner` with byte-identical content every `UVM_LOCK_STALE/10`
+  seconds and exits when `kill -0 "$$"` fails; `uvm_unlock` reaps it with `kill` **then** `wait`.
+  `uvm_age` stats `${lock}/owner` and falls back to the directory, because a directory's mtime tracks
+  its entry list rather than writes to files inside it — left on the directory the heartbeat is
+  invisible and a long hold is broken as abandoned. The refresher re-reads `owner` before every
+  write: stamping our identity over a new holder's record would stop *that* holder from ever
+  releasing, an immortal lock manufactured by the ownership rule above.
+- **Liveness is consulted before age.** A holder on this host whose pid is gone loses its lock at
+  once; one that answers keeps it however long the work takes. Only a holder that cannot be probed —
+  on another node, or a lock with no `owner` file — falls through to the mtime. The probe covers
+  `kill -0`'s residual pid-reuse gap; the leash covers cross-node waiters, who cannot probe.
 - Break a lock older than `UVM_LOCK_STALE`; time out after `UVM_LOCK_TIMEOUT` with the
   exact `rmdir` command to recover.
 

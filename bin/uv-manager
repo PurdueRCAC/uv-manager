@@ -174,6 +174,38 @@ install_base_url="${UVM_INSTALL_URL:-https://astral.sh/uv}"
 
 uvm_lock=""
 uvm_lock_owner=""
+uvm_lock_beat_pid=""
+
+# Refresh the lock's mtime for as long as the holder lives, so a hold longer
+# than UVM_LOCK_STALE is not mistaken for an abandoned one. The bytes written
+# are the ones recorded at acquisition, never the current time: identity is
+# fixed at acquire and freshness lives entirely in the mtime, so a holder can
+# never become foreign to itself.
+uvm_lock_heartbeat() {
+  local lock="$1" beat="$2" recorded=""
+  # An async subshell resets traps to their default, so this cannot release
+  # its parent's lock by exiting. Clearing them says so out loud, because the
+  # cost of being wrong is a refresher deleting the live lock it exists to
+  # protect.
+  trap - EXIT INT TERM
+  while :; do
+    sleep "${beat}"
+    # $$ is the holder's pid even in here, and kill is a builtin. A pipe
+    # leash would be stronger and is unavailable at the portability floor:
+    # bash 3.2 returns 1 from `read -t` for both a timeout and EOF, so a
+    # leashed refresher cannot tell the interval elapsing from its parent
+    # dying.
+    kill -0 "$$" 2>/dev/null || return 0
+    # Re-read before writing. If the lock were broken and retaken at this
+    # path, stamping our identity over the new holder's owner file would stop
+    # that holder from ever releasing its own lock — an immortal lock
+    # manufactured by the ownership fix itself.
+    recorded=""
+    read -r recorded 2>/dev/null < "${lock}/owner" || true
+    [[ "${recorded}" == "${uvm_lock_owner}" ]] || return 0
+    printf '%s\n' "${uvm_lock_owner}" > "${lock}/owner" 2>/dev/null || return 0
+  done
+}
 
 # Release only what this process still owns. A lock is addressed by path, so
 # a holder whose lock was broken as stale deletes whatever the breaker put
@@ -181,12 +213,21 @@ uvm_lock_owner=""
 # both processes are still running.
 uvm_unlock() {
   [[ -n "${uvm_lock}" ]] || return 0
-  local lock="${uvm_lock}" mine="${uvm_lock_owner}" recorded=""
+  local lock="${uvm_lock}" mine="${uvm_lock_owner}" beat="${uvm_lock_beat_pid}" recorded=""
   # Clear before deciding. The EXIT trap runs after the INT handler's
   # exit 130, so a second pass has to be one builtin test and no fork — which
   # is also what keeps a release in front of an exec free on the hot path.
   uvm_lock=""
   uvm_lock_owner=""
+  uvm_lock_beat_pid=""
+  # Reap the refresher before reading owner, and wait rather than kill alone.
+  # Without the wait bash reports `Terminated: 15` and the whole subshell body
+  # on stderr, and the refresher can recreate owner between the rm -f and the
+  # rmdir, leaving a directory that rmdir then refuses.
+  if [[ -n "${beat}" ]]; then
+    kill "${beat}" 2>/dev/null || true
+    wait "${beat}" 2>/dev/null || true
+  fi
   # 2>/dev/null precedes the input redirect because redirections are applied
   # left to right; the other order lets the failed open reach the user's
   # stderr. Branch on the string and never on read's status: a file with no
@@ -225,7 +266,7 @@ uvm_age() {
 uvm_acquire_lock() {
   local want="$1" force="$2"
   local lock="${uvm_root}/.install.lock"
-  local waited=0 age
+  local waited=0 age holder pid
   # Built before the mkdir, from expansions only. Two command substitutions
   # here left the directory standing with no owner file for 3.0 ms rather
   # than 0.10 ms, and that gap is the only interval in which a stale release
@@ -253,8 +294,38 @@ uvm_acquire_lock() {
       return 1
     fi
 
-    # Break a lock abandoned by a killed process or a failed node.
-    if age="$(uvm_age "${lock}")" && (( age > lock_stale )); then
+    # Liveness decides before age does. A holder on this node whose pid is
+    # gone loses its lock at once; one that answers keeps it however long the
+    # work takes, which is what lets a rebuild outlast UVM_LOCK_STALE. This
+    # is also what covers kill -0's residual pid-reuse gap on the holder's
+    # own leash.
+    holder=""
+    read -r holder 2>/dev/null < "${lock}/owner" || true
+    pid=""
+    if [[ "${holder%% *}" == "host=${HOSTNAME}" ]]; then
+      pid="${holder#*pid=}"
+      pid="${pid%% *}"
+      # A non-numeric pid makes kill -0 fail and would read as a dead holder,
+      # which is a break with no evidence behind it.
+      [[ -n "${pid}" && -z "${pid//[0-9]/}" ]] || pid=""
+    fi
+
+    if [[ -n "${pid}" ]] && ! kill -0 "${pid}" 2>/dev/null; then
+      note "breaking provisioning lock abandoned by a dead process: ${lock}"
+      rm -f "${lock}/owner" 2>/dev/null || true
+      rmdir "${lock}" 2>/dev/null || true
+      continue
+    fi
+
+    # Age is consulted only where liveness could not decide: a holder on
+    # another node, which cannot be probed, or a lock with no owner file. The
+    # age comes from the file because a directory's mtime tracks its entry
+    # list rather than writes to files inside it, so on the directory the
+    # heartbeat is invisible. The directory remains the fallback for a lock
+    # an older wrapper wrote, or one caught inside the acquire window.
+    if [[ -z "${pid}" ]] \
+       && { age="$(uvm_age "${lock}/owner")" || age="$(uvm_age "${lock}")"; } \
+       && (( age > lock_stale )); then
       note "breaking stale provisioning lock (${age}s old): ${lock}"
       rm -f "${lock}/owner" 2>/dev/null || true
       rmdir "${lock}" 2>/dev/null || true
@@ -283,6 +354,17 @@ uvm_acquire_lock() {
   }
   uvm_lock="${lock}"
   uvm_lock_owner="${owner}"
+  # Ten beats inside a stale window, scaled to whatever the site configured
+  # rather than to a knob of its own. Derived here and not beside lock_stale
+  # because the arithmetic is fatal under `set -u` on a non-numeric value,
+  # and `uvm help` — which is where these knobs are documented — has to keep
+  # answering on a node whose configuration is broken.
+  local lock_beat=$(( lock_stale / 10 ))
+  (( lock_beat > 0 )) || lock_beat=1
+  # Detached, because a surviving background child holds the caller's pipe
+  # open and `VER=$(uv --version)` was measured blocking 9s behind one.
+  uvm_lock_heartbeat "${lock}" "${lock_beat}" >/dev/null 2>&1 &
+  uvm_lock_beat_pid=$!
   return 0
 }
 

@@ -160,6 +160,15 @@ every `exec` of the real `uv` releases first — the three in the dispatch tail 
 impossible when something does, and on a path holding no lock it costs one builtin test and no fork.
 A new `exec` site owes the same call.
 
+**A live holder's lock never ages out.** `uvm_acquire_lock` spawns a detached refresher that rewrites
+`owner` with byte-identical content every `UVM_LOCK_STALE/10` seconds and stops when `kill -0 "$$"`
+fails; `uvm_unlock` reaps it with `kill` then `wait`. Age is therefore read from `${lock}/owner` and
+not from the directory, whose mtime tracks its entry list rather than writes to files inside it. A
+waiter consults liveness first — a holder on this node whose pid is gone loses the lock immediately,
+one that answers keeps it however long the work takes — and falls through to the mtime only for a
+holder it cannot probe. The refresher re-reads `owner` before each write, because stamping our
+identity over a new holder's record would make the lock immortal.
+
 **`current` is swapped atomically, and its target is relative** (`versions/<ver>`), so the tree stays
 relocatable and a concurrent reader never observes a missing or half-written `current`.
 

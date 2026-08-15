@@ -6,7 +6,7 @@ appetite: big
 status: in_progress
 branch: fix/lock-ownership-and-hold-time
 base: main
-current_phase: P3
+current_phase: P4
 last_updated: '2026-08-15'
 phases:
 - id: P1
@@ -83,7 +83,7 @@ phases:
     \ path=$p exec=$e)\" >&2\n    exit 1\n  fi\ndone\nDRIVE\n"
 - id: P3
   name: Keep a live holder's lock alive for as long as the holder is
-  status: pending
+  status: done
   satisfies:
   - R2
   depends_on:
@@ -323,23 +323,35 @@ outcome leaves the directory standing.
 **Satisfies:** R2 · **Depends on:** P2
 **Goal:** a hold longer than `UVM_LOCK_STALE` is never broken, and nothing outlives the drive.
 
-- [ ] Derive `lock_beat=$(( lock_stale / 10 ))`, floored at 1, beside the existing knobs. No new
-      environment variable — the GOAL forbids one.
-- [ ] Add `uvm_lock_heartbeat`: sleep `lock_beat`; exit when `kill -0 "$$"` fails; re-read `owner` and
+- [x] Derive `lock_beat=$(( lock_stale / 10 ))`, floored at 1. No new environment variable — the GOAL
+      forbids one. **Amended:** derived inside `uvm_acquire_lock`, not beside the knobs as planned.
+      Measured on bash 3.2.57: `UVM_LOCK_STALE=abc` makes that arithmetic fatal under `set -u`
+      (`abc: unbound variable`), so at load time it would kill `uvm help` and `uvm --version` — the
+      two commands that document these knobs, and the reason `PLAN.md` §3 puts R3's guard inside the
+      function rather than at load. Load-time derivation would also read `0600` as 38 rather than 60,
+      because P4 normalizes `lock_stale` inside the function, after load. Keeping the arithmetic in
+      `uvm_acquire_lock` confines it to where `(( age > lock_stale ))` already lives, so P3 adds no
+      new failure surface.
+- [x] Add `uvm_lock_heartbeat`: sleep `lock_beat`; exit when `kill -0 "$$"` fails; re-read `owner` and
       exit unless it still matches `uvm_lock_owner`; rewrite it with byte-identical content. The
       re-read is what stops a refresher stamping our identity over a new holder's `owner` after a
-      break — which R1 would then turn into an immortal lock.
-- [ ] Spawn it after the owner write as `… >/dev/null 2>&1 &`, recording the pid. The redirection is
+      break — which R1 would then turn into an immortal lock. Also `trap - EXIT INT TERM` in the
+      subshell: research measured async subshells resetting traps anyway, but a refresher whose EXIT
+      trap did fire would find its inherited `uvm_lock`/`uvm_lock_owner` matching and delete the live
+      lock it exists to protect.
+- [x] Spawn it after the owner write as `… >/dev/null 2>&1 &`, recording the pid. The redirection is
       load-bearing: a surviving child holds the caller's pipe open and `VER=$(uv --version)` was
       measured blocking 9 s on one.
-- [ ] Reap in `uvm_unlock` — `kill` then `wait`, before reading `owner`. Without the `wait`, bash
+- [x] Reap in `uvm_unlock` — `kill` then `wait`, before reading `owner`. Without the `wait`, bash
       prints `Terminated: 15` and the subshell body to stderr, and the refresher can recreate `owner`
       between the `rm -f` and the `rmdir`.
-- [ ] Change `uvm_age` to `uvm_age "${lock}/owner" || uvm_age "${lock}"`. A directory's mtime tracks
+- [x] Change `uvm_age` to `uvm_age "${lock}/owner" || uvm_age "${lock}"`. A directory's mtime tracks
       its entry list, not writes to files inside it, so on the directory the heartbeat is invisible.
-- [ ] Add the waiter's liveness probe ahead of the age test: same host with a dead pid loses the lock
-      at once, same host with a live pid keeps it, anything else falls through to the mtime.
-- [ ] Update `invariants.md` §5 and `AGENTS.md` § *Invariants*: the stale age is now measured from the
+- [x] Add the waiter's liveness probe ahead of the age test: same host with a dead pid loses the lock
+      at once, same host with a live pid keeps it, anything else falls through to the mtime. A pid
+      that is not all digits is treated as unprobeable rather than dead — `kill -0` would fail on it
+      and manufacture a break with no evidence behind it.
+- [x] Update `invariants.md` §5 and `AGENTS.md` § *Invariants*: the stale age is now measured from the
       heartbeat, not from acquisition.
 - **Verify:** an 8-second hold against `UVM_LOCK_STALE=3` produces no `breaking stale provisioning
   lock` on the waiter's stderr and leaves `owner` naming the original pid; and a plain drive leaves no
@@ -351,6 +363,12 @@ outcome leaves the directory standing.
   guard against the failure this phase can introduce, not a post-condition it delivers, and the gate's
   red comes from the first drive. `jobs -p` was tried here and is blind: the refresher is a grandchild
   of the drive shell, so it reports nothing whether or not one leaked.
+- **Observed beyond the gate:** with `UVM_LOCK_STALE=20` against a 9 s hold, `owner`'s mtime advanced
+  1786823336 → 1786823342 while the lock directory stayed pinned at 1786823336 — the measurement that
+  makes the `uvm_age` change necessary rather than defensive. `VER=$(uv --version)` on a cold tree
+  returned in 0 s with no `uv-manager` process left running, and stderr carried no `Terminated`. An
+  owner-less lock still ages out through the directory fallback; a live pid past `UVM_LOCK_STALE` is
+  never broken; a dead pid on this host is broken at once inside a 600 s window.
 - **Touches:** `bin/uv-manager`, `.agents/factory/invariants.md`, `AGENTS.md`.
 
 ## Phase P4 — Refuse a knob configuration that lets a waiter break a live lock
