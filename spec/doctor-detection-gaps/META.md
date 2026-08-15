@@ -101,7 +101,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F4 — a gate may cover half a criterion and still read as full coverage · seen again
-`origin=uvm-build:P1 severity=medium category=missing-guidance status=open target=.claude/skills/uvm-plan/SKILL.md`
+`origin=uvm-build:P1 severity=medium category=missing-guidance status=applied target=.agents/skills/uvm-plan/SKILL.md`
 - **What happened:** R5's *Checked by* clause names two checks — the finding set must equal the one
   `git show main:bin/uv-manager` produces on the same tree, and the walk must be measurably faster.
   The authored P1 gate asserted neither. It asserted one case the rewrite could regress — a `RECORD`

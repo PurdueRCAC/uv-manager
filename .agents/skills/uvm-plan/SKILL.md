@@ -157,7 +157,10 @@ overturns an invariant gets one for `AGENTS.md` § *Invariants* and `.agents/fac
 Step 5's deviation row records the bend, and the phase that lands the code has to make those records
 true, or `/uvm-review` grades correct code against the decision it reversed.
 
-Then read each phase's `verify:` back against that phase's own checklist, both directions. A gate can
+Then read each phase's `verify:` back against that phase's own checklist and against the *Checked by*
+clause of every R-ID in `satisfies`, both directions. A clause naming two checks is not covered by a
+gate asserting one, and where the phase satisfies a criterion in two places — a printed block and the
+advisory line beside it — the gate names each. A gate can
 **contradict** an item: `! git grep -q OLD_NAME` goes red the moment the same phase adds the design
 note that has to name `OLD_NAME` to explain itself. A gate can also be **blind** to one, which is the
 quieter failure — a phase mixing mechanical items with judgment items gets a gate shaped by the
@@ -165,8 +168,8 @@ mechanical ones, goes green, and the judgment item ships unchecked. An enumerate
 universally-quantified criterion — "wherever it is stated", "every", "no file" — is that same failure
 wearing a scope: the gate carries the criterion's quantifier, repository-wide with literal exclusions,
 and each exclusion earns its reason in the phase body. Reconcile at plan time: narrow the gate's
-pathspec, extend it, or state in the phase body that an item is inspection-only so `/uvm-review` reads
-it rather than trusting the gate.
+pathspec, extend it, or state in the phase body that an item — or the part of a *Checked by* clause
+no command can decide — is inspection-only so `/uvm-review` reads it rather than trusting the gate.
 
 Then run every `verify:` against the current tree before committing the plan. A gate asserting a
 post-condition the phase has not yet delivered must exit **non-zero**; one that exits 0 here is inert
