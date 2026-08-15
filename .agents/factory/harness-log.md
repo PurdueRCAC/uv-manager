@@ -316,3 +316,115 @@ Read `origin`, `severity` and `category` from the finding in `META.md`; this led
   `issues/test-harness.md` never carried the trampoline regression case, and the obligation existed
   only in the ROADMAP entry the retirement deletes. Caught by reading the non-goals closely, which is
   not a control. The step now requires opening the named file before deleting anything.
+
+## 2026-08-14 — purge-resilient-run F10: a deferring non-goal was verified only at deletion
+`decision=applied commit=86d307f target=.agents/skills/uvm-feature/SKILL.md`
+- **Rationale:** extends `faf0bca` rather than repeating it. That entry put the check in
+  `/uvm-roadmap` Step 3, which is correct and correctly positioned as a backstop — but it runs at
+  deletion, after ship and merge, and only if someone runs the sweep. This puts the obligation where
+  the promise is made: land it in the named seed as an acceptance criterion, in the shaping commit, or
+  do not write the non-goal that way. **Dropped the finding's `/uvm-publish` half** — `7d5ac9f`
+  already considered and rejected folding this class of check into publish, and the draft conceded the
+  consequence in its own text (writing the obligation there puts a commit outside `spec/`, where the
+  staleness gate fires). Safety §6 flag raised and resolved by narrowing, not layering. Two cycles had
+  already discharged "no committed regression test" against `issues/test-harness.md` without writing
+  it there.
+
+## 2026-08-14 — purge-resilient-run F11: the rehearsal teardown could not succeed
+`decision=applied commit=7aff491 target=.agents/skills/uvm-release/SKILL.md`
+- **Rationale:** Step 2.2 mandates applying the bump inside the worktree and Step 2.3 then removed it
+  without `--force`, so the two steps guaranteed each other's failure — exit 128 on every release, for
+  everyone. Reproduced here before writing. Fixed both sites: the step, and the Safety Principles line
+  claiming `git worktree remove` "cleans the rehearsal", which also left the `mktemp` parent behind.
+  Kept an inspection before the force rather than forcing blind — reaching for `--force` on a failure
+  is the moment you most want to see what is about to be discarded.
+
+## 2026-08-14 — purge-resilient-run F2: the same-commit rule omitted the invariant records
+`decision=applied commit=46db87c target=AGENTS.md`
+- **Rationale:** applied **narrow**, against the finding's own recommendation, after an adversarial
+  pass. The drafted fix also amended `uvm-harness`'s "only skill that writes to `.agents/`" guardrail
+  to be conditional and gave `/uvm-build` a standing licence to edit `invariants.md` mid-build. That
+  route is ungated in a way the prose could not see: `/uvm-review` is handed `invariants.md` **from
+  the branch tree**, so on a branch that edited it the reviewer grades against the loosened standard,
+  and it is forbidden `PLAN.md`/`TECH.md`, so it cannot check that a human cleared the bend. Safety §3
+  never fires because the route never enters `uvm-harness`. What landed is the record correction in
+  `AGENTS.md` and `invariants.md` §12 (lockstep), plus a `uvm-plan` phase item so the overturn travels
+  the planned path, which has a human at Step 5. A future run proposing the build-time route should
+  read this first and bring the three missing controls with it.
+
+## 2026-08-14 — purge-resilient-run F4: `! cmd` is exempt from errexit
+`decision=applied commit=aa2e143 target=.agents/skills/uvm-plan/SKILL.md`
+- **Rationale:** third revision of Step 6's gate-authoring guidance after `87473cc` and `e935214`, and
+  compatible with both. **Rejected the finding's blanket form** — it wanted `! cmd` forbidden outright,
+  which would condemn four committed gates that use it correctly. Verified: `sh -c 'set -e; ! true'`
+  exits 1, while `sh -c 'set -e; ! true; echo REACHED'` prints `REACHED` and exits 0. Only a `! cmd`
+  with something after it goes inert, so the rule is the trap, not a ban. Paired with the
+  first-unmet-clause refinement, which is how the inert assertion becomes visible in a multi-clause
+  gate.
+
+## 2026-08-14 — purge-resilient-run F7: a gate's pathspec ignored its criterion's quantifier
+`decision=applied commit=93c951d target=.agents/skills/uvm-plan/SKILL.md`
+- **Rationale:** applied as **one sentence appended to the existing blind-gate paragraph**, not the
+  nine-line section the finding drafted. Step 6 already names the failure ("a gate can also be
+  **blind** to one … goes green, and the judgment item ships unchecked"); an enumerated pathspec
+  against "wherever it is stated" is that same failure wearing a scope. Safety §4 prefers the example
+  over a new rule, and the paragraph was eight lines above the proposed insert.
+
+## 2026-08-14 — purge-resilient-run F5: the injected diffstat was silently truncated
+`decision=applied commit=c106d1d target=.agents/skills/uvm-review/SKILL.md`
+- **Rationale:** the `--stat` elided its first two rows while its own summary still read "21 files
+  changed", so it read as complete — and the two dropped rows were the files carrying two R-IDs.
+  Replaced with `--name-only`, which has no summary line to lie with, and carried the reviewer's own
+  `':(exclude)spec/'` pathspec onto it so the injected list and the graded diff agree. Removed
+  `Bash(tail *)` in the same commit: that pipe was its only consumer, and `uvm-harness` Step 6 audits
+  `allowed-tools` against the commands a skill actually calls.
+
+## 2026-08-14 — purge-resilient-run F6: the human gate had no clearance record
+`decision=applied commit=7633902 target=.agents/factory/review-rubric.md`
+- **Rationale:** **safe half only, by explicit maintainer decision.** The finding argued to narrow the
+  trigger so a prose-only finding stops firing the gate; that loosens a non-negotiable guardrail on a
+  finding's say-so, which Safety §3 treats as a warning sign, and the maintainer refused it. Both
+  trigger bullets are byte-unchanged, verified after applying. What landed is the clearance record:
+  cleared by the human and never by the agent's own reading, written into `REVIEW.md` under
+  *Human-gate triggers* with who, when and on what grounds, plus the matching field in
+  `templates/REVIEW.md`. `uvm-publish` gates on the verdict and the staleness check alone, so that
+  section is the only durable evidence a human ever saw the finding. The narrowing stays open.
+
+## 2026-08-14 — purge-resilient-run F9: a scoped cycle contradicted the dropped log subjects
+`decision=applied commit=f6748ef target=.agents/skills/uvm-review/SKILL.md`
+- **Rationale:** Step 3 sanctioned scoping a later cycle "to verifying the remediation of named
+  findings" while Step 2, since `b5a9826`, drops the commit subjects precisely because they name
+  findings. The two were written against different concerns and never reconciled, so the natural
+  reading of Step 3 defeats Step 2 on the cycle where anchoring is most likely. A scope now reaches
+  the reviewer as a range and a graded surface. The R-ID disclosure is kept and labelled as the
+  deliberate, bounded exception it is — without it the reviewer reads unchanged implementations as
+  unmet. **Cited** the rubric's file-versus-hunk rule rather than restating it.
+
+## 2026-08-14 — purge-resilient-run F8: the blind boundary is drawn at `spec/`, and leaks
+`decision=applied commit=b8afd6a target=.agents/factory/review-rubric.md`
+- **Rationale:** the third leak channel after `a242486` (the grep sweep) and `b5a9826` (the log
+  subjects), and the first that cannot be closed. A cycle that defers work is *required* to write its
+  reasoning into `issues/{slug}.md` and `ROADMAP.md`, both outside `spec/` and both legitimately in
+  the graded diff, so a correctly filtered pass still reads the plan's conclusions. Named the limit
+  and installed skepticism — read the diff's own new prose as a claim to verify — and **rejected
+  excluding `issues/`**, which would blind the reviewer to work it must grade. Two mis-citations in
+  the draft were caught and dropped: `AGENTS.md` does not require sequencing rationale in the roadmap
+  entry (that is `uvm-feature`), and nothing anywhere requires citing `research/` by filename.
+
+## 2026-08-14 — purge-resilient-run F1: prose beside a path was parsed as scope
+`decision=applied commit=ab57630 target=.agents/skills/uvm-feature/SKILL.md`
+- **Rationale:** follows `56dd89c`'s shape — surface and ask, never refuse. Trimmed to the general
+  rule: prose alongside a path shapes that seed and never extends scope, and an ambiguous owner is a
+  question for the human. **Dropped the finding's clerical half** (where to file the remark, an extra
+  `git add`) as machinery for the job that found it; Step 4's new non-goal rule from F10 already
+  carries the routing, and duplicating a shaping rule is what `d3c64ac` shows the cost of.
+
+## 2026-08-14 — purge-resilient-run F3: no route back to shaping from plan time
+`decision=deferred commit=— target=.agents/skills/uvm-plan/SKILL.md`
+- **Rationale:** real and unfixed. Research establishing that a locked `GOAL.md` cannot be built is a
+  *success* of the plan step, and it is the one outcome with no procedure: `uvm-plan` may not edit
+  `GOAL.md`, and `uvm-feature` refuses to run off `main` on a clean tree. Deferred rather than applied
+  because the fix is a design conversation, not a wording change — it needs a new "bounce to shaping"
+  step, `uvm-feature` accepting a branch carrying only `GOAL.md`/`META.md`/`research/`, and a decision
+  between re-shaping in place and parking the branch. This cycle worked around it by hand and the
+  maintainer chose the narrowing, so the workaround is proven but undocumented.
