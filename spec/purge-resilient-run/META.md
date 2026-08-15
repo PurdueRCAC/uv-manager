@@ -154,7 +154,7 @@
 
 ## F6 — The mandatory human gate keys on the *location* of a finding, not on whether it is behavioral
 
-`origin=uvm-review:step-4 severity=high category=instruction status=open target=.agents/factory/review-rubric.md`
+`origin=uvm-review:step-4 severity=high category=instruction status=applied target=.agents/factory/review-rubric.md`
 
 - **What happened:** the only two CONFIRMED findings this cycle are inaccurate numbers in prose. One of
   them cites `bin/uv-manager:403-404` because that is where the comment lives — inside `uvm_export_env`,

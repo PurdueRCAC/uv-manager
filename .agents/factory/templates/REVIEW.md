@@ -55,7 +55,7 @@ Set if any CONFIRMED finding touches a high-blast-radius region (`uvm_acquire_lo
 or installer-environment invariant (§1, §2, §6). These always require human sign-off before
 `uvm-publish`, regardless of auto-loop.
 
-- <triggered? which finding?>
+- <triggered? which finding? — if triggered: cleared by whom, on what date, on what grounds>
 
 ## Optional completeness sub-pass (separate reviewer; may see TECH.md)
 

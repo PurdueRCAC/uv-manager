@@ -124,6 +124,12 @@ touches:
   dispatch tail; **or**
 - an architecture-partitioning, `exec`-semantics, or installer-environment invariant (§1, §2, §6).
 
+A triggered gate is cleared by the human, never by the agent's own reading of the finding. The
+sign-off may be given inline and the run continues from there, but the clearance is recorded in
+`REVIEW.md` under *Human-gate triggers*: which finding fired it, who cleared it, the date, and the
+grounds. Nothing downstream reconstructs that — `uvm-publish` gates on the review verdict and the
+staleness check, and never asks whether a gate fired.
+
 ## Optional debate variant (high-risk diffs)
 
 For a diff touching a high-blast-radius region, run **two** independent fresh reviewers — one

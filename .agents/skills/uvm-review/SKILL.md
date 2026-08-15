@@ -159,6 +159,8 @@ light second-pass sanity check, dropping anything not backed by cited evidence. 
   changes-requested --reviewed-commit {sha} --blocked-reason "<short>" --touch` → recommend
   `/uvm-build` to fix the named R-IDs and invariants. If any CONFIRMED finding hit a high-blast-radius
   region or a §1/§2/§6 invariant, **STOP and require explicit human sign-off** before any further step.
+  The sign-off may be given inline; record the clearance and its grounds in `REVIEW.md` under
+  *Human-gate triggers*, per the rubric.
 - **PLAUSIBLE only:** surface to the human for triage; do not auto-block.
 
 Every `--verdict` call auto-increments the durable `review.cycle` counter in `TECH.md`. Do not manage
