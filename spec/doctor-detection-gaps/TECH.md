@@ -149,11 +149,10 @@ phases:
     \ \"OK\"*) ;; *) echo \"FAIL: intact tree did not report OK\" >&2; exit 1 ;; esac\n\
     '\n"
 review:
-  last_reviewed_commit: 4208498a33b14aa8181e50ea945d033f1e892310
-  verdict: changes-requested
-  blocked_reason: Clearing the receipt-less orphan leaves a dangling shim the block
-    never names
-  cycle: 2
+  last_reviewed_commit: f59a69977cc2680e997400cdc8b02e676e93a893
+  verdict: approved
+  blocked_reason: ''
+  cycle: 3
 ---
 # TECH.md — `uvm doctor` reports OK on the damage it exists to find
 

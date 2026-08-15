@@ -207,3 +207,139 @@ command repairs a tool whose pyvenv.cfg is gone" (ordinary general-statement-the
 
 Not triggered. The CONFIRMED finding sits in `uvm_doctor`, which is not a high-blast-radius region,
 and touches no §1, §2 or §6 invariant. No `invariants.md` §1–§11 violation was found.
+
+---
+
+## Review cycle 3 — approved (2026-08-15)
+
+- **Reviewed commit:** f59a69977cc2680e997400cdc8b02e676e93a893  ·  **Base:** main
+- **Mode:** **fresh full pass** over `main...HEAD -- . ':(exclude)spec/'` — the default for a later
+  cycle, chosen over scoping to the nine-line remediation delta because this is the last cycle of the
+  bounded loop and the two earlier passes graded different surfaces (cycle 1 full, cycle 2 scoped).
+  Nothing about the prior cycles reached the reviewer's prompt: no finding ids, no severities, no
+  verdict, no statement of which R-IDs an earlier cycle had already graded.
+- **Graded surface:** five files, 141 insertions and 38 deletions. `bin/uv-manager` is the whole of
+  the code delta and it is confined to `uvm_doctor`; `README.md` is prose; `ROADMAP.md`,
+  `issues/doctor-detection-gaps.md` and `issues/test-harness.md` are the deferral record.
+- **`debate` variant:** not offered. The diff touches no high-blast-radius region — `uvm_doctor` is
+  not one — and no §1, §2 or §6 invariant.
+
+### Blindness caveat for this cycle
+
+The reviewer's log command was given as
+`git log --oneline main..HEAD -- . ':(exclude)spec/' --format=%h`. Everything after `--` is a
+pathspec, so `--format=%h` was swallowed as a path and `--oneline` printed seven **commit subjects**,
+including `Build doctor-detection-gaps P3: F1 — say what the repair does to an orphan (R4)`. A prior
+cycle's finding id and the shape of its remediation therefore reached the reviewer's context. It
+disclosed this unprompted.
+
+Bounding the damage: no prior verdict text, severity, or spec-file content leaked, and the subject
+most at risk of anchoring is the one the reviewer then verified from scratch by executing real `uv
+0.12.4` against fabricated orphans — reproducing the cycle-2 correction independently, including that
+uv accumulates the orphan error rather than aborting at it. The leak weakened the guarantee; it did
+not obviously move the verdict. Recorded as a harness defect in [`META.md`](META.md), not a code
+finding. Reproduced by the orchestrator: with the flag placed before `--`, only hashes print.
+
+### Verification run
+
+Reviewer, and independently re-run by the orchestrator on the four headline criteria:
+
+- `bash -n bin/uv-manager` → rc 0 under `/bin/bash` 3.2.57, the only bash on this machine, so every
+  drive below is a bash 3.2 drive.
+- `.agents/factory/bin/lint.sh` → all 7 checks pass.
+- Wrapper drives through `temp_root.sh --offline` against fabricated damaged trees, including an
+  eight-case pathological `RECORD` fixture: no trailing newline, CRLF, a quoted embedded comma, and
+  paths containing `$`, `*`, a space and a backslash.
+- Real `uv 0.12.4` under an isolated `env -i` playground for the claims the wrapper sandbox cannot
+  settle — whether each remedy the block names actually repairs.
+- A 331-path manifest of `$UVM_ROOT` (path, type, mtime, mode, size, sha256, symlink target) taken
+  before and after a failing `uvm doctor`.
+
+### Requirement → evidence matrix
+
+| R-ID | Disposition | Evidence |
+|------|-------------|----------|
+| R1 | **Met** | `:744-753`. Delete one `RECORD` → `FAIL  tqdm-4.70.0 has no RECORD manifest (partial purge)` on stdout, rc 1. Also reached when `RECORD` is a *directory*. A present-but-unreadable `RECORD` prints `Permission denied` to stderr and the walk continues — the same shape `main` had with `awk: can't open file`. |
+| R2 | **Met**, and the safety claim executed rather than trusted | `:723-726`. Remove `pyvenv.cfg` → `FAIL  tool httpie has no pyvenv.cfg; no automated repair is safe for it`, rc 1. Against real uv 0.12.4: with `pyvenv.cfg` deleted, `uv tool upgrade --all --reinstall --no-cache` exits **0 with no warning** and the base interpreter's `site-packages` gains `tqdm/` and `tqdm-4.70.0.dist-info/`. The repair writes outside the tree exactly as the finding says. |
+| R3 | **Met** | `:711-716, 792-804`. Receipt-less tool as the only finding → the `WARN` line, then `OK    no damage detected under … (1 advisory finding(s) above)`, **rc 0**. Same tree with `RECORD` also removed → rc 1. Confirmed the receipt case is the only reclassification: `main`'s `uvm_doctor` emitted exactly one `WARN`. |
+| R4 | **Met**, every named idiom verified by execution | `:806-831`. `uvm doctor 2>err \| head -1` on a failing tree → **stderr 0 bytes**. `git grep -n 'uv-manager install' bin/uv-manager` → one hit at `:602`, in the `self update` help, none in the block. Against real uv: `--reinstall` alone left a gutted `std.py` absent and `--no-cache` restored it; `uv python install --reinstall` with no target hit both installed managed versions; an offline `--reinstall` failed with `the requested data wasn't found in the cache`, so "needs network access" holds; `uv tool upgrade --all` reported `is not installed` for **every** orphan, not just the first, so "it repairs every other tool before it gets there" holds independent of alphabetical position; the WARN's `--force` is necessary — plain `uv tool install` exits 2 with `Executable already exists` *and deletes the directory*. Sandbox drive with `UVM_PIN=6.6.6` and `versions/`, `current` removed: doctor rc 1, next `uv --version` reprovisioned and left `current -> versions/6.6.6`, so "honors UVM_PIN" holds. |
+| R5 | **Met** | `:743-772`. Fixture of 40 synthetic tools × 60 files plus 2 hand-built tools: the `FAIL … is missing N of M files` line set is **byte-identical** to `git show main:bin/uv-manager` against the same tree, 15 lines each, `diff` empty. On the pathological fixture the only difference is the new no-`RECORD` line R1 owes. Forks counted with `awk`/`basename`/`dirname` stubs on `PATH`: **198 → 42**, and the residual 42 are one `basename` per tool in the unrelated tools loop, outside the walk. Wall clock, alternating order, 3 runs: 349/336/368 ms → 128/121/132 ms, ~2.7×. |
+| R6 | **Met** | Tree byte-identical across a failing run over 331 paths. A counting `mkdir`/`touch` stub first on `PATH` recorded **0 invocations**, and `find $UVM_ROOT -name .install.lock` returned nothing, so no lock was taken even transiently. |
+| R7 | **Met** | `README.md:416-424`. Both load-bearing facts executed, not read: a real `uv-receipt.toml` holds `requirements = [{ name = "tqdm" }]` — the request, not the resolved set; and on a managed CPython 3.11.9 with `email/`, `xml/` and `unittest/` deleted, `import json, os, ssl` exits 0 while `import email` raises `ModuleNotFoundError`. Placing that gutted interpreter under `$UVM_ROOT/<arch>/python/` made `uvm doctor` print `OK`, rc 0 — the floor the README documents is the floor that exists. |
+
+Nothing was taken on trust. R4's last sentence defers the repairs-or-not question to
+`spec/purge-resilient-run/research/04-uv-repair-idioms.md`, which the reviewer is forbidden to open;
+it was instructed to establish the sub-claim by execution instead, and did, for all six assertions in
+the block.
+
+### Findings
+
+No CONFIRMED finding blocks. Three observations, recorded and surfaced rather than looped back.
+
+#### [LOW/CONFIRMED · not a defect of this change] A quoted `RECORD` path containing a comma yields a false `FAIL`
+- **Where:** `bin/uv-manager:761`
+- **Failure scenario:** `IFS=, read -r rel _` splits on the first comma, so the RECORD line
+  `"c/a,b.py",sha256=x,1` yields `c/a`, which does not exist, and an intact distribution is reported
+  as `missing 1 of 1 files`.
+- **Evidence:** fixture with `$SP/c/a,b.py` present and that RECORD line — the new script and
+  `git show main:bin/uv-manager` both print `FAIL  c-1.0 is missing 1 of 1 files (partial purge)`.
+- **Why it does not block:** identical on `main`, where the `awk -F,` split the same way, and **R5
+  requires verdict parity with `main`** — correcting it here would violate the criterion. The code
+  comment at `:757-760` states the trade-off outright. Recorded because a real wheel can carry a comma
+  in a data-file path and doctor will call it damaged; that is a candidate for its own seed, not work
+  this cycle contracted for.
+
+#### [LOW/CONFIRMED · author judgment] The remediation block prints tool-class advice for classes that were not reported
+- **Where:** `bin/uv-manager:806-831`
+- **Failure scenario:** the block is unconditional, so a tree whose only problem is a gutted
+  distribution gets 25 lines, 12 of which discuss a receipt-less orphan (`:820-823`) and a
+  `pyvenv.cfg`-less tool (`:825-829`) that doctor did not report. The old block was 8 lines.
+- **Evidence:** orchestrator drive, single finding `FAIL  tqdm-4.70.0 has no RECORD manifest` — the
+  full 25-line block printed, both conditional paragraphs included.
+- **Why it does not block:** both paragraphs are conditionally *phrased* ("a tool reported above as
+  having no receipt", "a tool whose pyvenv.cfg is gone"), so nothing false is asserted, and the block
+  never prints on the advisory-only tree, where doctor exits 0 silently but for the WARN. Against
+  `AGENTS.md` § *Prose and comments* it is not padding either — each paragraph carries a distinct
+  load-bearing fact, and the `pyvenv.cfg` one is a safety caveat that is cheapest to read when it is
+  not needed. Whether 25 lines is the right price is the author's call, not a correctness defect.
+
+#### [LOW/informational] Two of the three same-commit surfaces `GOAL.md` names did not move
+`GOAL.md`'s closing line says the `uvm_help` heredoc, `README.md` and
+`share/modulefiles/uv/main.lua` move with the code; only `README.md` did. Both others were checked
+and assert nothing this change invalidates: `bin/uv-manager:865` reads
+`doctor  Check for a partially purged / damaged tree`, and `main.lua:78,92` mention neither exit
+status, nor receipts, nor the `RECORD` mechanism. `etc/uv-manager.conf.example` has no doctor
+reference at all. `AGENTS.md`'s rule is "whichever of these it *invalidates*", so the diff is
+compliant and the GOAL's unconditional phrasing is what overstates.
+
+### Scope
+
+No creep. Every hunk maps to an R-ID or to a non-goal the GOAL required landing in this commit:
+`issues/test-harness.md` R3c is the *No committed regression test* obligation, and the `ROADMAP.md`
+rewrite plus `status: adopted:doctor-detection-gaps` are lifecycle bookkeeping. No new subcommand,
+environment variable, flag, output format, or `uvm status` change; no repair code; `uvm_unlock`
+untouched.
+
+### Invariants checked and intact
+
+`invariants.md` §7 (output discipline — the last `printf` in `uvm_doctor` is gone and stderr is empty
+through `head -1`), §8 (0 external `mkdir`s during doctor; `uvm_set_paths` still touches no
+filesystem), §10 (parses *and runs* under bash 3.2.57 — `+=` on a string, `$'\n'`, `${var##*/}`,
+`${di%/*}`, and the `read … || [[ -n "${rel}" ]]` guard, which was checked for a spin and terminates
+in 2 iterations on a 2-line file with no trailing newline), §12 (version single-source `0.4.1`
+untouched, symlinks intact, no feature-scoped spec ids in the script or the README). Heredoc
+injection was probed directly: a dist-info named `h$X-1.0.dist-info` rendered literally as
+`FAIL  h$X-1.0 …`, and paths containing `$HOME`, `star*` and spaces were matched with no expansion,
+splitting or globbing — the comment at `:790-791` is accurate. §1, §2, §5, §6, §9 and §11 are not
+touched by the diff.
+
+### Human-gate triggers
+
+Not triggered. No CONFIRMED finding blocks, none touches a high-blast-radius region — the entire code
+delta is inside `uvm_doctor`, which is not one — and none touches a §1, §2 or §6 invariant.
+
+### Convergence
+
+Three cycles, the ceiling of the bounded loop, and this one converged: cycle 2's MEDIUM was
+remediated by `f59a699` and a fresh full pass over the whole diff raised no blocker. The tree was
+clean on hand-back (`git status --porcelain` empty).

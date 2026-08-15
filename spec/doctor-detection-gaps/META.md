@@ -41,6 +41,11 @@
   R-IDs an earlier pass covered, but never the findings — worked as designed. The reviewer re-graded
   exactly R4 and R3, declined R1/R5/R6/R7 with reasons of its own, and still found something new in
   five lines of prose. Scoping did not become a rubber stamp.
+- Step 2's ban on reading `04-uv-repair-idioms.md`, paired with an instruction to establish R4's
+  sub-claim by execution instead, produced a better result than the reference would have. The cycle-3
+  reviewer measured all six assertions in the remediation block against real uv rather than inheriting
+  them — including the orphan-accumulation behavior cycle 2 had to correct cycle 1 on. A reviewer
+  handed the research file would have graded the prose against a document that was itself wrong.
 
 ## Friction findings
 
@@ -175,7 +180,7 @@
   `spec/` as a grading reference, name it to the reviewer as readable rather than inlining it.
 - **Confidence:** high · **Effort:** small
 
-## F7 — the rubric grades four severities and then routes on one bit
+## F7 — the rubric grades four severities and then routes on one bit · seen again
 `origin=uvm-review:step-4 severity=medium category=instruction status=open target=.agents/factory/review-rubric.md`
 - **What happened:** the pass returned exactly one finding, LOW and CONFIRMED — the ordering of a
   printed remediation block, not a defect in what it names. § *Verdict & loop* says "**CONFIRMED**
@@ -193,7 +198,17 @@
   LOW is surfaced to the human alongside the PLAUSIBLE set, with deferral to `issues/{slug}.md` named
   as a disposition. Keep the auto-block unconditional for any §1–§11 violation regardless of the
   severity assigned.
-- **Confidence:** med · **Effort:** small
+- **Recurrence (cycle 3), inverted.** Two CONFIRMED LOW findings came back and I approved anyway,
+  because blocking on them is indefensible: one is *contract-mandated* — R5 requires verdict parity
+  with `main`, so the `RECORD` comma-splitting the reviewer confirmed cannot be corrected inside this
+  cycle without failing the criterion — and the other is a length judgment on prose that asserts
+  nothing false. Following the letter would have spent the last cycle of a bounded loop on work the
+  GOAL forbids. The rule has now been departed from in both directions from the same defect, which is
+  the argument for fixing it rather than exercising judgment each time. The fix should also name the
+  case the first sighting did not: a CONFIRMED finding against **pre-existing behavior the criteria
+  require preserving** is not a finding against the diff at all, and belongs in `issues/{slug}.md` by
+  construction.
+- **Confidence:** high · **Effort:** small
 
 ## F8 — the refutation protocol certifies that the bad thing happened, never that the fixture can explain it
 `origin=uvm-build:P3 severity=medium category=missing-guidance status=open target=.agents/factory/review-rubric.md`
@@ -234,4 +249,25 @@
   disproves or narrows an earlier cycle's finding, it appends a **`### Correction to cycle {n}`** note
   in its own section stating what was claimed, what was measured, and which account supersedes. Never
   edit the earlier section — the correction is the mechanism, not a rewrite.
+- **Confidence:** high · **Effort:** small
+
+## F10 — the flag that blinds the reviewer's log is given as a fragment, and the obvious placement no-ops
+`origin=uvm-review:step-2 severity=high category=instruction status=open target=.claude/skills/uvm-review/SKILL.md`
+- **What happened:** Step 2 writes the log command out in full as
+  `git log --oneline {base}..HEAD -- . ':(exclude)spec/'`, then a clause later says "on
+  `review.cycle` ≥ 1 drop the subjects too (`--format=%h`)". I composed the two as written, appending
+  the flag to the printed command — and everything after `--` is a pathspec, so `--format=%h` was
+  consumed as a path, `--oneline` survived, and seven commit subjects reached the reviewer. One of
+  them named a prior cycle's finding id and the shape of its remediation. The reviewer disclosed it
+  unprompted; nothing in the skill would otherwise have caught it.
+- **Skill cause:** the safe form is stated as a *modification to a command printed elsewhere*, and the
+  only correct composition requires knowing to move the flag ahead of the `--`. This is the guard on
+  blind-review integrity, the pass's central guarantee, and it fails **silently and green** — the log
+  prints, the pathspec still filters, nothing errors. Every cycle ≥ 1 walks into it; the two earlier
+  cycles here were scoped passes whose log was omitted, so this is the first invocation that could.
+- **Recommended fix:** print the cycle-≥-1 command literally and completely in Step 2 —
+  `git log {base}..HEAD --format=%h -- . ':(exclude)spec/'` — rather than naming a flag to add, and
+  say why the placement matters; this is the same class as the interpolated-pathspec trap the rubric's
+  § *Verification traps* already documents. Simpler still: on a later cycle, omit the log. Nothing in
+  the returned matrix used it.
 - **Confidence:** high · **Effort:** small
