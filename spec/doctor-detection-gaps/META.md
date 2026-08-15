@@ -163,7 +163,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F6 — the blind-reviewer exclusion is `spec/`, but a GOAL may cite a prior cycle's record as ground truth
-`origin=uvm-review:step-2 severity=medium category=instruction status=open target=.claude/skills/uvm-review/SKILL.md`
+`origin=uvm-review:step-2 severity=medium category=instruction status=applied target=.agents/skills/uvm-review/SKILL.md`
 - **What happened:** R4 names `spec/purge-resilient-run/research/04-uv-repair-idioms.md` as the
   reference the reviewer grades the remediation idioms against. Step 2 tells the reviewer to keep
   `research/` out of context and to exclude `spec/` from every repository-wide search. Following both

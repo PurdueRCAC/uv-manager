@@ -135,7 +135,12 @@ Launch a fresh `general-purpose` reviewer via `Agent`. Give it, inline, **only**
   and **keep `PLAN.md`, `TECH.md`, `research/` and `META.md` out of context entirely** — do not open
   them, and exclude `spec/` from every repository-wide search:
   `git grep -n … -- . ':(exclude)spec/'`, `rg --glob '!spec/**' …`. `GOAL.md` is supplied inline
-  above, so excluding the whole directory costs the reviewer nothing;
+  above, so excluding the whole directory costs the reviewer nothing, with the one exception below;
+- when the locked `GOAL.md` names a landed cycle's retained record under `spec/` as the reference an
+  R-ID is graded against: that one path, declared readable — including a `research/` file, since the
+  ban above is on this branch's artifacts and the exception is the cited path, not the category.
+  The rest of `spec/` stays out, and the contents stay out of the prompt: bounded and disclosed like
+  the R-ID list above;
 - the conduct rule: **no edits to tracked files** (revert any instrumentation before returning;
   `git status --porcelain` must be clean on hand-back), and the rubric's "Verdict & loop" section is
   the orchestrator's job — the reviewer must not write `REVIEW.md`, call `ReportFindings`, or run
