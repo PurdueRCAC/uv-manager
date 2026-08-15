@@ -271,3 +271,23 @@
   § *Verification traps* already documents. Simpler still: on a later cycle, omit the log. Nothing in
   the returned matrix used it.
 - **Confidence:** high · **Effort:** small
+
+## F11 — the drift sweep is gated on `--all`, including in the file the retirement is already editing
+`origin=uvm-roadmap:step-5 severity=medium category=instruction status=open target=.claude/skills/uvm-roadmap/SKILL.md`
+- **What happened:** retiring this seed meant repairing two dangling links in
+  `issues/purge-tree-repair.md`. A hundred lines above them the same file said `uvm_doctor` "prints
+  three commands for a human (`bin/uv-manager:729-731`)" — a count this cycle changed to two, at a
+  line range that no longer exists. Step 5's triage table sent me into the file; its `--all` bullet
+  put that sentence out of scope. I corrected it anyway, departing from the letter of the step,
+  because leaving it was indefensible once the file was open.
+- **Skill cause:** the `--all` bullet scopes the drift sweep by *which seed* holds the stale figure —
+  "in seeds it never edited" — when the discriminator that matters is whether the sweep is already
+  opening the file. A false figure standing beside a freshly repaired link is worse than one in a file
+  nobody touched: the repair is a signal the file was reviewed, so a later reader trusts the rest of
+  it. Nor is this a one-off. Every retirement repairs the seeds that depended on the shipped cycle,
+  and those are precisely the seeds most likely to quote its behavior — `purge-tree-repair.md` quotes
+  doctor's output four times because doctor is its detector.
+- **Recommended fix:** split the bullet in two. In the default sweep, any file Step 5 edits is read
+  whole for claims the shipped cycle falsified — a count, a line citation, a quoted output. Keep
+  `--all` for the repository-wide version, over seeds the retirement does not otherwise touch.
+- **Confidence:** high · **Effort:** small
