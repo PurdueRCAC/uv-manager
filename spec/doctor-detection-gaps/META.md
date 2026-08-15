@@ -252,7 +252,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F10 — the flag that blinds the reviewer's log is given as a fragment, and the obvious placement no-ops
-`origin=uvm-review:step-2 severity=high category=instruction status=open target=.claude/skills/uvm-review/SKILL.md`
+`origin=uvm-review:step-2 severity=high category=instruction status=applied target=.agents/skills/uvm-review/SKILL.md`
 - **What happened:** Step 2 writes the log command out in full as
   `git log --oneline {base}..HEAD -- . ':(exclude)spec/'`, then a clause later says "on
   `review.cycle` ≥ 1 drop the subjects too (`--format=%h`)". I composed the two as written, appending

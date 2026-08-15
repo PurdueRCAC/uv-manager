@@ -115,8 +115,11 @@ Launch a fresh `general-purpose` reviewer via `Agent`. Give it, inline, **only**
   which leaks the committed spec artifacts into the reviewer's context — and the same pathspec belongs
   on the log, a channel the diff's cannot close: review-cycle commits touch only `spec/` and vanish
   under it, but a build subject reads `[fix] Build {slug} P1: F1 — …` and names a prior cycle's
-  finding along with its remediation. On `review.cycle` ≥ 1 drop the subjects too (`--format=%h`), or
-  omit the log. Anchoring on a prior verdict is the exact bias this pass exists to remove;
+  finding along with its remediation. On `review.cycle` ≥ 1 the log is
+  `git log {base}..HEAD --format=%h -- . ':(exclude)spec/'` — that whole command, not the one above
+  with a flag appended: everything after `--` is a pathspec, so a trailing `--format=%h` is read
+  as a path, `--oneline` survives, and the subjects print. Omitting the log is equally correct.
+  Anchoring on a prior verdict is the exact bias this pass exists to remove;
 - on a cycle the human has scoped (Step 3): the narrowed range
   `git diff {review.last_reviewed_commit}..HEAD` under the same pathspec, plus a plain statement of
   the graded surface — the file count, and whether the delta is code or prose so the rubric's
