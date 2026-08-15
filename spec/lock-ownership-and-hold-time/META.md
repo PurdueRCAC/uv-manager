@@ -31,6 +31,9 @@
 - `run_verify.py --phase` made re-running three predecessor gates a one-liner, so checking whether a
   new constraint had invalidated an earlier phase's gate cost nothing once the thought occurred. The
   thought is what was missing, not the tool — see F9.
+- Step 2's "read the region of `bin/uv-manager` the phase will touch before editing it" is what caught
+  P6 having two break sites where `PLAN.md` describes one — the second was added by P3, three phases
+  after the plan was written. Following the checklist literally would have shipped R7 half-done.
 
 ## Friction findings
 

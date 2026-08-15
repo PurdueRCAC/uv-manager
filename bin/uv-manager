@@ -266,7 +266,7 @@ uvm_age() {
 uvm_acquire_lock() {
   local want="$1" force="$2"
   local lock="${uvm_root}/.install.lock"
-  local waited=0 age holder pid
+  local waited=0 age holder pid broke="" reason
   # Built before the mkdir, from expansions only. Two command substitutions
   # here left the directory standing with no owner file for 3.0 ms rather
   # than 0.10 ms, and that gap is the only interval in which a stale release
@@ -341,31 +341,43 @@ uvm_acquire_lock() {
       [[ -n "${pid}" && -z "${pid//[0-9]/}" ]] || pid=""
     fi
 
-    # A break note names the owner it deleted. Ownership makes "whose lock
-    # was that" the first question asked after a break, and the file that
-    # answers it is gone by the time anyone reads the note.
+    # A lock is forfeit two ways — a dead holder on this node, or an age no
+    # heartbeat has touched — and both are broken the same way, so they are
+    # decided here and acted on once below.
+    reason=""
     if [[ -n "${pid}" ]] && ! kill -0 "${pid}" 2>/dev/null; then
-      note "breaking provisioning lock abandoned by a dead process: ${lock}
-    its owner file recorded: ${holder}"
-      rm -f "${lock}/owner" 2>/dev/null || true
-      rmdir "${lock}" 2>/dev/null || true
-      continue
-    fi
-
+      reason="breaking provisioning lock abandoned by a dead process"
     # Age is consulted only where liveness could not decide: a holder on
     # another node, which cannot be probed, or a lock with no owner file. The
     # age comes from the file because a directory's mtime tracks its entry
     # list rather than writes to files inside it, so on the directory the
     # heartbeat is invisible. The directory remains the fallback for a lock
     # an older wrapper wrote, or one caught inside the acquire window.
-    if [[ -z "${pid}" ]] \
-       && { age="$(uvm_age "${lock}/owner")" || age="$(uvm_age "${lock}")"; } \
-       && (( age > lock_stale )); then
-      note "breaking stale provisioning lock (${age}s old): ${lock}
+    elif [[ -z "${pid}" ]] \
+         && { age="$(uvm_age "${lock}/owner")" || age="$(uvm_age "${lock}")"; } \
+         && (( age > lock_stale )); then
+      reason="breaking stale provisioning lock (${age}s old)"
+    fi
+
+    if [[ -n "${reason}" ]]; then
+      # A break note names the owner it deleted. Ownership makes "whose lock
+      # was that" the first question asked after a break, and the file that
+      # answers it is gone by the time anyone reads the note. Announced once:
+      # a break that keeps being denied repeats every second, which at the
+      # default timeout is 180 identical lines.
+      [[ -n "${broke}" ]] || note "${reason}: ${lock}
     its owner file recorded: ${holder:-<none recorded>}"
       rm -f "${lock}/owner" 2>/dev/null || true
       rmdir "${lock}" 2>/dev/null || true
-      continue
+      # Re-enter mkdir at once only where the directory is actually gone. A
+      # removal denied by an entry we did not write, or by a read-only
+      # remount, is charged to the timeout like any other wait; retrying it
+      # immediately is a hot loop that UVM_LOCK_TIMEOUT does not bound, on a
+      # knob documented as how long a call blocks. Our own rmdir's status is
+      # the wrong discriminator — two waiters can declare the same lock
+      # forfeit, and the loser gets ENOENT having done nothing wrong.
+      [[ -d "${lock}" ]] || continue
+      broke=denied
     fi
 
     waited=$(( waited + 1 ))

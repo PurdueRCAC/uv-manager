@@ -6,7 +6,7 @@ appetite: big
 status: in_progress
 branch: fix/lock-ownership-and-hold-time
 base: main
-current_phase: P6
+current_phase: P7
 last_updated: '2026-08-15'
 phases:
 - id: P1
@@ -199,7 +199,7 @@ phases:
     \ then\n  echo \"FAIL: flock invoked outside a comment\" >&2; exit 1\nfi"
 - id: P6
   name: Make UVM_LOCK_TIMEOUT bound a waiter it cannot break free of
-  status: pending
+  status: done
   satisfies:
   - R7
   - R6
@@ -210,28 +210,40 @@ phases:
   hill: uphill
   verify: "set -eu\nbash -n bin/uv-manager\n.agents/factory/bin/lint.sh >/dev/null\n\
     .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'\nset -e\nA=\"$UVM_ROOT/$(uname\
-    \ -m)\"; L=\"$A/.install.lock\"\nmkdir -p \"$L/stuck\"\nsleep 2\nUVM_LOCK_TIMEOUT=2\
-    \ UVM_LOCK_STALE=1 uv --version >/dev/null 2>\"$UVM_SANDBOX/err\" &\np=$!\nsleep\
-    \ 6\nif kill -0 \"$p\" 2>/dev/null; then\n  kill -9 \"$p\" 2>/dev/null || true\n\
-    \  echo \"FAIL: still spinning 6s after a 2s timeout ($(wc -l < \"$UVM_SANDBOX/err\"\
+    \ -m)\"; L=\"$A/.install.lock\"\nmkdir -p \"$L/stuck\"\nsleep 4\nUVM_LOCK_STALE=3\
+    \ UVM_LOCK_TIMEOUT=2 uv --version >/dev/null 2>\"$UVM_SANDBOX/err\" &\np=$!\n\
+    sleep 6\nif kill -0 \"$p\" 2>/dev/null; then\n  kill -9 \"$p\" 2>/dev/null ||\
+    \ true\n  echo \"FAIL: still spinning 6s after a 2s timeout ($(wc -l < \"$UVM_SANDBOX/err\"\
     \ | tr -d ' ') lines)\" >&2\n  exit 1\nfi\nif ! grep -q 'timed out after' \"$UVM_SANDBOX/err\"\
     ; then\n  echo \"FAIL: the waiter exited without the timeout message\" >&2; exit\
     \ 1\nfi\nif [ \"$(grep -c 'breaking' \"$UVM_SANDBOX/err\" || true)\" -gt 1 ];\
     \ then\n  echo \"FAIL: the denied break re-announced itself every iteration\"\
     \ >&2; exit 1\nfi\nDRIVE\n.agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'\n\
-    set -e\nA=\"$UVM_ROOT/$(uname -m)\"; L=\"$A/.install.lock\"; mkdir -p \"$A\";\
-    \ mkdir \"$L\"\nprintf 'host=node0042 pid=12345 nonce=0\\n' > \"$L/owner\"\nsleep\
-    \ 2\nUVM_LOCK_STALE=1 UVM_LOCK_TIMEOUT=10 uv --version >/dev/null 2>\"$UVM_SANDBOX/brk\"\
-    \nif ! grep -q 'breaking' \"$UVM_SANDBOX/brk\"; then\n  echo \"FAIL: an ordinary\
-    \ stale break no longer works\" >&2; exit 1\nfi\nA=\"$UVM_ROOT/$(uname -m)\"\n\
-    if [ \"$(readlink \"$A/current\")\" != versions/9.9.9 ]; then echo \"FAIL: break\
-    \ did not provision\" >&2; exit 1; fi\nDRIVE\n.agents/factory/bin/temp_root.sh\
+    set -e\nA=\"$UVM_ROOT/$(uname -m)\"; L=\"$A/.install.lock\"; mkdir -p \"$L\"\n\
+    printf 'host=%s pid=999999 nonce=0\\n' \"$(uname -n)\" > \"$L/owner\"\nchmod 500\
+    \ \"$L\"\nUVM_LOCK_STALE=600 UVM_LOCK_TIMEOUT=2 uv --version >/dev/null 2>\"$UVM_SANDBOX/dead\"\
+    \ &\np=$!\nsleep 6\nalive=no\nif kill -0 \"$p\" 2>/dev/null; then alive=yes; kill\
+    \ -9 \"$p\" 2>/dev/null || true; fi\nchmod 700 \"$L\"\nif [ \"$alive\" = yes ];\
+    \ then\n  echo \"FAIL: a denied break of a dead holder's lock spun past the timeout\"\
+    \ >&2; exit 1\nfi\nif ! grep -q 'timed out after' \"$UVM_SANDBOX/dead\"; then\n\
+    \  echo \"FAIL: the dead-holder waiter exited without the timeout message\" >&2;\
+    \ exit 1\nfi\nif [ \"$(grep -c 'breaking' \"$UVM_SANDBOX/dead\" || true)\" -gt\
+    \ 1 ]; then\n  echo \"FAIL: the denied dead-holder break re-announced itself every\
+    \ iteration\" >&2; exit 1\nfi\nDRIVE\n.agents/factory/bin/temp_root.sh --offline\
+    \ sh -s <<'DRIVE'\nset -e\nA=\"$UVM_ROOT/$(uname -m)\"; L=\"$A/.install.lock\"\
+    ; mkdir -p \"$A\"; mkdir \"$L\"\nprintf 'host=node0042 pid=12345 nonce=0\\n' >\
+    \ \"$L/owner\"\nsleep 3\nif ! UVM_LOCK_STALE=2 UVM_LOCK_TIMEOUT=1 uv --version\
+    \ >/dev/null 2>\"$UVM_SANDBOX/brk\"; then\n  echo \"FAIL: the stale-break drive\
+    \ exited non-zero:\" >&2; cat \"$UVM_SANDBOX/brk\" >&2; exit 1\nfi\nif ! grep\
+    \ -q 'breaking' \"$UVM_SANDBOX/brk\"; then\n  echo \"FAIL: an ordinary stale break\
+    \ no longer works\" >&2; exit 1\nfi\nif [ \"$(readlink \"$A/current\")\" != versions/9.9.9\
+    \ ]; then echo \"FAIL: break did not provision\" >&2; exit 1; fi\nDRIVE\n.agents/factory/bin/temp_root.sh\
     \ --offline sh -s <<'DRIVE'\nset -e\nout=$(uv --version)\nif [ \"$out\" != \"\
     uv 9.9.9 (fixture)\" ]; then echo \"FAIL: stdout was '$out'\" >&2; exit 1; fi\n\
     A=\"$UVM_ROOT/$(uname -m)\"\nif [ \"$(readlink \"$A/current\")\" != versions/9.9.9\
     \ ]; then echo \"FAIL: current target moved\" >&2; exit 1; fi\nDRIVE\nif git grep\
     \ -n flock bin/uv-manager | grep -qvE '^bin/uv-manager:[0-9]+:[[:space:]]*#';\
-    \ then\n  echo \"FAIL: flock invoked outside a comment\" >&2; exit 1\nfi\n"
+    \ then\n  echo \"FAIL: flock invoked outside a comment\" >&2; exit 1\nfi"
 - id: P7
   name: Stop misreading a released lock as a broken filesystem
   status: pending
@@ -520,25 +532,43 @@ answers.
 **Satisfies:** R7, R6 · **Depends on:** P5
 **Goal:** a stale lock that cannot be removed produces a timeout, not an unbounded spin.
 
-- [ ] Retry the `mkdir` immediately only when the directory is actually gone. After the break attempt,
+- [x] Retry the `mkdir` immediately only when the directory is actually gone. After the break attempt,
       `[[ -d "${lock}" ]] || continue`; otherwise fall through to the accounting and the sleep.
-- [ ] A bare `die` on `rmdir` failure is **wrong**: two waiters can declare the same lock stale, and
+- [x] A bare `die` on `rmdir` failure is **wrong**: two waiters can declare the same lock stale, and
       the loser's `rmdir` gets `ENOENT` having done nothing wrong. The discriminator is whether the
       directory survived, not whether our own `rmdir` returned zero.
-- [ ] Add `broke` to the existing `local waited=0 age` line and use it to suppress re-announcing a
+- [x] Add `broke` to the existing `local waited=0 age` line and use it to suppress re-announcing a
       denied break. At the default timeout that would otherwise be 180 identical lines.
-- [ ] No user-facing surface change and no `invariants.md` edit: §5 already asserts the wrapper times
+- [x] No user-facing surface change and no `invariants.md` edit: §5 already asserts the wrapper times
       out after `UVM_LOCK_TIMEOUT`. This phase is what makes that assertion true.
+- [x] **Amended — the loop has two break sites, not one, and both spin.** `PLAN.md` §*The timeout has
+      to actually bound* was written against `:229`, the only break that existed before P3 added the
+      liveness probe. A lock whose `owner` names a dead local pid, inside a directory whose entries
+      cannot be removed, re-announces and re-`continue`s exactly as the stale path does: measured
+      2386 stderr lines and 1193 break announcements in 6 s, still running when the harness killed
+      it. Fixing one site and not the other leaves R7 half-true in the branch the wrapper reaches
+      first.
+- [x] **Amended — the two break bodies are folded into one.** With R7's tail they would have been
+      eight identical lines twice, differing only in the note, and the next reader of a lock-breaking
+      change has to notice there are two of them. A `reason` local decides *which* forfeiture applies
+      — the branches were already mutually exclusive through the stale test's `[[ -z "${pid}" ]]`
+      guard, so the `elif` changes no behavior — and one block announces, removes, and charges the
+      timeout. It is a deletion, and it gives R7 and P7's counter one site each rather than two.
 - **Verify:** against a lock directory holding an entry the wrapper did not write, aged past
   `UVM_LOCK_STALE`, the call exits within the timeout carrying the timeout message and announces the
-  break at most once; an ordinary stale break still works and still provisions; plus the full R6
-  regression, so the last phase ends on the cold-provisioning check. Red today at
-  `FAIL: still spinning 6s after a 2s timeout` — measured 825 lines before the harness killed it.
-- **Retune both drives before trusting that red.** They were written before P4's ordering constraint
-  and each carries a pair it now refuses: the first needs a timeout below its stale threshold while
-  still aging the lock out, and the second is the `STALE=1 TIMEOUT=10` drive P5 already fixed in its
-  own gate. Refused knobs abort the drive at the `uv` call, so the gate fails with no output at all
-  and says nothing about the spin R7 is about.
+  break at most once; the same against a dead holder's lock the waiter cannot remove; an ordinary
+  stale break still works and still provisions; plus the full R6 regression, so the last phase ends on
+  the cold-provisioning check.
+- **Gate retuned, then observed red and green.** Both original drives carried knob pairs P4 refuses,
+  which abort a drive at the `uv` call and report nothing — the failure P5 hit and recorded. Retuned
+  to `STALE=3 TIMEOUT=2` against a 4 s-old lock, and to P5's `STALE=2 TIMEOUT=1` for the ordinary
+  break. A third drive was added for the second break site, because a gate that exercises only the
+  stale path grades a fix to only the stale path as complete. Red against `HEAD` at
+  `FAIL: still spinning 6s after a 2s timeout (794 lines)`, and the new drive red on its own at
+  1193 announcements in 6 s; green after.
+- **Observed beyond the gate:** the dead-holder denied break now emits 6 stderr lines — one break
+  note, then the four-line timeout message — and exits 1 in 2 s against `UVM_LOCK_TIMEOUT=2`. P1
+  through P5 re-run green against the folded loop.
 - **Touches:** `bin/uv-manager`.
 
 ## Phase P7 — Stop misreading a released lock as a broken filesystem
