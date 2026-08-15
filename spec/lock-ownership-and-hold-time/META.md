@@ -94,3 +94,77 @@
   longer than one command, and keep the double-quoted escaping warning scoped to the one-liner case.
   Worth noting that `|` round-trips through `next_phase.py`'s PyYAML cleanly, heredocs included.
 - **Confidence:** high · **Effort:** small
+
+## F4 — `invariants.md` was written from `AGENTS.md` prose, not from the functions it constrains
+`origin=uvm-plan:step-5 severity=medium category=inaccurate-guidance status=open target=.agents/factory/invariants.md`
+- **What happened:** an audit of all twelve sections against `bin/uv-manager` — ~126 claims, four
+  sections, seven findings filed, three refuted by an adversarial pass — found **four** assertions
+  measured false of the code. Three of them (§6, §9, §11, recorded below) are the same failure mode:
+  a qualifier dropped or invented while compressing `AGENTS.md` prose into a checklist bullet. The
+  fourth (§5) turned out to be a code defect and was taken into this cycle as R7. All four date from
+  the file's creation commit `33a91fb`, so this is origin error, not drift.
+- **Skill cause:** `invariants.md` is graded against as **auto-CRITICAL**, and nothing in the factory
+  ever required its assertions to be checked against the code they constrain. It was derived from
+  prose that is itself a summary, one step further from ground truth at each hop. `AGENTS.md` says
+  "when something below disagrees with the code, the code is ground truth" — but that rule is written
+  for the human reading it, and no step executes it. The consequence is not hypothetical: a reviewer
+  following §11 would fail a correct parser, and §6 would have a reviewer demand pre-warm text on a
+  path where it is deliberately absent.
+- **Recommended fix:** two things. Repair the three bullets (F5–F7). And add a standing rule to this
+  file's header, which is a *strengthening* and so needs no typed override: before raising an
+  auto-CRITICAL for a §1–§11 violation, confirm the invariant is true of `main` in the neighbourhood
+  being graded; a claim that does not hold on `main` is a finding against **this file**, logged in
+  `META.md`, not against the diff. A bullet added or edited here names the function it constrains and
+  is checked against that function, not against `AGENTS.md`'s prose. Explicitly **not** recommended: a
+  recurring audit or a `lint.sh` check — one adversarial sweep found these and the claims are
+  semantic, so a schedule would buy ceremony `AGENTS.md` already prices.
+- **Confidence:** high · **Effort:** small
+
+## F5 — §6 generalizes one failure path's message to "any failure"
+`origin=uvm-plan:step-5 severity=low category=inaccurate-guidance status=open target=.agents/factory/invariants.md`
+- **What happened:** §6's last bullet reads "On any failure, remove the staging directory, release the
+  lock, and die with the pre-warm instructions." Measured: the installer-pipeline guard
+  (`bin/uv-manager:341-349`) carries the pre-warm text; the version read-back guard (`:351-355`)
+  deliberately does not, because pre-warming would send the user to repeat the same download; and the
+  rename at `:361` is guarded by nothing and dies under `set -e` leaving a `.incoming.` directory. So
+  both halves of the sentence are false as written. No `AGENTS.md` counterpart, so this is a
+  single-file edit.
+- **Skill cause:** as F4. The bullet describes the first failure path it encountered and quantifies it
+  over all three.
+- **Recommended fix:** replace with a bullet that names the per-path advice — no egress gets pre-warm,
+  a binary that will not run gets the wrong-architecture message — and states plainly that the rename
+  is unguarded. The unguarded rename itself is code work, seeded in `issues/invariant-audit-gaps.md`.
+- **Confidence:** high · **Effort:** small
+
+## F6 — §9 drops the qualifiers on the trampoline overwrite guard
+`origin=uvm-plan:step-5 severity=medium category=inaccurate-guidance status=open target=.agents/factory/invariants.md`
+- **What happened:** §9 says "Only marked files are ever overwritten or removed." Removal is
+  marker-only; overwriting is not. The guard at `bin/uv-manager:491-496` is a three-way conjunction,
+  so an unmarked file failing `-s` **or** `-x` is written over — a planted 0644 non-empty user file was
+  replaced with no note. The sentence is duplicated verbatim at `AGENTS.md:170`, so the repair is a
+  two-file lockstep edit.
+- **Skill cause:** as F4 — the compression dropped "non-empty and executable", which is exactly the
+  part that makes the claim false.
+- **Recommended fix:** state that removal is marker-only while overwriting is refused only for a file
+  that is all three, and say why the `-s` term exists (a trampoline truncated by a purge is 0 bytes
+  and unmarked, and the bullet above requires it be repaired). The `-x` term is a genuine safety gap
+  against the property `AGENTS.md` states; that is code work, seeded.
+- **Confidence:** high · **Effort:** small
+
+## F7 — §11's rationale is disproved by `uv`'s actual CLI
+`origin=uvm-plan:step-5 severity=medium category=inaccurate-guidance status=open target=.agents/factory/invariants.md`
+- **What happened:** §11 asserts the five entries in `uvm_global_takes_value` are complete and that
+  "everything else that looks like one is a per-command option and can only appear after the
+  subcommand". Measured against `uv 0.12.4`: `uv --cache-dir DIR tool dir` and
+  `uv --python-preference only-managed tool dir` both succeed, so two more options are accepted before
+  the subcommand and take a value. The enumeration is right about the five under `uv --help`'s *Global
+  options* heading; the reasoning attached to it is wrong, and `bin/uv-manager:533-538` names
+  `--cache-dir` as an example of the category it disproves. Duplicated in `AGENTS.md:181-183`.
+- **Skill cause:** as F4, with an aggravating factor — this bullet asserts a fact about a *third-party
+  CLI* that nobody ran. It also argues against lengthening the list ("not more careful, more surface
+  to drift"), which reads as a standing reason not to check.
+- **Recommended fix:** restate as the set of options `uv` accepts before the subcommand that take a
+  separate value, name the two known-missing entries as a gap, and keep the real point — the list is
+  not a `uv` CLI model, it is the set that would otherwise be mis-skipped. The banner in the script
+  rides with the code fix, which is seeded.
+- **Confidence:** high · **Effort:** small

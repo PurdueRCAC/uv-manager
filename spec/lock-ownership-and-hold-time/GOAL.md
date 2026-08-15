@@ -63,11 +63,14 @@ repair cycle inherits a lock it can hold for the length of a rebuild.
   waiting on a live holder SHALL NOT print `breaking stale provisioning lock`, and the holder's lock
   SHALL still be its own when the work finishes.*
 - **R3** — IF `UVM_LOCK_TIMEOUT` is not less than `UVM_LOCK_STALE`, THEN the wrapper SHALL report the
-  inverted configuration and refuse it, rather than silently breaking live locks. *Checked by a
-  sandbox drive with the knobs inverted: non-zero exit, a message naming both variables, and a
-  pre-existing live lock still present afterwards. The pre-fix behavior is already reproduced —
-  `breaking stale provisioning lock (2s old)` followed by the lock's deletion — so the gate has a
-  known red state.*
+  inverted configuration and refuse it, rather than silently breaking live locks. Both knobs SHALL be
+  read as the decimal seconds the operator wrote, and the refusal SHALL print the seconds it judged.
+  *Checked by a sandbox drive with the knobs inverted: non-zero exit, a message naming both variables,
+  and a pre-existing live lock still present afterwards; plus three spellings — `TIMEOUT=0600
+  STALE=500` refused, `TIMEOUT=500 STALE=0600` accepted, and `STALE=0800` on a contended lock
+  producing no `value too great for base` on stderr. The pre-fix behavior is already reproduced —
+  `breaking stale provisioning lock (2s old)` followed by the lock's deletion, and `0600` measured as
+  384 s — so the gate has a known red state.*
 - **R4** — No lock SHALL be held across `exec`. The wrapper SHALL release before each `exec` of the
   real `uv` — the three in the dispatch tail and the one in `uvm_self_update`. *Checked by a sandbox
   drive asserting the release runs on a path that reaches `exec`, and by
@@ -83,6 +86,13 @@ repair cycle inherits a lock it can hold for the length of a rebuild.
   reporting the fixture version and leaving `current -> versions/<fixture>`, plus a census showing no
   `flock` is invoked — `git grep -n flock bin/uv-manager` matching nothing outside a comment, which
   retains the rationale comment at `:172` that records why the discipline is `mkdir`.*
+- **R7** — A stale lock the wrapper cannot remove SHALL NOT defeat `UVM_LOCK_TIMEOUT`. WHEN a break
+  attempt leaves the lock directory in place, the waiter SHALL fall through to the timeout accounting
+  rather than retrying at once, and SHALL NOT re-announce the break on each iteration. *Checked by a
+  sandbox drive against a lock directory holding an entry the wrapper did not write, aged past
+  `UVM_LOCK_STALE`: the call exits non-zero within `UVM_LOCK_TIMEOUT` and its stderr carries the
+  timeout message. Red today — measured 825 stderr lines and still spinning 8 s after a 2 s timeout,
+  killed by the harness.*
 
 ## Non-goals (no-gos)
 
@@ -140,6 +150,20 @@ repair cycle inherits a lock it can hold for the length of a rebuild.
   lock forever? — **A:** No. `uvm_unlock` reaps the refresher and R4 calls it before every `exec`. A
   ceiling adds a counter and a documented number, and a hold that outlives it silently loses the
   protection R2 exists to give — reintroducing the bound this cycle removes (resolved 2026-08-15).
+- **Q:** Bash reads `UVM_LOCK_STALE=0600` as octal 384. Does R3 compare what the operator wrote or
+  what bash computes? — **A:** What the operator wrote. The guard forces base 10 before comparing and
+  prints the seconds it judged. Left raw, a legal `TIMEOUT=500 STALE=0600` is *refused* with a message
+  whose own two numbers satisfy the rule it cites, and `^[0-9]+$` admits `0800`, on which the guard's
+  own arithmetic errors non-fatally, compares false, and **accepts**. Both driven. This is a hole in
+  the guard this cycle ships, not an inherited defect, which is what puts it in scope (resolved
+  2026-08-15).
+- **Q:** The `continue` in the stale-break block skips both the timeout counter and the `sleep`, so a
+  lock that cannot be removed spins unbounded. Is that this cycle's or a seed's? — **A:** This cycle,
+  as R7. It sits in the function four phases already rewrite, and P3 and P5 each make the spin hotter
+  and noisier — deferring means shipping a hold-time fix that degrades the one bound the knob
+  documents. Reachability needs a cold tree, a lock past `UVM_LOCK_STALE`, and removal persistently
+  denied: a read-only remount, a full filesystem, or a stray entry in the lock directory. Found by an
+  audit of `invariants.md` against the code, not by the original shaping (resolved 2026-08-15).
 - **Q:** Should this be promoted before `purge-tree-repair`, to get repair benchmarks sooner? —
   **A:** No; the recorded sequencing stands. The blocking subset is narrower than the whole cycle —
   R1 and R3 are what R7 of the repair cycle strictly needs — but the maintainer chose to take the

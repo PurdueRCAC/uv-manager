@@ -144,6 +144,35 @@ phases:
       UVM_LOCK_TIMEOUT=10 UVM_LOCK_STALE=2 uvm --version >/dev/null
       UVM_LOCK_TIMEOUT=10 UVM_LOCK_STALE=2 uvm help >/dev/null
       DRIVE
+      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
+      set +e
+      UVM_LOCK_TIMEOUT=0600 UVM_LOCK_STALE=500 uv --version >/dev/null 2>"$UVM_SANDBOX/oct"; rc=$?
+      set -e
+      if [ "$rc" -eq 0 ]; then
+        echo "FAIL: 0600 vs 500 accepted -- the guard judged 384, not 600" >&2; exit 1
+      fi
+      if ! grep -q 'UVM_LOCK_TIMEOUT=600' "$UVM_SANDBOX/oct"; then
+        echo "FAIL: the refusal prints the raw string, not the seconds it judged" >&2; exit 1
+      fi
+      DRIVE
+      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
+      set -e
+      out=$(UVM_LOCK_TIMEOUT=500 UVM_LOCK_STALE=0600 uv --version 2>"$UVM_SANDBOX/oct2")
+      if [ "$out" != "uv 9.9.9 (fixture)" ]; then
+        echo "FAIL: a legal pair spelled 500/0600 was refused: $(cat "$UVM_SANDBOX/oct2")" >&2; exit 1
+      fi
+      DRIVE
+      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
+      set -e
+      A="$UVM_ROOT/$(uname -m)"; L="$A/.install.lock"; mkdir -p "$A"; mkdir "$L"
+      printf 'host=%s pid=%s nonce=0\n' "$(uname -n)" "$$" > "$L/owner"
+      set +e
+      UVM_LOCK_TIMEOUT=3 UVM_LOCK_STALE=0800 uv --version >/dev/null 2>"$UVM_SANDBOX/err"
+      set -e
+      if grep -q 'value too great for base' "$UVM_SANDBOX/err"; then
+        echo "FAIL: the form check passed a value the arithmetic cannot evaluate" >&2; exit 1
+      fi
+      DRIVE
       if ! grep -q 'UVM_LOCK_TIMEOUT' etc/uv-manager.conf.example; then echo "FAIL: conf example silent" >&2; exit 1; fi
       for f in README.md etc/uv-manager.conf.example bin/uv-manager; do
         if ! grep -q 'less than' "$f"; then echo "FAIL: $f does not state the ordering constraint" >&2; exit 1; fi
@@ -151,7 +180,7 @@ phases:
   - id: P5
     name: "Tell a stalled user how to tell an abandoned lock from a live one"
     status: pending
-    satisfies: [R5, R6]
+    satisfies: [R5]
     depends_on: [P4]
     parallel: false
     hammerable: false
@@ -191,6 +220,60 @@ phases:
       if ! grep -q 'install\.lock' README.md; then
         echo "FAIL: README documents no lock troubleshooting entry" >&2; exit 1
       fi
+      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
+      set -e
+      out=$(uv --version)
+      if [ "$out" != "uv 9.9.9 (fixture)" ]; then echo "FAIL: stdout was '$out'" >&2; exit 1; fi
+      A="$UVM_ROOT/$(uname -m)"
+      if [ "$(readlink "$A/current")" != versions/9.9.9 ]; then echo "FAIL: current target moved" >&2; exit 1; fi
+      DRIVE
+      if git grep -n flock bin/uv-manager | grep -qvE '^bin/uv-manager:[0-9]+:[[:space:]]*#'; then
+        echo "FAIL: flock invoked outside a comment" >&2; exit 1
+      fi
+  - id: P6
+    name: "Make UVM_LOCK_TIMEOUT bound a waiter it cannot break free of"
+    status: pending
+    satisfies: [R7, R6]
+    depends_on: [P5]
+    parallel: false
+    hammerable: false
+    hill: uphill
+    verify: |
+      set -eu
+      bash -n bin/uv-manager
+      .agents/factory/bin/lint.sh >/dev/null
+      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
+      set -e
+      A="$UVM_ROOT/$(uname -m)"; L="$A/.install.lock"
+      mkdir -p "$L/stuck"
+      sleep 2
+      UVM_LOCK_TIMEOUT=2 UVM_LOCK_STALE=1 uv --version >/dev/null 2>"$UVM_SANDBOX/err" &
+      p=$!
+      sleep 6
+      if kill -0 "$p" 2>/dev/null; then
+        kill -9 "$p" 2>/dev/null || true
+        echo "FAIL: still spinning 6s after a 2s timeout ($(wc -l < "$UVM_SANDBOX/err" | tr -d ' ') lines)" >&2
+        exit 1
+      fi
+      if ! grep -q 'timed out after' "$UVM_SANDBOX/err"; then
+        echo "FAIL: the waiter exited without the timeout message" >&2; exit 1
+      fi
+      if [ "$(grep -c 'breaking' "$UVM_SANDBOX/err" || true)" -gt 1 ]; then
+        echo "FAIL: the denied break re-announced itself every iteration" >&2; exit 1
+      fi
+      DRIVE
+      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
+      set -e
+      A="$UVM_ROOT/$(uname -m)"; L="$A/.install.lock"; mkdir -p "$A"; mkdir "$L"
+      printf 'host=node0042 pid=12345 nonce=0\n' > "$L/owner"
+      sleep 2
+      UVM_LOCK_STALE=1 UVM_LOCK_TIMEOUT=10 uv --version >/dev/null 2>"$UVM_SANDBOX/brk"
+      if ! grep -q 'breaking' "$UVM_SANDBOX/brk"; then
+        echo "FAIL: an ordinary stale break no longer works" >&2; exit 1
+      fi
+      A="$UVM_ROOT/$(uname -m)"
+      if [ "$(readlink "$A/current")" != versions/9.9.9 ]; then echo "FAIL: break did not provision" >&2; exit 1; fi
+      DRIVE
       .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
       set -e
       out=$(uv --version)
@@ -326,6 +409,17 @@ answers.
 - [ ] The numeric test is not optional and is a recorded deviation: with `UVM_LOCK_STALE=abc`, `set -u`
       kills the arithmetic at `:225` but bash 3.2 **exits 0**, so `VER=$(uv --version)` returns empty
       and true. It also catches `' '`, `0` and `-1`, each of which makes every lock instantly stale.
+- [ ] Force base 10 after the form test and before the comparison, assigning back to the **existing
+      globals**: `lock_timeout=$(( 10#${lock_timeout} ))`, same for `lock_stale`. Not `local` — `:225`,
+      `:233` and the timeout message must read the same seconds. `0600` is 384 to bash and `0800` is
+      not a number at all, so a guard on the raw strings judges seconds the operator never wrote and
+      prints a refusal its own two numbers satisfy.
+- [ ] Keep the form test **ahead** of the normalization: `$(( 10#${x} ))` on an empty or all-space
+      value is silently `0` on bash 3.2 and an error on 5.2, and a `0` stale makes every lock
+      instantly stale.
+- [ ] No extra user-facing surface for the normalization — a padded value now means what it looks
+      like. `etc/uv-manager.conf.example` gains "whole seconds, decimal"; `uvm_help` and `README.md`
+      still only gain the ordering constraint.
 - [ ] Same-commit surface: the `uvm_help` knob lines (`:878` is already 78 columns against an 81-column
       heredoc, so this needs a continuation line), `etc/uv-manager.conf.example:71-76`, and
       `README.md`'s knob table at `:551-552`. Document the NFS floor — `UVM_LOCK_STALE` below roughly
@@ -333,7 +427,11 @@ answers.
 - [ ] Add the ordering constraint to `invariants.md` §5 and `AGENTS.md` § *Invariants*.
 - **Verify:** inverted knobs exit non-zero, name both variables, and leave a pre-existing live lock
   present; a non-numeric value is refused; `uvm --version` and `uvm help` still answer; and all three
-  user-facing files state the constraint. Red today at `FAIL: inverted knobs accepted (rc=0)`.
+  user-facing files state the constraint; plus `TIMEOUT=0600 STALE=500` refused with the refusal
+  printing `600`, `TIMEOUT=500 STALE=0600` accepted, and `STALE=0800` reaching no arithmetic. Red
+  today at `FAIL: inverted knobs accepted (rc=0)`. The `500/0600` drive is green today and red against
+  a guard that omits the normalization — it is the row that discriminates the correct guard from the
+  one the first draft of this plan specified.
 - **Touches:** `bin/uv-manager`, `etc/uv-manager.conf.example`, `README.md`,
   `.agents/factory/invariants.md`, `AGENTS.md`.
 
@@ -362,6 +460,26 @@ answers.
   `install.lock`; plus the full R6 regression — `uv 9.9.9 (fixture)`, `current -> versions/9.9.9`, and
   no `flock` outside a comment. Red today at `FAIL: timeout message never mentions 'owner'`.
 - **Touches:** `bin/uv-manager`, `README.md`, `.agents/factory/invariants.md`, `AGENTS.md`.
+
+## Phase P6 — Make `UVM_LOCK_TIMEOUT` bound a waiter it cannot break free of
+**Satisfies:** R7, R6 · **Depends on:** P5
+**Goal:** a stale lock that cannot be removed produces a timeout, not an unbounded spin.
+
+- [ ] Retry the `mkdir` immediately only when the directory is actually gone. After the break attempt,
+      `[[ -d "${lock}" ]] || continue`; otherwise fall through to the accounting and the sleep.
+- [ ] A bare `die` on `rmdir` failure is **wrong**: two waiters can declare the same lock stale, and
+      the loser's `rmdir` gets `ENOENT` having done nothing wrong. The discriminator is whether the
+      directory survived, not whether our own `rmdir` returned zero.
+- [ ] Add `broke` to the existing `local waited=0 age` line and use it to suppress re-announcing a
+      denied break. At the default timeout that would otherwise be 180 identical lines.
+- [ ] No user-facing surface change and no `invariants.md` edit: §5 already asserts the wrapper times
+      out after `UVM_LOCK_TIMEOUT`. This phase is what makes that assertion true.
+- **Verify:** against a lock directory holding an entry the wrapper did not write, aged past
+  `UVM_LOCK_STALE`, the call exits within the timeout carrying the timeout message and announces the
+  break at most once; an ordinary stale break still works and still provisions; plus the full R6
+  regression, so the last phase ends on the cold-provisioning check. Red today at
+  `FAIL: still spinning 6s after a 2s timeout` — measured 825 lines before the harness killed it.
+- **Touches:** `bin/uv-manager`.
 
 ---
 

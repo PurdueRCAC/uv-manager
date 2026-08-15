@@ -101,16 +101,56 @@ two sub-millisecond statements after it.
 
 ### Knob ordering
 
-A guard at the top of `uvm_acquire_lock` tests numeric form, then ordering, and dies naming both
-variables and their values. The numeric test is not optional. With `UVM_LOCK_STALE=abc`, `set -u` kills
+A guard at the top of `uvm_acquire_lock` tests numeric form, forces base 10, then tests ordering, and
+dies naming both variables and the seconds it judged. The numeric test is not optional. With
+`UVM_LOCK_STALE=abc`, `set -u` kills
 the arithmetic at `:225` but **bash 3.2 exits 0**, because the EXIT trap's status overrides the error
 status — so `VER=$(uv --version)` returns empty and true on the portability floor. The same guard
 catches `' '`, `0` and `-1`, each of which makes every lock instantly stale; a space was driven end to
 end breaking a live foreign lock and provisioning over it.
 
+Base 10 is not optional either, and it has to come after the form test. Bash reads a leading zero as
+octal: `UVM_LOCK_STALE=0600` is 384 s, and `0800` is not a number at all. Left raw, the guard judges
+seconds the operator never wrote — a legal `TIMEOUT=500 STALE=0600` is refused, and the refusal prints
+`UVM_LOCK_TIMEOUT=500  UVM_LOCK_STALE=0600` under a headline saying the first must be less than the
+second. `^[0-9]+$` also admits `08`, `09` and `0800`, on which the guard's own `(( ))` prints
+`value too great for base`, returns false non-fatally, and **accepts**. The order is forced the other
+way too: `$(( 10#${x} ))` on an empty or all-space value is silently `0` on bash 3.2 and an error on
+5.2, and a `0` stale makes every lock instantly stale. Normalization assigns back to the existing
+globals rather than to locals, so `:225`, `:233` and the timeout message all mean the same seconds. A
+site running `0600` moves from an effective 384 s to 600 s — toward the documented default, away from
+breaking live locks.
+
+Refusing a leading zero outright was prototyped and rejected: it lints clean and its message is
+actionable, but it hard-fails cold provisioning over a formatting choice with one plain reading.
+Doing both is redundant, because rejection makes `10#` unreachable.
+
 Placement is inside the function that consumes the knobs so that `uvm help` and `uvm --version` still
 answer with a broken configuration. That is the whole point of deferring `uvm_init`, transposed one
 variable over.
+
+### The timeout has to actually bound
+
+`UVM_LOCK_TIMEOUT` is documented in `uvm_help`, `README.md` and the conf example as how long a call
+blocks, and there is a reachable state where it bounds nothing. When a lock is past `UVM_LOCK_STALE`
+but cannot be removed — an entry the wrapper did not write, a read-only remount, a full filesystem —
+the `continue` at `:229` skips both `waited=$(( waited + 1 ))` at `:232` and `sleep 1` at `:238`.
+Measured on the current tree: 825 stderr lines, still spinning 8 s after a 2 s timeout, killed by the
+harness.
+
+The repair retries immediately only when the directory is actually gone, and otherwise falls through
+to the accounting and the sleep:
+
+```
+      [[ -d "${lock}" ]] || continue
+      broke=denied
+```
+
+A bare `die` on `rmdir` failure would be wrong: two waiters can declare the same lock stale, and the
+loser's `rmdir` gets `ENOENT` having done nothing wrong. The discriminator is whether the directory
+survived, not whether our own `rmdir` returned zero. `broke` — declared on the existing
+`local waited=0 age` line — keeps a denied break from re-announcing itself once per second, which at
+the default timeout would be 180 identical lines.
 
 ### Messages
 
@@ -167,10 +207,11 @@ them cannot be fixed by deletion.
 |------|-----------------------------------|
 | R1 | `uvm_lock_owner` global; owner line from expansions only; fatal owner write with pre-`uvm_lock` `rmdir`; `uvm_unlock` rewritten to clear-then-compare-then-remove, leaving every non-match in place |
 | R2 | `uvm_lock_heartbeat` spawned at acquire and reaped at unlock; `lock_beat = lock_stale / 10` floored at 1; `uvm_age` stats `${lock}/owner` with a directory fallback; waiter liveness probe ahead of the age test |
-| R3 | Numeric-form then ordering guard at the top of `uvm_acquire_lock`; `die` naming both variables and values; `uvm_help`, conf example, `README.md` knob table |
+| R3 | Numeric-form test, base-10 normalization onto the existing globals, then the ordering guard, at the top of `uvm_acquire_lock`; `die` naming both variables and the seconds judged; `uvm_help`, conf example, `README.md` knob table |
 | R4 | `uvm_unlock` before `exec "${real_uv}" --version` in `uvm_self_update` and before the `case "${mode}"` block; the empty-`uvm_lock` early-out keeps it fork-free |
 | R5 | Timeout message carrying the owner line, the cross-host caveat and `rm -f … && rmdir …`; same owner line on the stale-break note; `README.md` § *Troubleshooting* entry |
 | R6 | No `flock`; `mkdir` loop, atomic-rename install path and `current` swap untouched; the warm fast path at `:308` still returns before any lock, so no refresher is spawned |
+| R7 | `[[ -d "${lock}" ]] || continue` after the break attempt, so a denied removal falls through to the accounting and the sleep; a `broke` local suppressing the repeated announcement |
 
 ## 3. Invariant gate (AGENTS.md constitution check)
 
@@ -190,7 +231,8 @@ against this design.
   EXIT, INT and TERM, now qualified by ownership. Two bullets are revised in the same commit as the code
   that invalidates them: the stale-break bullet, because age is now measured from the heartbeat, and the
   recovery-command bullet, because the command it promises has never worked. A third is added for the
-  knob ordering.
+  knob ordering. R7 needs no new text: §5 already asserts the wrapper times out after
+  `UVM_LOCK_TIMEOUT`, and R7 is what makes that assertion true when a break is denied.
 - **§7 Output discipline** — installer output still goes to stderr, stdout still carries only the user's
   answer, verified by the degenerate-owner drives returning `uv 9.9.9 (fixture)` alone. The heartbeat's
   `>/dev/null 2>&1` forecloses a child holding the caller's pipe open. The `die`-versus-heredoc question
@@ -205,7 +247,7 @@ against this design.
 
 | Deviation | Why needed | Simpler alternative rejected because |
 |-----------|-----------|--------------------------------------|
-| R3's guard also refuses **non-numeric** knob values, which R3 does not ask for | A bare ordering comparison inherits the bash 3.2 fatality where `UVM_LOCK_STALE=abc` aborts at `:225` and the script still **exits 0** — `VER=$(uv --version)` returns empty and true. The guard would not deliver R3's stated behavior without it | Comparing only the ordering: silently keeps a worse failure than the one R3 removes. A `case` on `"${t}:${s}"` was prototyped and is wrong — `18:0` slips through and dies with an arithmetic syntax error |
+| R3's guard also refuses **non-numeric** knob values and **normalizes to base 10**, neither of which R3 originally asked for | A bare ordering comparison inherits the bash 3.2 fatality where `UVM_LOCK_STALE=abc` aborts at `:225` and the script still **exits 0**. The form test is also what makes `10#` safe: `$(( 10# ))` on an empty or all-space value is `0` on bash 3.2 and an error on 5.2. Without both, the guard does not deliver R3's stated behavior — it refuses legal pairs and accepts `0800` | Comparing only the ordering: silently keeps a worse failure than the one R3 removes. A `case` on `"${t}:${s}"` was prototyped and is wrong — `18:0` slips through and dies with an arithmetic syntax error. Normalizing without a form test first: `0800` passes `^[0-9]+$`, so the check must precede arithmetic that cannot evaluate it. Rejecting leading zeros instead of normalizing: hard-fails cold provisioning over a formatting choice with one plain reading |
 | A **background process** exists during provisioning, on a script whose §10 budget guards forks | The hold is one blocking pipeline; nothing else can refresh an mtime during it, and R2 requires the lock to survive it | Refresh at progress points is structurally dead — two sub-millisecond statements, both after the fetch. Inverting the pipeline works mechanically but welds the heartbeat to `uvm_install`, and `purge-tree-repair` holds the lock across a rebuild that is not that pipeline |
 | `uvm_age` grows a **fallback** (`owner` then the directory) rather than one path | A directory's mtime does not move when a file inside it is rewritten, so the heartbeat is only visible on the file; the directory branch is what keeps locks with no `owner` aging as they do today | Stat only `owner`: an older wrapper's lock, or one caught in the 0.10 ms acquire window, would never age out. Stat only the directory: the heartbeat is invisible and R2 fails |
 | The owner write becomes **fatal**, adding a failure path | Under R1 a holder that cannot prove ownership leaks its own lock for a full stale window; the failure is silent today | Keeping `|| true`: trades a rare loud failure for a rare silent leak in a region where a leak blocks the user until manual repair |
@@ -254,8 +296,17 @@ against this design.
   which would make the trap capable of deleting a lock this process failed to take.
 - **Sleep-based gate timings were reliable here but have not run on a loaded shared machine.** A
   `verify:` retried under load may need wider margins.
-- **`uvm_age` reads `0600` as octal 384 s** at `:225` today. Out of scope, and the guard must read it the
-  same way or the two disagree; it wants an `issues/` seed of its own.
+- **`uvm_age` read `0600` as octal 384 s** at `:225`. Folded into R3's guard rather than seeded: the
+  guard forces base 10 on the same globals `:225` and `:233` read, so all three sites and the timeout
+  message mean the seconds the operator wrote. No `issues/` seed is owed.
+- **Three `invariants.md` bullets were measured false of the code** during an audit prompted by §5's
+  broken recovery command — §6 over-generalizes one guard's message to "any failure", §9 drops the
+  qualifiers on the trampoline overwrite guard, and §11 asserts something about `uv`'s CLI that
+  `uv --cache-dir … tool dir` disproves. Two are duplicated verbatim in `AGENTS.md`. The text repairs
+  are `META.md` F4–F7 for `/uvm-harness` after merge; the two small code gaps behind them are seeded in
+  [`issues/invariant-audit-gaps.md`](../../issues/invariant-audit-gaps.md). Deliberately outside this
+  cycle's diff: they are unrelated to the lock, and editing the checklist inside the graded diff reads
+  as revising the standard being graded against.
 
 ## 6. Verification strategy
 
@@ -275,15 +326,19 @@ Post-conditions asserted, per requirement:
 - **R2** — with a hold longer than `UVM_LOCK_STALE`, the waiter's stderr contains no
   `breaking stale provisioning lock` and the `owner` file still names the original holder's pid. The
   waiter exits non-zero on an ordinary timeout after the fix, so the gate must not assert `rc=0`.
-- **R3** — inverted knobs exit non-zero, print both variable names, and leave a pre-existing live lock
-  present; `uvm help` and `uvm --version` still answer with the knobs inverted.
+- **R3** — inverted knobs exit non-zero, print both variable names and the seconds judged, and leave a
+  pre-existing live lock present; `TIMEOUT=0600 STALE=500` refused and `TIMEOUT=500 STALE=0600`
+  accepted; `STALE=0800` reaching no arithmetic; `uvm help` and `uvm --version` still answering.
 - **R4** — xtrace ordering shows `uvm_unlock` between `uvm_export_env` and `exec`, on both the dispatch
   tail and the `uv self update` path; plus the four-line census.
 - **R5** — a drive to timeout whose stderr matches `owner`, `host` and `pid` as whole words.
 - **R6** — `uv --version` still prints `uv 9.9.9 (fixture)` and `current` still points at
   `versions/9.9.9`; no `flock` outside a comment.
+- **R7** — against a lock directory holding an entry the wrapper did not write, aged past
+  `UVM_LOCK_STALE`, the call exits within `UVM_LOCK_TIMEOUT` and its stderr carries the timeout
+  message rather than a repeated break announcement.
 
-All five change gates are red against `653b770`; R6 is green and must stay green. Two clauses are
+All six change gates are red against `653b770`; R6 is green and must stay green. Two clauses are
 **inspection-only** and are called out in `TECH.md` for the reviewer rather than trusted to a gate:
 R4's fork-free-release cost claim, which the GOAL already assigns to a human, and "every `exec` site
 covered", which is a reading of the census rather than something a proximity grep can decide.
