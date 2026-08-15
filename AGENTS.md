@@ -178,6 +178,13 @@ digits-only test only to error non-fatally inside the comparison and be *accepte
 the function, never at load, so `uvm help` and `uvm --version` still answer on a node whose
 configuration is broken.
 
+**The timeout message names the holder and a recovery command that works.** It prints the `owner`
+line the lock records, states that a recorded pid is on the host recorded beside it and not on the
+reader's — probing it locally is how a stalled user talks themselves into deleting a live lock — and
+advises `rm -f '<lock>/owner' && rmdir '<lock>'`. A bare `rmdir` reports `Directory not empty` for
+every lock whose holder got as far as claiming it, because `owner` is inside the directory. Break
+notes carry the same owner line: the file that answers "whose lock was that" is deleted with the lock.
+
 **`current` is swapped atomically, and its target is relative** (`versions/<ver>`), so the tree stays
 relocatable and a concurrent reader never observes a missing or half-written `current`.
 

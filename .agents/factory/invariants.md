@@ -113,8 +113,13 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
   `0800` passes a digits-only test and then errors non-fatally inside the comparison, which
   *accepts*. The guard lives inside the function, never at load time, so `uvm help` and
   `uvm --version` still answer on a misconfigured node.
-- Break a lock older than `UVM_LOCK_STALE`; time out after `UVM_LOCK_TIMEOUT` with the
-  exact `rmdir` command to recover.
+- Break a lock older than `UVM_LOCK_STALE`; time out after `UVM_LOCK_TIMEOUT` naming the holder the
+  `owner` file records and a recovery command that works —
+  `rm -f '<lock>/owner' && rmdir '<lock>'`. A bare `rmdir` reports `Directory not empty` for every
+  lock whose holder got as far as claiming it, because `owner` is inside the directory it removes.
+  The message also says that a recorded pid is on the host recorded beside it: a stalled user who
+  probes it locally concludes the holder is gone and deletes a live lock. Every break note carries
+  the same owner line, since the file that answers "whose lock was that" is deleted with it.
 
 ## 6. Installer environment
 

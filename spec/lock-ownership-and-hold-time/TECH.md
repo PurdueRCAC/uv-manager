@@ -6,7 +6,7 @@ appetite: big
 status: in_progress
 branch: fix/lock-ownership-and-hold-time
 base: main
-current_phase: P5
+current_phase: P6
 last_updated: '2026-08-15'
 phases:
 - id: P1
@@ -162,9 +162,10 @@ phases:
     \ 1; fi\ndone\n"
 - id: P5
   name: Tell a stalled user how to tell an abandoned lock from a live one
-  status: pending
+  status: done
   satisfies:
   - R5
+  - R6
   depends_on:
   - P4
   parallel: false
@@ -183,18 +184,19 @@ phases:
     \ >&2; exit 1\nfi\nDRIVE\n.agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'\n\
     set -e\nA=\"$UVM_ROOT/$(uname -m)\"; L=\"$A/.install.lock\"; mkdir -p \"$A\";\
     \ mkdir \"$L\"\nprintf 'host=node0042 pid=12345 nonce=0\\n' > \"$L/owner\"\nsleep\
-    \ 2\nUVM_LOCK_STALE=1 UVM_LOCK_TIMEOUT=10 uv --version >/dev/null 2>\"$UVM_SANDBOX/brk\"\
-    \nif ! grep -q 'breaking' \"$UVM_SANDBOX/brk\"; then echo \"FAIL: no break occurred\"\
-    \ >&2; exit 1; fi\nif ! grep -q 'pid=12345' \"$UVM_SANDBOX/brk\"; then\n  echo\
-    \ \"FAIL: stale-break note does not name the owner it deleted\" >&2; exit 1\n\
-    fi\nDRIVE\nif ! grep -q 'install\\.lock' README.md; then\n  echo \"FAIL: README\
-    \ documents no lock troubleshooting entry\" >&2; exit 1\nfi\n.agents/factory/bin/temp_root.sh\
+    \ 3\nif ! UVM_LOCK_STALE=2 UVM_LOCK_TIMEOUT=1 uv --version >/dev/null 2>\"$UVM_SANDBOX/brk\"\
+    ; then\n  echo \"FAIL: the stale-break drive exited non-zero:\" >&2; cat \"$UVM_SANDBOX/brk\"\
+    \ >&2; exit 1\nfi\nif ! grep -q 'breaking' \"$UVM_SANDBOX/brk\"; then echo \"\
+    FAIL: no break occurred\" >&2; exit 1; fi\nif ! grep -q 'pid=12345' \"$UVM_SANDBOX/brk\"\
+    ; then\n  echo \"FAIL: stale-break note does not name the owner it deleted\" >&2;\
+    \ exit 1\nfi\nDRIVE\nif ! grep -q 'install\\.lock' README.md; then\n  echo \"\
+    FAIL: README documents no lock troubleshooting entry\" >&2; exit 1\nfi\n.agents/factory/bin/temp_root.sh\
     \ --offline sh -s <<'DRIVE'\nset -e\nout=$(uv --version)\nif [ \"$out\" != \"\
     uv 9.9.9 (fixture)\" ]; then echo \"FAIL: stdout was '$out'\" >&2; exit 1; fi\n\
     A=\"$UVM_ROOT/$(uname -m)\"\nif [ \"$(readlink \"$A/current\")\" != versions/9.9.9\
     \ ]; then echo \"FAIL: current target moved\" >&2; exit 1; fi\nDRIVE\nif git grep\
     \ -n flock bin/uv-manager | grep -qvE '^bin/uv-manager:[0-9]+:[[:space:]]*#';\
-    \ then\n  echo \"FAIL: flock invoked outside a comment\" >&2; exit 1\nfi\n"
+    \ then\n  echo \"FAIL: flock invoked outside a comment\" >&2; exit 1\nfi"
 - id: P6
   name: Make UVM_LOCK_TIMEOUT bound a waiter it cannot break free of
   status: pending
@@ -468,26 +470,50 @@ answers.
 **Satisfies:** R5, R6 · **Depends on:** P4
 **Goal:** the timeout message names the holder and gives a recovery command that works.
 
-- [ ] Rewrite the timeout message: the owner line inline, the caveat that a recorded pid is on that
+- [x] Rewrite the timeout message: the owner line inline, the caveat that a recorded pid is on that
       host and not this one, and `rm -f '<lock>/owner' && rmdir '<lock>'`. With no `owner`, print
-      `<none recorded>` and keep line 3 phrased conditionally so it still parses.
-- [ ] Fix the recovery command, which has **never** worked — `rmdir '<lock>'` fails with
+      `<none recorded>` and keep line 3 phrased conditionally so it still parses. The line the loop
+      already reads for the liveness probe is the one printed; nothing re-reads the file.
+- [x] Fix the recovery command, which has **never** worked — `rmdir '<lock>'` fails with
       `Directory not empty` for every successful acquisition, because `owner` lives inside the
       directory. `invariants.md` §5's "the exact `rmdir` command to recover" is currently unsatisfied
       by the code; this is what makes it true.
-- [ ] Keep the message on `die` rather than a `cat` heredoc. Recorded deviation, argued from
+- [x] Keep the message on `die` rather than a `cat` heredoc. Recorded deviation, argued from
       measurement: one `printf` behind a departed reader emits one diagnostic line, the same count BSD
       `cat` produces, and only when the caller ignores SIGPIPE.
-- [ ] Give the stale-break note the same owner line. After R1, "whose lock was that" is the first
-      question following a break.
-- [ ] Add `README.md` § *Troubleshooting*'s first lock entry, naming
+- [x] Give the stale-break note the same owner line. After R1, "whose lock was that" is the first
+      question following a break. **Amended:** the dead-process break note carries it too. Both
+      branches delete a specific holder's record, the note is the only trace left of which one, and
+      splitting the rule across two adjacent branches is how the next reader concludes one of them
+      meant something. One comment above the first branch covers both.
+- [x] Add `README.md` § *Troubleshooting*'s first lock entry, naming
       `$UVM_ROOT/<arch>/.install.lock`, its `owner` file and the two-step removal. The `owner` file is
       currently documented nowhere a user will look, and a message that points at it owes one.
-- [ ] Update `invariants.md` §5 and `AGENTS.md` § *Invariants* for the recovery-command wording.
+- [x] Update `invariants.md` §5 and `AGENTS.md` § *Invariants* for the recovery-command wording.
+      `AGENTS.md` asserted nothing about this message before, so there it is a new paragraph rather
+      than a revision.
 - **Verify:** a drive to timeout whose stderr matches `owner`, `host` and `pid` as whole words and
   carries the two-step recovery; a stale break naming the owner it deleted; `README.md` mentioning
   `install.lock`; plus the full R6 regression — `uv 9.9.9 (fixture)`, `current -> versions/9.9.9`, and
-  no `flock` outside a comment. Red today at `FAIL: timeout message never mentions 'owner'`.
+  no `flock` outside a comment. Red today at `FAIL: timeout message never mentions 'owner'`, which is
+  where it was observed red.
+- **The gate was retuned, and the failure it hid is the point.** The stale-break drive carried
+  `UVM_LOCK_STALE=1 UVM_LOCK_TIMEOUT=10` — a pair P4 now refuses — so under the drive's own `set -e`
+  the refusal aborted it before any assertion ran and `run_verify.py` exited 1 printing **nothing**.
+  Retuned through `set_phase.py --verify` to `UVM_LOCK_STALE=2 UVM_LOCK_TIMEOUT=1` against a 3 s-old
+  lock, and the drive now prints the wrapper's stderr when that call exits non-zero, so the next knob
+  pair a later phase outlaws names itself instead of failing blank. Same mechanism as P4's retune of
+  P3's gate, one phase further on: there the constraint invalidated a `done` gate, here a pending one.
+- **P6's gate has the same defect, left for P6.** Both its drives carry inverted pairs
+  (`UVM_LOCK_TIMEOUT=2 UVM_LOCK_STALE=1`, and the same `STALE=1 TIMEOUT=10` stale-break drive).
+  Retuning a gate for a phase this invocation is not building would produce a gate never observed
+  failing against the code it grades.
+- **Observed beyond the gate:** the message renders both branches — `host=node0042 pid=12345
+  nonce=8143120227` inline, and `<none recorded>` with line 3 still parsing. `rmdir` on a claimed lock
+  returns 1 with `Directory not empty`; the advised two-step returns 0, leaves no directory, and the
+  next call provisions through to `current -> versions/9.9.9` with `uv 9.9.9 (fixture)` alone on
+  stdout. The dead-process break names the owner it deleted. P1 through P4 were re-run after the
+  message and documentation edits and are green.
 - **Touches:** `bin/uv-manager`, `README.md`, `.agents/factory/invariants.md`, `AGENTS.md`.
 
 ## Phase P6 — Make `UVM_LOCK_TIMEOUT` bound a waiter it cannot break free of
@@ -508,6 +534,11 @@ answers.
   break at most once; an ordinary stale break still works and still provisions; plus the full R6
   regression, so the last phase ends on the cold-provisioning check. Red today at
   `FAIL: still spinning 6s after a 2s timeout` — measured 825 lines before the harness killed it.
+- **Retune both drives before trusting that red.** They were written before P4's ordering constraint
+  and each carries a pair it now refuses: the first needs a timeout below its stale threshold while
+  still aging the lock out, and the second is the `STALE=1 TIMEOUT=10` drive P5 already fixed in its
+  own gate. Refused knobs abort the drive at the `uv` call, so the gate fails with no output at all
+  and says nothing about the spin R7 is about.
 - **Touches:** `bin/uv-manager`.
 
 ## Phase P7 — Stop misreading a released lock as a broken filesystem

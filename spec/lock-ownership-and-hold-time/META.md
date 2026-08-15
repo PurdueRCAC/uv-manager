@@ -189,7 +189,7 @@
   this?" pass per gate bullet would have caught it.
 - **Confidence:** high · **Effort:** small
 
-## F9 — the "re-run predecessor gates" rule exists only in remediation mode
+## F9 — the "re-run predecessor gates" rule exists only in remediation mode · seen again
 `origin=uvm-build:P4 severity=high category=missing-guidance status=open target=.claude/skills/uvm-build/SKILL.md`
 - **What happened:** P4's new ordering guard refuses `UVM_LOCK_TIMEOUT >= UVM_LOCK_STALE`. P3's
   already-`done` gate held a lock with `UVM_LOCK_STALE=10` against the default timeout of 180 — a
@@ -206,6 +206,11 @@
   phase and retune (never silently reopen) any gate whose *setup* the constraint made illegal.
   Distinguish the two outcomes: a stale gate setup is retuned and the phase stays `done`; a broken
   assertion reopens the phase.
+- **Seen again at P5, in the direction the fix does not cover:** P4's constraint also invalidated the
+  *pending* P5 gate, whose stale-break drive was written against the same now-illegal knob pair. The
+  recommended fix says "every `done` phase", which would have missed it. A constraint invalidates
+  gate setups in both directions — the sweep is over every phase's `verify:`, not the ones behind the
+  pointer.
 - **Confidence:** high · **Effort:** small
 
 ## F10 — `uvm-release`'s tag-convention paragraph cancelled itself after the first release
@@ -325,3 +330,22 @@
   it crosses, and an amendment that *overturns* an invariant rather than adding one needs the
   `AGENTS.md` "never in the diff alone" human, which is the amendment commit itself.
 - **Confidence:** high · **Effort:** medium
+
+## F16 — a gate whose drive dies at the wrapper reports nothing at all
+`origin=uvm-build:P5 severity=medium category=missing-guidance status=open target=.agents/factory/templates/TECH.md`
+- **What happened:** P5's stale-break drive ran `UVM_LOCK_STALE=1 UVM_LOCK_TIMEOUT=10 uv --version`
+  under `set -e` with the wrapper's stderr redirected into the sandbox for a later `grep`. P4 had made
+  that pair illegal, so the call died on the refusal, `set -e` aborted the drive before any assertion,
+  and `run_verify.py` exited 1 having printed **nothing** — no `FAIL:` line, no wrapper message, no
+  clue which of four drives failed. The refusal was sitting in `$UVM_SANDBOX/brk`, unread and deleted
+  with the sandbox.
+- **Skill cause:** the gate conventions require every assertion to print a `FAIL:` line naming the
+  post-condition, which makes a *failed assertion* self-describing. Nothing covers the drive command
+  itself: the idiom the templates and every gate in this cycle use — redirect the wrapper's stderr to
+  a file, assert against it afterwards — makes the wrapper's own diagnostic invisible on the one path
+  where the drive never reaches the assertion. Silence is then indistinguishable from a harness bug.
+- **Recommended fix:** state the rule where gates are authored — a drive command whose failure aborts
+  the drive is guarded (`if ! cmd …; then echo "FAIL: <what it was doing>" >&2; cat "$stderr_file"
+  >&2; exit 1; fi`), never left bare under `set -e`. It costs three lines per drive and it is the
+  difference between "the knobs became illegal" and an exit code.
+- **Confidence:** high · **Effort:** small

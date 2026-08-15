@@ -523,6 +523,16 @@ automation context that did not inherit a login shell.
 **"install failed — no egress from this node?"** Pre-warm from a node of the same architecture that
 has outbound HTTPS.
 
+**"timed out waiting for provisioning lock"** means another process is provisioning the same
+architecture's tree. The lock is the directory `$UVM_ROOT/<arch>/.install.lock`, and the `owner` file
+inside it records the host, pid and nonce of the process holding it — the timeout message prints that
+line. A recorded pid belongs to the host recorded beside it, so probing it from the node you are on
+proves nothing. The wrapper breaks the lock itself when that pid is dead on this node, or when nothing
+has refreshed it for `UVM_LOCK_STALE` seconds; a live holder keeps it for as long as the work takes.
+Removing one by hand takes the `owner` file with it —
+`rm -f $UVM_ROOT/<arch>/.install.lock/owner && rmdir $UVM_ROOT/<arch>/.install.lock`, because `rmdir`
+on its own reports `Directory not empty`.
+
 **A tool prints "is not installed for architecture 'aarch64'".** That is the trampoline working as
 intended. The quoted name is the platform key, which a site may have overridden; install the tool
 from a node that resolves to it.

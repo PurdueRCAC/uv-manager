@@ -341,8 +341,12 @@ uvm_acquire_lock() {
       [[ -n "${pid}" && -z "${pid//[0-9]/}" ]] || pid=""
     fi
 
+    # A break note names the owner it deleted. Ownership makes "whose lock
+    # was that" the first question asked after a break, and the file that
+    # answers it is gone by the time anyone reads the note.
     if [[ -n "${pid}" ]] && ! kill -0 "${pid}" 2>/dev/null; then
-      note "breaking provisioning lock abandoned by a dead process: ${lock}"
+      note "breaking provisioning lock abandoned by a dead process: ${lock}
+    its owner file recorded: ${holder}"
       rm -f "${lock}/owner" 2>/dev/null || true
       rmdir "${lock}" 2>/dev/null || true
       continue
@@ -357,7 +361,8 @@ uvm_acquire_lock() {
     if [[ -z "${pid}" ]] \
        && { age="$(uvm_age "${lock}/owner")" || age="$(uvm_age "${lock}")"; } \
        && (( age > lock_stale )); then
-      note "breaking stale provisioning lock (${age}s old): ${lock}"
+      note "breaking stale provisioning lock (${age}s old): ${lock}
+    its owner file recorded: ${holder:-<none recorded>}"
       rm -f "${lock}/owner" 2>/dev/null || true
       rmdir "${lock}" 2>/dev/null || true
       continue
@@ -365,9 +370,15 @@ uvm_acquire_lock() {
 
     waited=$(( waited + 1 ))
     if (( waited > lock_timeout )); then
+      # A recorded pid belongs to the host recorded beside it, so a stalled
+      # user who probes it here concludes the holder is gone and deletes a
+      # live lock. The removal is two steps because owner lives inside the
+      # directory: rmdir alone reports Directory not empty for every lock
+      # whose holder got as far as claiming it.
       die "timed out after ${lock_timeout}s waiting for provisioning lock: ${lock}
-    If no other uv process is provisioning, remove it with:
-        rmdir '${lock}'"
+    holder, from the lock's owner file: ${holder:-<none recorded>}
+    A pid recorded there is on that host, not this one. If it is gone, remove the lock:
+        rm -f '${lock}/owner' && rmdir '${lock}'"
     fi
     sleep 1
   done
