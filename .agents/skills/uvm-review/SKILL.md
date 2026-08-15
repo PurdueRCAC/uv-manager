@@ -117,6 +117,14 @@ Launch a fresh `general-purpose` reviewer via `Agent`. Give it, inline, **only**
   under it, but a build subject reads `[fix] Build {slug} P1: F1 — …` and names a prior cycle's
   finding along with its remediation. On `review.cycle` ≥ 1 drop the subjects too (`--format=%h`), or
   omit the log. Anchoring on a prior verdict is the exact bias this pass exists to remove;
+- on a cycle the human has scoped (Step 3): the narrowed range
+  `git diff {review.last_reviewed_commit}..HEAD` under the same pathspec, plus a plain statement of
+  the graded surface — the file count, and whether the delta is code or prose so the rubric's
+  file-versus-hunk rule resolves. **Never the finding ids, their severities or the prior verdict:**
+  naming them hands back through the prompt exactly what the pathspec and the dropped subjects keep
+  out. Say which R-IDs an earlier cycle graded, or the reviewer reads their unchanged implementations
+  as unmet — that much is prior-cycle information, disclosed deliberately and bounded to the R-ID
+  list;
 - the full text of `invariants.md` and `review-rubric.md`;
 - the instruction: work in the runnable repo; follow the refutation protocol; **run** the relevant
   gates — `bash -n bin/uv-manager`, `.agents/factory/bin/lint.sh`, and behavioral drives through
@@ -146,7 +154,9 @@ light second-pass sanity check, dropping anything not backed by cited evidence. 
    (`review.cycle` ≥ 1): never overwrite.** Append a dated
    `## Review cycle {n} — {verdict} ({YYYY-MM-DD})` section; the file is the cumulative record. A
    later cycle defaults to a fresh blind pass over the full spec-excluded diff; the human may instead
-   scope it to verifying the remediation of named findings — record which mode was used.
+   scope it to the remediation delta — record which mode was used, and on a scoped cycle the range and
+   the graded surface. Step 2 carries the translation: a scope reaches the reviewer as a range and a
+   surface, never as the findings that produced it.
 2. Call `ReportFindings` with the verified findings, most severe first (empty array if clean), with
    `verdict` = CONFIRMED/PLAUSIBLE per finding.
 

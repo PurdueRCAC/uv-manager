@@ -234,7 +234,7 @@
 
 ## F9 — Scoping a later cycle to "named findings" contradicts the rule that drops the prior cycle's finding ids
 
-`origin=uvm-review:step-3 severity=medium category=instruction status=open target=.agents/skills/uvm-review/SKILL.md`
+`origin=uvm-review:step-3 severity=medium category=instruction status=applied target=.agents/skills/uvm-review/SKILL.md`
 
 - **What happened:** the maintainer scoped this cycle to the docs/comment delta. Step 3 sanctions that
   — "the human may instead scope it to verifying the remediation of named findings" — while Step 2
