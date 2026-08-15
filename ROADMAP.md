@@ -44,6 +44,18 @@ the criteria must name what is caught and concede the rest. Cost is handled by a
 rather than an integrity stamp. The detector it reads shipped in 0.5.0; what remains above it is the
 lock fix.
 
+### Three small code gaps behind inaccurate invariants
+**Seed:** [`issues/invariant-audit-gaps.md`](issues/invariant-audit-gaps.md) · `fix` · appetite small
+
+Fallout from auditing `invariants.md` against the code during `lock-ownership-and-hold-time` planning.
+`uvm_global_takes_value` misses `--cache-dir` and `--python-preference`, both of which `uv 0.12.4`
+accepts before a subcommand with a separate value — measured, and `--cache-dir` is the only way left to
+redirect a cache the wrapper otherwise exports. The trampoline overwrite guard tests `-x`, so an
+unmarked 0644 file somebody wrote is silently replaced. The rename in `uvm_install` is unguarded and
+leaves a `.incoming.` directory nothing collects. Small and independent; the corresponding text
+repairs are harness work and land separately. Sequenced after `purge-tree-repair` because R3 may fold
+into it.
+
 ### A curl-installable bootstrap
 **Seed:** [`issues/uvm-bootstrap.md`](issues/uvm-bootstrap.md) · `feature` · appetite medium
 
