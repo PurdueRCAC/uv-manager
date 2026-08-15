@@ -273,7 +273,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F11 — the drift sweep is gated on `--all`, including in the file the retirement is already editing
-`origin=uvm-roadmap:step-5 severity=medium category=instruction status=open target=.claude/skills/uvm-roadmap/SKILL.md`
+`origin=uvm-roadmap:step-5 severity=medium category=instruction status=applied target=.agents/skills/uvm-roadmap/SKILL.md`
 - **What happened:** retiring this seed meant repairing two dangling links in
   `issues/purge-tree-repair.md`. A hundred lines above them the same file said `uvm_doctor` "prints
   three commands for a human (`bin/uv-manager:729-731`)" — a count this cycle changed to two, at a

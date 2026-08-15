@@ -53,7 +53,7 @@ Additional instructions provided with the invocation: $ARGUMENTS
 
 - No argument → consider every adopted seed whose cycle has landed. The default.
 - `<slug>` → restrict to the seed adopted by that cycle.
-- `--all` → also sweep the drift checks in Step 5, not just retirement.
+- `--all` → widen Step 5's drift sweep to seeds this retirement does not otherwise touch.
 - `--dry-run` → run Steps 1–4 and present the preview, then STOP. No edits, no deletions, no commit.
 - `status` / `report` → list adopted seeds with landed/in-flight/stale for each; no work.
 
@@ -179,9 +179,13 @@ Entries carry no numbers, so removing one renumbers nothing. What still breaks i
   ordering constraint existed and cleared.
 - A count (`Highest-value cycle of the three`, `Three are already queued`) that the retirement makes
   wrong, in `ROADMAP.md` and inside surviving seeds.
-- With `--all`: figures a shipped cycle invalidated in seeds it never edited — a line count, an
-  occurrence table, a file inventory. A stale baseline in a seed whose own acceptance criterion is a
-  line-count guard is the one number in it that has to be right.
+- A figure the shipped cycle falsified — a count, a line citation, a quoted output — anywhere in a
+  file this retirement already edits. Read those whole: a stale figure standing beside a freshly
+  repaired link is worse than one in a file nobody opened, because the repair is what tells a later
+  reader the file was reviewed.
+- With `--all`: the same figures in seeds this retirement never touches — a line count, an occurrence
+  table, a file inventory. A stale baseline in a seed whose own acceptance criterion is a line-count
+  guard is the one number in it that has to be right.
 
 Do not rewrite a `Found by:` line. Those ordinals are provenance, not queue position.
 
