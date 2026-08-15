@@ -181,7 +181,7 @@
 
 ## F7 — Nothing checks a gate's pathspec against the quantifier of the requirement it gates
 
-`origin=uvm-build:P2 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-plan/SKILL.md`
+`origin=uvm-build:P2 severity=medium category=missing-guidance status=applied target=.agents/skills/uvm-plan/SKILL.md`
 
 - **What happened:** R4 reads "SHALL be corrected **wherever it is stated**" and its gate was
   `! git grep -q "roughly 7 ms" -- AGENTS.md README.md`. Two literal paths against an unbounded

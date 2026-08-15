@@ -158,9 +158,12 @@ Then read each phase's `verify:` back against that phase's own checklist, both d
 **contradict** an item: `! git grep -q OLD_NAME` goes red the moment the same phase adds the design
 note that has to name `OLD_NAME` to explain itself. A gate can also be **blind** to one, which is the
 quieter failure — a phase mixing mechanical items with judgment items gets a gate shaped by the
-mechanical ones, goes green, and the judgment item ships unchecked. Reconcile at plan time: narrow the
-gate's pathspec, extend it, or state in the phase body that an item is inspection-only so
-`/uvm-review` reads it rather than trusting the gate.
+mechanical ones, goes green, and the judgment item ships unchecked. An enumerated pathspec against a
+universally-quantified criterion — "wherever it is stated", "every", "no file" — is that same failure
+wearing a scope: the gate carries the criterion's quantifier, repository-wide with literal exclusions,
+and each exclusion earns its reason in the phase body. Reconcile at plan time: narrow the gate's
+pathspec, extend it, or state in the phase body that an item is inspection-only so `/uvm-review` reads
+it rather than trusting the gate.
 
 Then run every `verify:` against the current tree before committing the plan. A gate asserting a
 post-condition the phase has not yet delivered must exit **non-zero**; one that exits 0 here is inert
