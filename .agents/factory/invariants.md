@@ -70,9 +70,17 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
 
 - The lock is an atomic **`mkdir`**, not `flock`. `flock` is what `uv` itself needs and is not enabled
   on every parallel filesystem; `mkdir` is atomic on Lustre, GPFS and NFS and needs no helper binary.
-- Released on `EXIT`, `INT` **and** `TERM`. A `RETURN` trap alone leaks the lock when the holder is
-  killed, and a leaked lock blocks every later invocation for that user until someone removes it by
-  hand.
+- Released on `EXIT`, `INT` **and** `TERM`, and only while it is still **ours**. A `RETURN` trap alone
+  leaks the lock when the holder is killed, and a leaked lock blocks every later invocation for that
+  user until someone removes it by hand.
+- **Ownership, not path.** `uvm_acquire_lock` writes a `host`/`pid`/nonce line into the lock
+  directory's `owner` file; `uvm_unlock` removes the directory only while that file still holds the
+  line this process wrote. Absent, empty, truncated, unreadable and foreign all mean leave it — a
+  false leave is reclaimed by the stale breaker, a false delete destroys live mutual exclusion, which
+  is exactly what a holder broken as stale does when release matches on the path alone. The owner
+  write is fatal (a holder that cannot prove ownership leaks its own lock for a full stale window)
+  and the line is built from shell expansions with no forks, which narrows the `mkdir`-to-`owner`
+  window from 3.0 ms to 0.10 ms.
 - Distinguish contention from failure: if the lock directory is absent after a failed `mkdir`, the
   failure is permissions/quota/ENOSPC and waiting will never help — die with that message.
 - The early-out inside the wait loop must test **the version this call was asked for**. Testing "is

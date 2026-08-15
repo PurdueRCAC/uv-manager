@@ -173,12 +173,37 @@ install_base_url="${UVM_INSTALL_URL:-https://astral.sh/uv}"
 # every parallel filesystem.
 
 uvm_lock=""
+uvm_lock_owner=""
 
+# Release only what this process still owns. A lock is addressed by path, so
+# a holder whose lock was broken as stale deletes whatever the breaker put
+# there if release matches on the path alone — mutual exclusion gone while
+# both processes are still running.
 uvm_unlock() {
   [[ -n "${uvm_lock}" ]] || return 0
-  rm -f "${uvm_lock}/owner" 2>/dev/null || true
-  rmdir "${uvm_lock}" 2>/dev/null || true
+  local lock="${uvm_lock}" mine="${uvm_lock_owner}" recorded=""
+  # Clear before deciding. The EXIT trap runs after the INT handler's
+  # exit 130, so a second pass has to be one builtin test and no fork — which
+  # is also what keeps a release in front of an exec free on the hot path.
   uvm_lock=""
+  uvm_lock_owner=""
+  # 2>/dev/null precedes the input redirect because redirections are applied
+  # left to right; the other order lets the failed open reach the user's
+  # stderr. Branch on the string and never on read's status: a file with no
+  # trailing newline returns 1 with the data assigned. Absent, empty,
+  # truncated, unreadable and foreign therefore collapse into one verdict,
+  # leave it — a false leave is reclaimed by the stale breaker, a false
+  # delete is bounded by nothing.
+  read -r recorded 2>/dev/null < "${lock}/owner" || true
+  if [[ "${recorded}" == "${mine}" ]]; then
+    rm -f "${lock}/owner" 2>/dev/null || true
+    # rmdir refusing a non-empty directory is a second guard on the interval
+    # between the comparison and the unlink, and it is worth more than the
+    # one fork `rm -rf` would save.
+    rmdir "${lock}" 2>/dev/null || true
+  else
+    note "provisioning lock is no longer ours, leaving it in place: ${lock}"
+  fi
 }
 
 # Release on signals too, not just on a normal return. A RETURN trap alone
@@ -201,6 +226,13 @@ uvm_acquire_lock() {
   local want="$1" force="$2"
   local lock="${uvm_root}/.install.lock"
   local waited=0 age
+  # Built before the mkdir, from expansions only. Two command substitutions
+  # here left the directory standing with no owner file for 3.0 ms rather
+  # than 0.10 ms, and that gap is the only interval in which a stale release
+  # can destroy a live lock. The nonce is not decoration: pid space wraps in
+  # under a minute on a node spawning `uv run` in a loop, well inside a 600s
+  # stale window, so host and pid alone can name a live foreign holder.
+  local owner="host=${HOSTNAME} pid=$$ nonce=${RANDOM}${RANDOM}${RANDOM}"
 
   (umask 077; mkdir -p "${uvm_root}") \
     || die "cannot create ${uvm_root} — is ${uvm_base} writable?"
@@ -238,9 +270,19 @@ uvm_acquire_lock() {
     sleep 1
   done
 
+  # Fatal, not best-effort: a holder that cannot prove ownership can never
+  # release its own lock and leaks it for a full stale window. Ownership is
+  # certain the instant mkdir returns, so the directory is safe to remove
+  # here and nowhere later. The shell's own diagnostic is left unsuppressed
+  # because it carries the errno, which is what names the real fault. This
+  # must precede setting uvm_lock: set it first and die, and the EXIT trap
+  # reads an absent owner, declines ownership, and leaks the lock anyway.
+  printf '%s\n' "${owner}" > "${lock}/owner" || {
+    rmdir "${lock}" 2>/dev/null || true
+    die "cannot record ownership of the provisioning lock at ${lock}/owner"
+  }
   uvm_lock="${lock}"
-  printf 'host=%s pid=%s time=%s\n' "$(uname -n)" "$$" "$(date +%s)" \
-      > "${lock}/owner" 2>/dev/null || true
+  uvm_lock_owner="${owner}"
   return 0
 }
 

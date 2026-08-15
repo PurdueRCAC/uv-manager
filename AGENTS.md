@@ -145,6 +145,15 @@ by hand), break itself when abandoned past `UVM_LOCK_STALE`, and its early-out m
 version this call was asked for** — testing "is some uv present" hands a pinned caller whatever
 another process happened to be installing.
 
+**Release is qualified by ownership, not by path.** `uvm_acquire_lock` records a `host`/`pid`/nonce
+line in the lock directory's `owner` file, and `uvm_unlock` removes the directory only while that
+file still holds the line this process wrote. Matching on the path alone means a holder whose lock
+was broken as stale deletes the breaker's lock instead, leaving two processes provisioning one tree
+with no mutual exclusion between them. Every other reading — absent, empty, truncated, unreadable,
+foreign — leaves the directory standing: a false leave is reclaimed by the stale breaker, a false
+delete is bounded by nothing. The owner write is fatal, because a holder that cannot prove ownership
+leaks its own lock for a full stale window.
+
 **`current` is swapped atomically, and its target is relative** (`versions/<ver>`), so the tree stays
 relocatable and a concurrent reader never observes a missing or half-written `current`.
 

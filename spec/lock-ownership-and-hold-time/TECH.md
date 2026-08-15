@@ -1,296 +1,240 @@
 ---
 slug: lock-ownership-and-hold-time
-title: "The provisioning lock can be released by a process that does not hold it"
+title: The provisioning lock can be released by a process that does not hold it
 kind: fix
 appetite: big
-status: planned
+status: in_progress
 branch: fix/lock-ownership-and-hold-time
 base: main
-current_phase: P1
-last_updated: "2026-08-15"
+current_phase: P2
+last_updated: '2026-08-15'
 phases:
-  - id: P1
-    name: "Give the lock an identity, and release only what matches it"
-    status: pending
-    satisfies: [R1]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: |
-      set -eu
-      bash -n bin/uv-manager
-      .agents/factory/bin/lint.sh >/dev/null
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
-      set -e
-      A="$UVM_ROOT/$(uname -m)"; L="$A/.install.lock"; export UVM_TEST_LOCK="$L"
-      printf '%s\n' 'printf "host=elsewhere pid=999999 nonce=0\n" > "$UVM_TEST_LOCK/owner"' >> "$UVM_FIXTURE_DIR/install.sh"
-      uv --version >/dev/null
-      if [ ! -d "$L" ]; then echo "FAIL: release removed a lock this process does not own" >&2; exit 1; fi
-      if [ ! -f "$L/owner" ]; then echo "FAIL: foreign owner file removed" >&2; exit 1; fi
-      if ! grep -q 'pid=999999' "$L/owner"; then echo "FAIL: foreign owner overwritten" >&2; exit 1; fi
-      DRIVE
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
-      set -e
-      uv --version >/dev/null
-      L="$UVM_ROOT/$(uname -m)/.install.lock"
-      if [ -d "$L" ]; then echo "FAIL: own lock not released" >&2; exit 1; fi
-      DRIVE
-  - id: P2
-    name: "Release before every exec of the real uv"
-    status: pending
-    satisfies: [R4]
-    depends_on: [P1]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: |
-      set -eu
-      bash -n bin/uv-manager
-      n=$(git grep -n 'exec "\${real_' bin/uv-manager | wc -l | tr -d ' ')
-      if [ "$n" != 4 ]; then echo "FAIL: exec census is $n, expected 4" >&2; exit 1; fi
-      .agents/factory/bin/lint.sh >/dev/null
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
-      set -e
-      uv --version >/dev/null 2>&1
-      for probe in "--version" "self update"; do
-        PS4='+ ' bash -x "$(command -v uv)" $probe >/dev/null 2>"$UVM_SANDBOX/t" || true
-        u=$(grep -n '^++* uvm_unlock$' "$UVM_SANDBOX/t" | tail -1 | cut -d: -f1 || true)
-        p=$(grep -n '^++* export PATH$' "$UVM_SANDBOX/t" | tail -1 | cut -d: -f1 || true)
-        e=$(grep -n '^++* exec ' "$UVM_SANDBOX/t" | tail -1 | cut -d: -f1 || true)
-        if [ -z "$u" ] || [ -z "$e" ] || [ "$u" -lt "$p" ] || [ "$u" -gt "$e" ]; then
-          echo "FAIL: no release between uvm_export_env and exec on 'uv $probe' (unlock=$u path=$p exec=$e)" >&2
-          exit 1
-        fi
-      done
-      DRIVE
-  - id: P3
-    name: "Keep a live holder's lock alive for as long as the holder is"
-    status: pending
-    satisfies: [R2]
-    depends_on: [P2]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: |
-      set -eu
-      bash -n bin/uv-manager
-      .agents/factory/bin/lint.sh >/dev/null
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
-      set -e
-      A="$UVM_ROOT/$(uname -m)"; L="$A/.install.lock"
-      printf '%s\n' 'if [ -n "${UVM_FIXTURE_SLOW:-}" ]; then sleep "$UVM_FIXTURE_SLOW"; fi' >> "$UVM_FIXTURE_DIR/install.sh"
-      ( UVM_FIXTURE_SLOW=8 uv --version >/dev/null 2>"$UVM_SANDBOX/holder.err" ) & holder=$!
-      sleep 1
-      first=$(sed -n 's/.*\(pid=[0-9][0-9]*\).*/\1/p' "$L/owner" 2>/dev/null || true)
-      sleep 4
-      set +e
-      UVM_LOCK_STALE=3 UVM_LOCK_TIMEOUT=2 uv --version >/dev/null 2>"$UVM_SANDBOX/waiter.err"
-      set -e
-      now=$(sed -n 's/.*\(pid=[0-9][0-9]*\).*/\1/p' "$L/owner" 2>/dev/null || true)
-      if grep -q 'breaking stale provisioning lock' "$UVM_SANDBOX/waiter.err"; then
-        echo "FAIL: a live holder's lock was broken as stale" >&2; exit 1
-      fi
-      if [ -z "$first" ] || [ "$first" != "$now" ]; then
-        echo "FAIL: lock was $first, now ${now:-gone}" >&2; exit 1
-      fi
-      wait "$holder"
-      DRIVE
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
-      set -e
-      A="$UVM_ROOT/$(uname -m)"; L="$A/.install.lock"
-      printf '%s\n' 'if [ -n "${UVM_FIXTURE_SLOW:-}" ]; then sleep "$UVM_FIXTURE_SLOW"; fi' >> "$UVM_FIXTURE_DIR/install.sh"
-      ( UVM_LOCK_STALE=10 UVM_FIXTURE_SLOW=20 uv --version >/dev/null 2>&1 ) & holder=$!
-      sleep 2
-      p=$(sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' "$L/owner" 2>/dev/null || true)
-      if [ -z "$p" ]; then echo "FAIL: no holder pid recorded" >&2; exit 1; fi
-      kill -9 "$p" 2>/dev/null || true
-      sleep 1; m1=$(stat -f %m "$L/owner" 2>/dev/null || stat -c %Y "$L/owner" 2>/dev/null || true)
-      sleep 3; m2=$(stat -f %m "$L/owner" 2>/dev/null || stat -c %Y "$L/owner" 2>/dev/null || true)
-      wait "$holder" 2>/dev/null || true
-      if [ "$m1" != "$m2" ]; then
-        echo "FAIL: something refreshed the lock after its holder was killed ($m1 -> $m2)" >&2; exit 1
-      fi
-      DRIVE
-  - id: P4
-    name: "Refuse a knob configuration that lets a waiter break a live lock"
-    status: pending
-    satisfies: [R3]
-    depends_on: [P3]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: |
-      set -eu
-      bash -n bin/uv-manager
-      .agents/factory/bin/lint.sh >/dev/null
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
-      set -e
-      A="$UVM_ROOT/$(uname -m)"; L="$A/.install.lock"; mkdir -p "$A"; mkdir "$L"
-      printf 'host=%s pid=%s nonce=0\n' "$(uname -n)" "$$" > "$L/owner"
-      sleep 3
-      set +e
-      UVM_LOCK_TIMEOUT=10 UVM_LOCK_STALE=2 uv --version >/dev/null 2>"$UVM_SANDBOX/err"; rc=$?
-      set -e
-      if [ "$rc" -eq 0 ]; then echo "FAIL: inverted knobs accepted (rc=0)" >&2; exit 1; fi
-      if ! grep -q UVM_LOCK_TIMEOUT "$UVM_SANDBOX/err" || ! grep -q UVM_LOCK_STALE "$UVM_SANDBOX/err"; then
-        echo "FAIL: refusal does not name both variables" >&2; exit 1
-      fi
-      if [ ! -d "$L" ]; then echo "FAIL: the live lock was destroyed" >&2; exit 1; fi
-      set +e
-      UVM_LOCK_STALE=abc uv --version >/dev/null 2>&1; rcn=$?
-      set -e
-      if [ "$rcn" -eq 0 ]; then echo "FAIL: non-numeric UVM_LOCK_STALE accepted (rc=0)" >&2; exit 1; fi
-      UVM_LOCK_TIMEOUT=10 UVM_LOCK_STALE=2 uvm --version >/dev/null
-      UVM_LOCK_TIMEOUT=10 UVM_LOCK_STALE=2 uvm help >/dev/null
-      DRIVE
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
-      set +e
-      UVM_LOCK_TIMEOUT=0600 UVM_LOCK_STALE=500 uv --version >/dev/null 2>"$UVM_SANDBOX/oct"; rc=$?
-      set -e
-      if [ "$rc" -eq 0 ]; then
-        echo "FAIL: 0600 vs 500 accepted -- the guard judged 384, not 600" >&2; exit 1
-      fi
-      if ! grep -q 'UVM_LOCK_TIMEOUT=600' "$UVM_SANDBOX/oct"; then
-        echo "FAIL: the refusal prints the raw string, not the seconds it judged" >&2; exit 1
-      fi
-      DRIVE
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
-      set -e
-      out=$(UVM_LOCK_TIMEOUT=500 UVM_LOCK_STALE=0600 uv --version 2>"$UVM_SANDBOX/oct2")
-      if [ "$out" != "uv 9.9.9 (fixture)" ]; then
-        echo "FAIL: a legal pair spelled 500/0600 was refused: $(cat "$UVM_SANDBOX/oct2")" >&2; exit 1
-      fi
-      DRIVE
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
-      set -e
-      A="$UVM_ROOT/$(uname -m)"; L="$A/.install.lock"; mkdir -p "$A"; mkdir "$L"
-      printf 'host=%s pid=%s nonce=0\n' "$(uname -n)" "$$" > "$L/owner"
-      set +e
-      UVM_LOCK_TIMEOUT=3 UVM_LOCK_STALE=0800 uv --version >/dev/null 2>"$UVM_SANDBOX/err"
-      set -e
-      if grep -q 'value too great for base' "$UVM_SANDBOX/err"; then
-        echo "FAIL: the form check passed a value the arithmetic cannot evaluate" >&2; exit 1
-      fi
-      DRIVE
-      if ! grep -q 'UVM_LOCK_TIMEOUT' etc/uv-manager.conf.example; then echo "FAIL: conf example silent" >&2; exit 1; fi
-      for f in README.md etc/uv-manager.conf.example bin/uv-manager; do
-        if ! grep -q 'less than' "$f"; then echo "FAIL: $f does not state the ordering constraint" >&2; exit 1; fi
-      done
-  - id: P5
-    name: "Tell a stalled user how to tell an abandoned lock from a live one"
-    status: pending
-    satisfies: [R5]
-    depends_on: [P4]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: |
-      set -eu
-      bash -n bin/uv-manager
-      .agents/factory/bin/lint.sh >/dev/null
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
-      set -e
-      A="$UVM_ROOT/$(uname -m)"; L="$A/.install.lock"; mkdir -p "$A"; mkdir "$L"
-      printf 'host=node0042 pid=12345 nonce=0\n' > "$L/owner"
-      set +e
-      UVM_LOCK_TIMEOUT=2 UVM_LOCK_STALE=600 uv --version >/dev/null 2>"$UVM_SANDBOX/err"; rc=$?
-      set -e
-      if [ "$rc" -eq 0 ]; then echo "FAIL: waiter did not time out" >&2; exit 1; fi
-      for tok in owner host pid; do
-        if ! grep -qw "$tok" "$UVM_SANDBOX/err"; then
-          echo "FAIL: timeout message never mentions '$tok'" >&2; exit 1
-        fi
-      done
-      if ! grep -q "rm -f .*owner.* && rmdir" "$UVM_SANDBOX/err"; then
-        echo "FAIL: recovery command still advises a bare rmdir that cannot succeed" >&2; exit 1
-      fi
-      DRIVE
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
-      set -e
-      A="$UVM_ROOT/$(uname -m)"; L="$A/.install.lock"; mkdir -p "$A"; mkdir "$L"
-      printf 'host=node0042 pid=12345 nonce=0\n' > "$L/owner"
-      sleep 2
-      UVM_LOCK_STALE=1 UVM_LOCK_TIMEOUT=10 uv --version >/dev/null 2>"$UVM_SANDBOX/brk"
-      if ! grep -q 'breaking' "$UVM_SANDBOX/brk"; then echo "FAIL: no break occurred" >&2; exit 1; fi
-      if ! grep -q 'pid=12345' "$UVM_SANDBOX/brk"; then
-        echo "FAIL: stale-break note does not name the owner it deleted" >&2; exit 1
-      fi
-      DRIVE
-      if ! grep -q 'install\.lock' README.md; then
-        echo "FAIL: README documents no lock troubleshooting entry" >&2; exit 1
-      fi
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
-      set -e
-      out=$(uv --version)
-      if [ "$out" != "uv 9.9.9 (fixture)" ]; then echo "FAIL: stdout was '$out'" >&2; exit 1; fi
-      A="$UVM_ROOT/$(uname -m)"
-      if [ "$(readlink "$A/current")" != versions/9.9.9 ]; then echo "FAIL: current target moved" >&2; exit 1; fi
-      DRIVE
-      if git grep -n flock bin/uv-manager | grep -qvE '^bin/uv-manager:[0-9]+:[[:space:]]*#'; then
-        echo "FAIL: flock invoked outside a comment" >&2; exit 1
-      fi
-  - id: P6
-    name: "Make UVM_LOCK_TIMEOUT bound a waiter it cannot break free of"
-    status: pending
-    satisfies: [R7, R6]
-    depends_on: [P5]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: |
-      set -eu
-      bash -n bin/uv-manager
-      .agents/factory/bin/lint.sh >/dev/null
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
-      set -e
-      A="$UVM_ROOT/$(uname -m)"; L="$A/.install.lock"
-      mkdir -p "$L/stuck"
-      sleep 2
-      UVM_LOCK_TIMEOUT=2 UVM_LOCK_STALE=1 uv --version >/dev/null 2>"$UVM_SANDBOX/err" &
-      p=$!
-      sleep 6
-      if kill -0 "$p" 2>/dev/null; then
-        kill -9 "$p" 2>/dev/null || true
-        echo "FAIL: still spinning 6s after a 2s timeout ($(wc -l < "$UVM_SANDBOX/err" | tr -d ' ') lines)" >&2
-        exit 1
-      fi
-      if ! grep -q 'timed out after' "$UVM_SANDBOX/err"; then
-        echo "FAIL: the waiter exited without the timeout message" >&2; exit 1
-      fi
-      if [ "$(grep -c 'breaking' "$UVM_SANDBOX/err" || true)" -gt 1 ]; then
-        echo "FAIL: the denied break re-announced itself every iteration" >&2; exit 1
-      fi
-      DRIVE
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
-      set -e
-      A="$UVM_ROOT/$(uname -m)"; L="$A/.install.lock"; mkdir -p "$A"; mkdir "$L"
-      printf 'host=node0042 pid=12345 nonce=0\n' > "$L/owner"
-      sleep 2
-      UVM_LOCK_STALE=1 UVM_LOCK_TIMEOUT=10 uv --version >/dev/null 2>"$UVM_SANDBOX/brk"
-      if ! grep -q 'breaking' "$UVM_SANDBOX/brk"; then
-        echo "FAIL: an ordinary stale break no longer works" >&2; exit 1
-      fi
-      A="$UVM_ROOT/$(uname -m)"
-      if [ "$(readlink "$A/current")" != versions/9.9.9 ]; then echo "FAIL: break did not provision" >&2; exit 1; fi
-      DRIVE
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'
-      set -e
-      out=$(uv --version)
-      if [ "$out" != "uv 9.9.9 (fixture)" ]; then echo "FAIL: stdout was '$out'" >&2; exit 1; fi
-      A="$UVM_ROOT/$(uname -m)"
-      if [ "$(readlink "$A/current")" != versions/9.9.9 ]; then echo "FAIL: current target moved" >&2; exit 1; fi
-      DRIVE
-      if git grep -n flock bin/uv-manager | grep -qvE '^bin/uv-manager:[0-9]+:[[:space:]]*#'; then
-        echo "FAIL: flock invoked outside a comment" >&2; exit 1
-      fi
+- id: P1
+  name: Give the lock an identity, and release only what matches it
+  status: done
+  satisfies:
+  - R1
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: 'set -eu
+
+    bash -n bin/uv-manager
+
+    .agents/factory/bin/lint.sh >/dev/null
+
+    .agents/factory/bin/temp_root.sh --offline sh -s <<''DRIVE''
+
+    set -e
+
+    A="$UVM_ROOT/$(uname -m)"; L="$A/.install.lock"; export UVM_TEST_LOCK="$L"
+
+    printf ''%s\n'' ''printf "host=elsewhere pid=999999 nonce=0\n" > "$UVM_TEST_LOCK/owner"''
+    >> "$UVM_FIXTURE_DIR/install.sh"
+
+    uv --version >/dev/null
+
+    if [ ! -d "$L" ]; then echo "FAIL: release removed a lock this process does not
+    own" >&2; exit 1; fi
+
+    if [ ! -f "$L/owner" ]; then echo "FAIL: foreign owner file removed" >&2; exit
+    1; fi
+
+    if ! grep -q ''pid=999999'' "$L/owner"; then echo "FAIL: foreign owner overwritten"
+    >&2; exit 1; fi
+
+    DRIVE
+
+    .agents/factory/bin/temp_root.sh --offline sh -s <<''DRIVE''
+
+    set -e
+
+    uv --version >/dev/null
+
+    L="$UVM_ROOT/$(uname -m)/.install.lock"
+
+    if [ -d "$L" ]; then echo "FAIL: own lock not released" >&2; exit 1; fi
+
+    DRIVE
+
+    '
+- id: P2
+  name: Release before every exec of the real uv
+  status: pending
+  satisfies:
+  - R4
+  depends_on:
+  - P1
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: "set -eu\nbash -n bin/uv-manager\nn=$(git grep -n 'exec \"\\${real_' bin/uv-manager\
+    \ | wc -l | tr -d ' ')\nif [ \"$n\" != 4 ]; then echo \"FAIL: exec census is $n,\
+    \ expected 4\" >&2; exit 1; fi\n.agents/factory/bin/lint.sh >/dev/null\n.agents/factory/bin/temp_root.sh\
+    \ --offline sh -s <<'DRIVE'\nset -e\nuv --version >/dev/null 2>&1\nfor probe in\
+    \ \"--version\" \"self update\"; do\n  PS4='+ ' bash -x \"$(command -v uv)\" $probe\
+    \ >/dev/null 2>\"$UVM_SANDBOX/t\" || true\n  u=$(grep -n '^++* uvm_unlock$' \"\
+    $UVM_SANDBOX/t\" | tail -1 | cut -d: -f1 || true)\n  p=$(grep -n '^++* export\
+    \ PATH$' \"$UVM_SANDBOX/t\" | tail -1 | cut -d: -f1 || true)\n  e=$(grep -n '^++*\
+    \ exec ' \"$UVM_SANDBOX/t\" | tail -1 | cut -d: -f1 || true)\n  if [ -z \"$u\"\
+    \ ] || [ -z \"$e\" ] || [ \"$u\" -lt \"$p\" ] || [ \"$u\" -gt \"$e\" ]; then\n\
+    \    echo \"FAIL: no release between uvm_export_env and exec on 'uv $probe' (unlock=$u\
+    \ path=$p exec=$e)\" >&2\n    exit 1\n  fi\ndone\nDRIVE\n"
+- id: P3
+  name: Keep a live holder's lock alive for as long as the holder is
+  status: pending
+  satisfies:
+  - R2
+  depends_on:
+  - P2
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: "set -eu\nbash -n bin/uv-manager\n.agents/factory/bin/lint.sh >/dev/null\n\
+    .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'\nset -e\nA=\"$UVM_ROOT/$(uname\
+    \ -m)\"; L=\"$A/.install.lock\"\nprintf '%s\\n' 'if [ -n \"${UVM_FIXTURE_SLOW:-}\"\
+    \ ]; then sleep \"$UVM_FIXTURE_SLOW\"; fi' >> \"$UVM_FIXTURE_DIR/install.sh\"\n\
+    ( UVM_FIXTURE_SLOW=8 uv --version >/dev/null 2>\"$UVM_SANDBOX/holder.err\" ) &\
+    \ holder=$!\nsleep 1\nfirst=$(sed -n 's/.*\\(pid=[0-9][0-9]*\\).*/\\1/p' \"$L/owner\"\
+    \ 2>/dev/null || true)\nsleep 4\nset +e\nUVM_LOCK_STALE=3 UVM_LOCK_TIMEOUT=2 uv\
+    \ --version >/dev/null 2>\"$UVM_SANDBOX/waiter.err\"\nset -e\nnow=$(sed -n 's/.*\\\
+    (pid=[0-9][0-9]*\\).*/\\1/p' \"$L/owner\" 2>/dev/null || true)\nif grep -q 'breaking\
+    \ stale provisioning lock' \"$UVM_SANDBOX/waiter.err\"; then\n  echo \"FAIL: a\
+    \ live holder's lock was broken as stale\" >&2; exit 1\nfi\nif [ -z \"$first\"\
+    \ ] || [ \"$first\" != \"$now\" ]; then\n  echo \"FAIL: lock was $first, now ${now:-gone}\"\
+    \ >&2; exit 1\nfi\nwait \"$holder\"\nDRIVE\n.agents/factory/bin/temp_root.sh --offline\
+    \ sh -s <<'DRIVE'\nset -e\nA=\"$UVM_ROOT/$(uname -m)\"; L=\"$A/.install.lock\"\
+    \nprintf '%s\\n' 'if [ -n \"${UVM_FIXTURE_SLOW:-}\" ]; then sleep \"$UVM_FIXTURE_SLOW\"\
+    ; fi' >> \"$UVM_FIXTURE_DIR/install.sh\"\n( UVM_LOCK_STALE=10 UVM_FIXTURE_SLOW=20\
+    \ uv --version >/dev/null 2>&1 ) & holder=$!\nsleep 2\np=$(sed -n 's/.*pid=\\\
+    ([0-9][0-9]*\\).*/\\1/p' \"$L/owner\" 2>/dev/null || true)\nif [ -z \"$p\" ];\
+    \ then echo \"FAIL: no holder pid recorded\" >&2; exit 1; fi\nkill -9 \"$p\" 2>/dev/null\
+    \ || true\nsleep 1; m1=$(stat -f %m \"$L/owner\" 2>/dev/null || stat -c %Y \"\
+    $L/owner\" 2>/dev/null || true)\nsleep 3; m2=$(stat -f %m \"$L/owner\" 2>/dev/null\
+    \ || stat -c %Y \"$L/owner\" 2>/dev/null || true)\nwait \"$holder\" 2>/dev/null\
+    \ || true\nif [ \"$m1\" != \"$m2\" ]; then\n  echo \"FAIL: something refreshed\
+    \ the lock after its holder was killed ($m1 -> $m2)\" >&2; exit 1\nfi\nDRIVE\n"
+- id: P4
+  name: Refuse a knob configuration that lets a waiter break a live lock
+  status: pending
+  satisfies:
+  - R3
+  depends_on:
+  - P3
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: "set -eu\nbash -n bin/uv-manager\n.agents/factory/bin/lint.sh >/dev/null\n\
+    .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'\nset -e\nA=\"$UVM_ROOT/$(uname\
+    \ -m)\"; L=\"$A/.install.lock\"; mkdir -p \"$A\"; mkdir \"$L\"\nprintf 'host=%s\
+    \ pid=%s nonce=0\\n' \"$(uname -n)\" \"$$\" > \"$L/owner\"\nsleep 3\nset +e\n\
+    UVM_LOCK_TIMEOUT=10 UVM_LOCK_STALE=2 uv --version >/dev/null 2>\"$UVM_SANDBOX/err\"\
+    ; rc=$?\nset -e\nif [ \"$rc\" -eq 0 ]; then echo \"FAIL: inverted knobs accepted\
+    \ (rc=0)\" >&2; exit 1; fi\nif ! grep -q UVM_LOCK_TIMEOUT \"$UVM_SANDBOX/err\"\
+    \ || ! grep -q UVM_LOCK_STALE \"$UVM_SANDBOX/err\"; then\n  echo \"FAIL: refusal\
+    \ does not name both variables\" >&2; exit 1\nfi\nif [ ! -d \"$L\" ]; then echo\
+    \ \"FAIL: the live lock was destroyed\" >&2; exit 1; fi\nset +e\nUVM_LOCK_STALE=abc\
+    \ uv --version >/dev/null 2>&1; rcn=$?\nset -e\nif [ \"$rcn\" -eq 0 ]; then echo\
+    \ \"FAIL: non-numeric UVM_LOCK_STALE accepted (rc=0)\" >&2; exit 1; fi\nUVM_LOCK_TIMEOUT=10\
+    \ UVM_LOCK_STALE=2 uvm --version >/dev/null\nUVM_LOCK_TIMEOUT=10 UVM_LOCK_STALE=2\
+    \ uvm help >/dev/null\nDRIVE\n.agents/factory/bin/temp_root.sh --offline sh -s\
+    \ <<'DRIVE'\nset +e\nUVM_LOCK_TIMEOUT=0600 UVM_LOCK_STALE=500 uv --version >/dev/null\
+    \ 2>\"$UVM_SANDBOX/oct\"; rc=$?\nset -e\nif [ \"$rc\" -eq 0 ]; then\n  echo \"\
+    FAIL: 0600 vs 500 accepted -- the guard judged 384, not 600\" >&2; exit 1\nfi\n\
+    if ! grep -q 'UVM_LOCK_TIMEOUT=600' \"$UVM_SANDBOX/oct\"; then\n  echo \"FAIL:\
+    \ the refusal prints the raw string, not the seconds it judged\" >&2; exit 1\n\
+    fi\nDRIVE\n.agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'\nset -e\n\
+    out=$(UVM_LOCK_TIMEOUT=500 UVM_LOCK_STALE=0600 uv --version 2>\"$UVM_SANDBOX/oct2\"\
+    )\nif [ \"$out\" != \"uv 9.9.9 (fixture)\" ]; then\n  echo \"FAIL: a legal pair\
+    \ spelled 500/0600 was refused: $(cat \"$UVM_SANDBOX/oct2\")\" >&2; exit 1\nfi\n\
+    DRIVE\n.agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'\nset -e\nA=\"\
+    $UVM_ROOT/$(uname -m)\"; L=\"$A/.install.lock\"; mkdir -p \"$A\"; mkdir \"$L\"\
+    \nprintf 'host=%s pid=%s nonce=0\\n' \"$(uname -n)\" \"$$\" > \"$L/owner\"\nset\
+    \ +e\nUVM_LOCK_TIMEOUT=3 UVM_LOCK_STALE=0800 uv --version >/dev/null 2>\"$UVM_SANDBOX/err\"\
+    \nset -e\nif grep -q 'value too great for base' \"$UVM_SANDBOX/err\"; then\n \
+    \ echo \"FAIL: the form check passed a value the arithmetic cannot evaluate\"\
+    \ >&2; exit 1\nfi\nDRIVE\nif ! grep -q 'UVM_LOCK_TIMEOUT' etc/uv-manager.conf.example;\
+    \ then echo \"FAIL: conf example silent\" >&2; exit 1; fi\nfor f in README.md\
+    \ etc/uv-manager.conf.example bin/uv-manager; do\n  if ! grep -q 'less than' \"\
+    $f\"; then echo \"FAIL: $f does not state the ordering constraint\" >&2; exit\
+    \ 1; fi\ndone\n"
+- id: P5
+  name: Tell a stalled user how to tell an abandoned lock from a live one
+  status: pending
+  satisfies:
+  - R5
+  depends_on:
+  - P4
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: "set -eu\nbash -n bin/uv-manager\n.agents/factory/bin/lint.sh >/dev/null\n\
+    .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'\nset -e\nA=\"$UVM_ROOT/$(uname\
+    \ -m)\"; L=\"$A/.install.lock\"; mkdir -p \"$A\"; mkdir \"$L\"\nprintf 'host=node0042\
+    \ pid=12345 nonce=0\\n' > \"$L/owner\"\nset +e\nUVM_LOCK_TIMEOUT=2 UVM_LOCK_STALE=600\
+    \ uv --version >/dev/null 2>\"$UVM_SANDBOX/err\"; rc=$?\nset -e\nif [ \"$rc\"\
+    \ -eq 0 ]; then echo \"FAIL: waiter did not time out\" >&2; exit 1; fi\nfor tok\
+    \ in owner host pid; do\n  if ! grep -qw \"$tok\" \"$UVM_SANDBOX/err\"; then\n\
+    \    echo \"FAIL: timeout message never mentions '$tok'\" >&2; exit 1\n  fi\n\
+    done\nif ! grep -q \"rm -f .*owner.* && rmdir\" \"$UVM_SANDBOX/err\"; then\n \
+    \ echo \"FAIL: recovery command still advises a bare rmdir that cannot succeed\"\
+    \ >&2; exit 1\nfi\nDRIVE\n.agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'\n\
+    set -e\nA=\"$UVM_ROOT/$(uname -m)\"; L=\"$A/.install.lock\"; mkdir -p \"$A\";\
+    \ mkdir \"$L\"\nprintf 'host=node0042 pid=12345 nonce=0\\n' > \"$L/owner\"\nsleep\
+    \ 2\nUVM_LOCK_STALE=1 UVM_LOCK_TIMEOUT=10 uv --version >/dev/null 2>\"$UVM_SANDBOX/brk\"\
+    \nif ! grep -q 'breaking' \"$UVM_SANDBOX/brk\"; then echo \"FAIL: no break occurred\"\
+    \ >&2; exit 1; fi\nif ! grep -q 'pid=12345' \"$UVM_SANDBOX/brk\"; then\n  echo\
+    \ \"FAIL: stale-break note does not name the owner it deleted\" >&2; exit 1\n\
+    fi\nDRIVE\nif ! grep -q 'install\\.lock' README.md; then\n  echo \"FAIL: README\
+    \ documents no lock troubleshooting entry\" >&2; exit 1\nfi\n.agents/factory/bin/temp_root.sh\
+    \ --offline sh -s <<'DRIVE'\nset -e\nout=$(uv --version)\nif [ \"$out\" != \"\
+    uv 9.9.9 (fixture)\" ]; then echo \"FAIL: stdout was '$out'\" >&2; exit 1; fi\n\
+    A=\"$UVM_ROOT/$(uname -m)\"\nif [ \"$(readlink \"$A/current\")\" != versions/9.9.9\
+    \ ]; then echo \"FAIL: current target moved\" >&2; exit 1; fi\nDRIVE\nif git grep\
+    \ -n flock bin/uv-manager | grep -qvE '^bin/uv-manager:[0-9]+:[[:space:]]*#';\
+    \ then\n  echo \"FAIL: flock invoked outside a comment\" >&2; exit 1\nfi\n"
+- id: P6
+  name: Make UVM_LOCK_TIMEOUT bound a waiter it cannot break free of
+  status: pending
+  satisfies:
+  - R7
+  - R6
+  depends_on:
+  - P5
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: "set -eu\nbash -n bin/uv-manager\n.agents/factory/bin/lint.sh >/dev/null\n\
+    .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'\nset -e\nA=\"$UVM_ROOT/$(uname\
+    \ -m)\"; L=\"$A/.install.lock\"\nmkdir -p \"$L/stuck\"\nsleep 2\nUVM_LOCK_TIMEOUT=2\
+    \ UVM_LOCK_STALE=1 uv --version >/dev/null 2>\"$UVM_SANDBOX/err\" &\np=$!\nsleep\
+    \ 6\nif kill -0 \"$p\" 2>/dev/null; then\n  kill -9 \"$p\" 2>/dev/null || true\n\
+    \  echo \"FAIL: still spinning 6s after a 2s timeout ($(wc -l < \"$UVM_SANDBOX/err\"\
+    \ | tr -d ' ') lines)\" >&2\n  exit 1\nfi\nif ! grep -q 'timed out after' \"$UVM_SANDBOX/err\"\
+    ; then\n  echo \"FAIL: the waiter exited without the timeout message\" >&2; exit\
+    \ 1\nfi\nif [ \"$(grep -c 'breaking' \"$UVM_SANDBOX/err\" || true)\" -gt 1 ];\
+    \ then\n  echo \"FAIL: the denied break re-announced itself every iteration\"\
+    \ >&2; exit 1\nfi\nDRIVE\n.agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'\n\
+    set -e\nA=\"$UVM_ROOT/$(uname -m)\"; L=\"$A/.install.lock\"; mkdir -p \"$A\";\
+    \ mkdir \"$L\"\nprintf 'host=node0042 pid=12345 nonce=0\\n' > \"$L/owner\"\nsleep\
+    \ 2\nUVM_LOCK_STALE=1 UVM_LOCK_TIMEOUT=10 uv --version >/dev/null 2>\"$UVM_SANDBOX/brk\"\
+    \nif ! grep -q 'breaking' \"$UVM_SANDBOX/brk\"; then\n  echo \"FAIL: an ordinary\
+    \ stale break no longer works\" >&2; exit 1\nfi\nA=\"$UVM_ROOT/$(uname -m)\"\n\
+    if [ \"$(readlink \"$A/current\")\" != versions/9.9.9 ]; then echo \"FAIL: break\
+    \ did not provision\" >&2; exit 1; fi\nDRIVE\n.agents/factory/bin/temp_root.sh\
+    \ --offline sh -s <<'DRIVE'\nset -e\nout=$(uv --version)\nif [ \"$out\" != \"\
+    uv 9.9.9 (fixture)\" ]; then echo \"FAIL: stdout was '$out'\" >&2; exit 1; fi\n\
+    A=\"$UVM_ROOT/$(uname -m)\"\nif [ \"$(readlink \"$A/current\")\" != versions/9.9.9\
+    \ ]; then echo \"FAIL: current target moved\" >&2; exit 1; fi\nDRIVE\nif git grep\
+    \ -n flock bin/uv-manager | grep -qvE '^bin/uv-manager:[0-9]+:[[:space:]]*#';\
+    \ then\n  echo \"FAIL: flock invoked outside a comment\" >&2; exit 1\nfi\n"
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — The provisioning lock can be released by a process that does not hold it
 
 The **context engine and finite-state machine** for building this fix. The YAML frontmatter above is
@@ -329,18 +273,19 @@ high-blast-radius list. Every phase is `parallel: false`; there is one source fi
 **Goal:** a release removes the lock only when the `owner` file still names this process; every other
 outcome leaves the directory standing.
 
-- [ ] Build the owner line before the `while ! mkdir` loop, from expansions only:
+- [x] Build the owner line before the `while ! mkdir` loop, from expansions only:
       `host=${HOSTNAME} pid=$$ nonce=${RANDOM}${RANDOM}${RANDOM}`. Remove `time=` and both command
       substitutions — they are what widen the `mkdir`-to-owner-write window from 0.10 ms to 3.0 ms.
-- [ ] Add the `uvm_lock_owner` global beside `uvm_lock`.
-- [ ] Make the owner write fatal: on failure, `rmdir` the lock and `die` **before** `uvm_lock` is set.
+- [x] Add the `uvm_lock_owner` global beside `uvm_lock`.
+- [x] Make the owner write fatal: on failure, `rmdir` the lock and `die` **before** `uvm_lock` is set.
       Setting it first and dying leaves the EXIT trap reading an absent `owner`, declining ownership,
-      and leaking the lock anyway.
-- [ ] Rewrite `uvm_unlock`: early-out on empty `uvm_lock`; copy the path to a local and clear both
+      and leaking the lock anyway. The shell's own redirect diagnostic is left unsuppressed — it
+      carries the errno, and `die`'s line does not.
+- [x] Rewrite `uvm_unlock`: early-out on empty `uvm_lock`; copy the path to a local and clear both
       globals; read `owner` with `read`, `2>/dev/null` **before** the input redirect, variable
       initialized in the same `local`; compare the whole line; `rm -f owner` and `rmdir` on a match,
       otherwise `note` and leave. Never branch on `read`'s return code.
-- [ ] Update `invariants.md` §5 and `AGENTS.md` § *Invariants*: release on EXIT/INT/TERM is now
+- [x] Update `invariants.md` §5 and `AGENTS.md` § *Invariants*: release on EXIT/INT/TERM is now
       qualified by ownership.
 - **Verify:** the R1 drive — a foreign `owner` written from inside the installer leaves both the lock
   directory and that `owner` file intact, and an ordinary drive still leaves no lock behind. Red today
