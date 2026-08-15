@@ -6,7 +6,7 @@ appetite: big
 status: in_progress
 branch: fix/lock-ownership-and-hold-time
 base: main
-current_phase: P2
+current_phase: P3
 last_updated: '2026-08-15'
 phases:
 - id: P1
@@ -61,7 +61,7 @@ phases:
     '
 - id: P2
   name: Release before every exec of the real uv
-  status: pending
+  status: done
   satisfies:
   - R4
   depends_on:
@@ -296,18 +296,28 @@ outcome leaves the directory standing.
 **Satisfies:** R4 · **Depends on:** P1
 **Goal:** no path reaches an `exec` holding the lock, and the hot path pays one builtin test for it.
 
-- [ ] `uvm_unlock` before `exec "${real_uv}" --version` in `uvm_self_update`.
-- [ ] `uvm_unlock` before the `case "${mode}"` block covering the other three sites.
-- [ ] Do **not** introduce `uvm_exec_real`. It is more miss-resistant and it makes R4's own census
+- [x] `uvm_unlock` before `exec "${real_uv}" --version` in `uvm_self_update`.
+- [x] `uvm_unlock` before the `case "${mode}"` block covering the other three sites.
+- [x] Do **not** introduce `uvm_exec_real`. It is more miss-resistant and it makes R4's own census
       pattern match nothing, so the contract's verification would report zero sites.
+- [x] **Amended:** add the release-before-`exec` rule to `invariants.md` §5 and `AGENTS.md`
+      § *Invariants*. `PLAN.md` enumerated three invariant revisions and this was not among them,
+      because R4 overturns nothing. The amendment is argued from the same asymmetry the cycle runs
+      on: `uvm_exec_real` was rejected for making the census blind, so the census plus a comment at
+      each site is all that stops a fifth `exec` from being added without a release — and under P3's
+      heartbeat that omission is no longer a bounded leak but a lock nothing can break. The next
+      cycle is the one that acquires the lock late in the dispatch path.
 - **Verify:** the census returns 4, and xtrace ordering puts `uvm_unlock` between `uvm_export_env` and
   `exec` on both `uv --version` and `uv self update`. Red today at
   `FAIL: no release between uvm_export_env and exec on 'uv --version'`.
+- **Observed:** cold drive traced `export PATH` (153) → `uvm_unlock` (157) → `exec` (161), with the
+  guard costing three trace lines and no fork; `uv tool list` still releases from the EXIT trap after
+  its `exit 0`.
 - **Inspection-only for the reviewer:** "the release must be a builtin test that forks nothing when no
   lock is held" — the GOAL assigns this to a human, and no command decides it. Confirm the ownership
   read sits *after* the empty-`uvm_lock` early-out; before it, every hot-path call pays a failed
   `open(2)`. "Every site covered" is likewise a reading of the four-line census, not a proximity grep.
-- **Touches:** `bin/uv-manager`.
+- **Touches:** `bin/uv-manager`, `.agents/factory/invariants.md`, `AGENTS.md`.
 
 ## Phase P3 — Keep a live holder's lock alive for as long as the holder is
 **Satisfies:** R2 · **Depends on:** P2

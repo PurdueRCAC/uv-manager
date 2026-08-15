@@ -81,6 +81,12 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
   write is fatal (a holder that cannot prove ownership leaks its own lock for a full stale window)
   and the line is built from shell expansions with no forks, which narrows the `mkdir`-to-`owner`
   window from 3.0 ms to 0.10 ms.
+- **No lock survives an `exec`.** `exec` replaces the process image, so the EXIT trap never runs;
+  every `exec` of the real `uv` releases first. Nothing acquires the lock that late in the dispatch
+  path today, which is what makes the guard cheap — on a path holding none it is one builtin test and
+  no fork. A new `exec` site owes the same call. Under the heartbeat this stops being hygiene: `exec`
+  preserves the pid, so a leaked lock's refresher keeps passing its `kill -0 "$$"` leash and nothing
+  can ever break the lock.
 - Distinguish contention from failure: if the lock directory is absent after a failed `mkdir`, the
   failure is permissions/quota/ENOSPC and waiting will never help — die with that message.
 - The early-out inside the wait loop must test **the version this call was asked for**. Testing "is

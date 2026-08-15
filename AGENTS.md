@@ -154,6 +154,12 @@ foreign — leaves the directory standing: a false leave is reclaimed by the sta
 delete is bounded by nothing. The owner write is fatal, because a holder that cannot prove ownership
 leaks its own lock for a full stale window.
 
+**No lock survives an `exec`.** `exec` replaces the process image and the EXIT trap never runs, so
+every `exec` of the real `uv` releases first — the three in the dispatch tail and the one in
+`uvm_self_update`. Nothing acquires the lock that late today; the guard is what keeps the leak
+impossible when something does, and on a path holding no lock it costs one builtin test and no fork.
+A new `exec` site owes the same call.
+
 **`current` is swapped atomically, and its target is relative** (`versions/<ver>`), so the tree stays
 relocatable and a concurrent reader never observes a missing or half-written `current`.
 

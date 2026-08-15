@@ -656,6 +656,11 @@ EOF
   # A named version is a request to select that version, downloading it only
   # if absent. No version means "go and find out what latest is now".
   if [[ -n "${target}" ]]; then uvm_install "${target}" ""; else uvm_install "" 1; fi
+  # exec replaces the process image, so the EXIT trap never runs and a lock
+  # still held here would be leaked until the stale timer fires. uvm_install
+  # has already released its own, which makes this a guard rather than the
+  # release; on a path holding no lock it is one builtin test and no fork.
+  uvm_unlock
   exec "${real_uv}" --version
 }
 
@@ -982,6 +987,12 @@ if [[ "${uvm_cmd}" == "tool" || "${uvm_cmd}" == "python" ]]; then
   uvm_trampolines || true
   exit "${rc}"
 fi
+
+# None of the execs below can run the EXIT trap, so release ahead of all
+# three. Nothing acquires the lock this late in the dispatch path today; the
+# guard is what keeps the leak impossible when something does. The tool and
+# python path above returns normally and stays covered by the trap.
+uvm_unlock
 
 case "${mode}" in
   uvx)
