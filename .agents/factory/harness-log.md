@@ -428,3 +428,112 @@ Read `origin`, `severity` and `category` from the finding in `META.md`; this led
   step, `uvm-feature` accepting a branch carrying only `GOAL.md`/`META.md`/`research/`, and a decision
   between re-shaping in place and parking the branch. This cycle worked around it by hand and the
   maintainer chose the narrowing, so the workaround is proven but undocumented.
+
+## 2026-08-15 — doctor-detection-gaps F10: the log's blinding flag was a fragment that no-ops
+`decision=applied commit=4fe795a target=.agents/skills/uvm-review/SKILL.md`
+- **Rationale:** the fourth pass over this leak channel, after `a242486` (the diff), `b5a9826` (the
+  log subjects) and `f6748ef` (scoped cycles). It **completes `b5a9826` rather than reverting it**:
+  that entry wrote the correct rule as a flag to append to a command printed earlier, and the only
+  correct composition requires moving the flag ahead of the `--`. Appended after it, `--format=%h`
+  is a pathspec, `--oneline` survives, and the subjects print at exit 0 — reproduced twice
+  independently, and it leaked a prior cycle's finding id into a live review this cycle. Now the
+  whole command is printed for `review.cycle` ≥ 1. **Strengthens** blind-review integrity, so Safety
+  §3's typed override did not apply, on the same reasoning `b5a9826`'s own entry recorded. A future
+  run must not re-compress this into a flag reference; the compression is the defect.
+
+## 2026-08-15 — doctor-detection-gaps F1: `medium` was legal in a seed and illegal in a GOAL
+`decision=applied commit=fe45b9b target=.agents/factory/templates/ISSUE.md`
+- **Rationale:** took the second of the finding's two directions — drop `medium` from the seed
+  template and state the rounding — and **rejected the first**, adding `medium` to `templates/GOAL.md`
+  with a phase-cap meaning defined in `methodology.md`. That would invent a third budget tier and
+  oblige every downstream scope check to interpret it, to fix a handoff that only needs one
+  vocabulary. Rounding up costs a research fan-out; rounding down fails `uvm-review` against a
+  contract a human already accepted, so the rule rounds up. **Deliberately did not rewrite the three
+  queued seeds still carrying `appetite: medium`** — those are a human's recorded budget judgment on
+  repo content outside the factory, and the rounding rule covers them at promotion.
+
+## 2026-08-15 — doctor-detection-gaps F2: `kind` and `appetite` selected opposite research paths
+`decision=applied commit=899efd6 target=.agents/skills/uvm-plan/SKILL.md`
+- **Rationale:** Step 3's skip bullet listed `kind: fix` beside `appetite: small` as if the two could
+  not disagree; a `fix` at `appetite: big` matched both bullets. Took the precedence line — appetite
+  governs depth, `kind` does not — over making each bullet's condition conjunctive, because the
+  precedence states the intent once where a conjunction restates it per bullet and drifts. The
+  diagnostic-fixes exception below is untouched and still overrides both.
+
+## 2026-08-15 — doctor-detection-gaps F3: a gate anchor that wraps out of `git grep`'s reach
+`decision=applied commit=9841158 target=.agents/skills/uvm-plan/SKILL.md`
+- **Rationale:** same class as the `zsh` pathspec trap already in the paragraph, and likelier here:
+  `README.md` and `AGENTS.md` hard-wrap near 100 columns, so a phrase long enough to be unique
+  usually spans two lines and a line-based `git grep` never matches it. The failure is a gate
+  asserting a sentence is gone that reads green while the sentence stands. Added beside the existing
+  hazards rather than as a subsection.
+
+## 2026-08-15 — doctor-detection-gaps F4: a gate covered half a criterion and read as full coverage
+`decision=applied commit=1ef1614 target=.agents/skills/uvm-plan/SKILL.md`
+- **Rationale:** third sighting, and applied in **half** the form the finding drafted. Took the R-ID
+  accounting obligation — the gate encodes the criterion's *Checked by* clause, or the phase body
+  names the reviewer as grader for the part no command can decide — plus the multi-location
+  generalization. **Dropped the "certify a preservation assertion by tampering" half**, because
+  `e935214` already rejected the neighbouring proposal that every gate be green-proved against a
+  scratch copy, on the grounds that it makes plan time rehearse the build. A future run tempted by
+  tampering should read `e935214` first. Adversarial review caught the first draft dropping the
+  "cannot mechanize" bound, which would have turned reviewer-delegation into a free choice at plan
+  time and sanctioned the exact R5 miss that produced the finding; the bound is restored, and the
+  delegation is stated once in the tail that already carried it rather than twice. Trimmed to two
+  hunks, matching the standard `93c951d` set on this same paragraph.
+
+## 2026-08-15 — doctor-detection-gaps F5: "a red gate is a STOP" conflated iterating with failing
+`decision=applied commit=0b2caa0 target=.agents/skills/uvm-build/SKILL.md`
+- **Rationale:** the durable `attempts` breaker trips at about three, so recording every
+  mid-implementation red would trip it on a phase converging exactly as planned, and the signal
+  `/uvm-plan` receives from a tripped breaker becomes noise. The STOP is now scoped to a gate that
+  *stays* red — no correction left to try, or the predicted one did not clear it — which keeps the
+  breaker meaningful rather than granting a licence to loop. **Three sites, not one:** Safety
+  Principles stated the unscoped rule twice, and "Every red verify gate is recorded on file" would
+  have defeated the fix on its own.
+
+## 2026-08-15 — doctor-detection-gaps F8: refutation certified the observation, never the mechanism
+`decision=applied commit=d0dc033 target=.agents/factory/review-rubric.md`
+- **Rationale:** a CONFIRMED finding read "exits 1 without repairing anything", measured on a
+  one-tool fixture where "fails wholesale" and "repairs the rest, then fails" emit the same rc 1. The
+  observation was right and the mechanism was not, and the mechanism is what a remediation encodes —
+  had it been trusted, the shipped tool would now talk users out of a command that repairs their
+  tree. The protocol renumbers to five steps and adds the distinguishing step, keeping the concrete
+  "at least two of whatever the mechanism ranges over" heuristic as the memorable part. The split
+  verdict — observation CONFIRMED, mechanism out separately as PLAUSIBLE — is new, and sits inside
+  the existing definitions rather than redefining them.
+
+## 2026-08-15 — doctor-detection-gaps F9: REVIEW.md could not retract what a later cycle disproved
+`decision=applied commit=9a6d0f4 target=.agents/skills/uvm-review/SKILL.md`
+- **Rationale:** append-only is right for an audit trail and wrong for the durable account
+  `uvm-publish` surfaces in the PR — the most prominent claims end up the oldest, and a finding a
+  later cycle overturned propagates as fact. The convention invented by hand this cycle is now
+  named: a `### Correction to cycle {n}` note inside the correcting cycle's own section, never an
+  edit to the earlier one. Two sites, skill and template, because the template is what a cycle
+  copies. **Left `review-rubric.md`'s own copy of the append-only rule alone** on minimality;
+  Step 3 is what the orchestrator executes.
+
+## 2026-08-15 — doctor-detection-gaps F11: the drift sweep was gated on `--all`
+`decision=applied commit=8226b47 target=.agents/skills/uvm-roadmap/SKILL.md`
+- **Rationale:** extends `1a816cb`, which gave Step 5 its search and triage table. The `--all` bullet
+  scoped the sweep by *which seed* held the stale figure when the discriminator that matters is
+  whether the sweep is already opening the file: a false figure beside a freshly repaired link is
+  worse than one nobody touched, because the repair signals the file was reviewed. Split in two, with
+  the bounded half in the default sweep. Second site is the `--all` glossary line in Argument
+  Parsing, which an agent reads first and which would otherwise contradict Step 5 about what the flag
+  controls.
+
+## 2026-08-15 — doctor-detection-gaps F6 and F7: held for an explicit override
+`decision=deferred commit=— target=.agents/skills/uvm-review/SKILL.md, .agents/factory/review-rubric.md`
+- **Rationale:** both were shaped to their narrow forms and both were authored, and both came back
+  self-reporting that they relax the letter of a rule. F6 lets one `spec/` path named by the locked
+  `GOAL.md` reach the reviewer, which is bounded and is strictly less than the hand-pasting it
+  replaces — but blind-review integrity is named in Safety §3, and the consent on record is a choice
+  among forms made before anyone had measured that even the narrow form loosens the text. F7 carves
+  an exception into the unconditional `CONFIRMED → blocked` route. Adversarial review found both
+  drafts materially incomplete: F6's does not scope the `research/` category ban, so an orchestrator
+  following it still cannot pass the file that produced the finding, and it repeats a mis-citation
+  `b8afd6a` dropped one entry back; F7's prescribes a deferral written outside `spec/`, which trips
+  `uvm-publish`'s staleness gate and sends the branch back to review — the loop the carve-out exists
+  to prevent — and contradicts `uvm-review` Step 4, which still routes every CONFIRMED to blocked.
+  Corrected forms exist for both. Held rather than applied.
