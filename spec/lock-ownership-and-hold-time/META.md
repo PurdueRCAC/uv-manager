@@ -284,3 +284,44 @@
   this finding does not supply. Marked `high` for that reason, not because the format itself is
   urgent.
 - **Confidence:** high · **Effort:** medium
+
+## F14 — `invariants.md` §5 states an unsound inference as doctrine
+`origin=harness-audit:invariant-premise severity=high category=instruction status=open target=.agents/factory/invariants.md`
+- **What happened:** §5's contention bullet reads "if the lock directory is absent after a failed
+  `mkdir`, the failure is permissions/quota/ENOSPC and waiting will never help — die with that
+  message." A holder releasing between `mkdir` returning `EEXIST` and the test evaluating makes a
+  released lock indistinguishable from an unwritable mount, so the premise is false. Measured on
+  Anvil compute node `a706`: 62 of 64 concurrent cold starts, two ranks killed by this inference on a
+  healthy GPFS mount. Reproduced on this branch at 25 of 640 ranks. The bullet is the only place the
+  premise is written down — `AGENTS.md` never states it, `README.md` never mentions it.
+- **Skill cause:** this is F4's family with the sharpest instance yet. §5 was written from the
+  script's own comment, which asserts the inference confidently, rather than from reasoning about
+  what the code can actually observe. A checklist bullet that repeats a comment inherits the
+  comment's error and then grades code against it: any §1–§11 violation is auto-CRITICAL, so the
+  correct code would have been the finding.
+- **Recommended fix:** the imperative "distinguish contention from failure" survives; replace its
+  evidence — persistence across a bounded number of attempts, not a single observation. The code
+  repair is R8/P7 in this cycle and the bullet is overturned in that commit, per `AGENTS.md`'s
+  same-commit rule. Recorded here because the finding is about the checklist being derived from
+  prose rather than from the function, which outlives this cycle's fix.
+- **Confidence:** high · **Effort:** small
+
+## F15 — no skill owns a mid-cycle GOAL amendment, on its second use
+`origin=harness-audit:amendment-route severity=medium category=missing-guidance status=open target=.agents/factory/methodology.md`
+- **What happened:** a benchmarking run found a fourth defect in the function this cycle rewrites,
+  after four phases had landed. Folding it in meant adding R8 to a locked `GOAL.md`, a Clarification,
+  a `PLAN.md` design section, requirement-map and deviation rows, an invariant-gate note, and a
+  seventh phase. No skill covers that: `/uvm-feature` STOPs when not on `main`, `/uvm-build` only says
+  to STOP and escalate, and `/uvm-review` is not running. It was done as a maintainer hand-commit,
+  the same way `5fc4196` added R7.
+- **Skill cause:** the lifecycle assumes the contract is settled before `/uvm-build` starts. It is a
+  reasonable default and it has now failed twice on the same cycle. `harness-log.md`'s F3 already
+  records this as `decision=deferred`, "real and unfixed" — this is that finding recurring, which is
+  the signal `/uvm-harness` acts on, and neither of `5fc4196`'s four findings named it.
+- **Recommended fix:** give the amendment a documented route — most cheaply a mode of `/uvm-feature`
+  that accepts running on a `feature/`|`fix/` branch when the slug matches, requires an
+  `AskUserQuestion`, and writes the whole artifact set in one commit with a stated subject shape. Two
+  guardrails worth encoding from this instance: the amendment must state which soft circuit-breakers
+  it crosses, and an amendment that *overturns* an invariant rather than adding one needs the
+  `AGENTS.md` "never in the diff alone" human, which is the amendment commit itself.
+- **Confidence:** high · **Effort:** medium

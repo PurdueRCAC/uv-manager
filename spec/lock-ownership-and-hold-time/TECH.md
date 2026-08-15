@@ -230,6 +230,35 @@ phases:
     \ ]; then echo \"FAIL: current target moved\" >&2; exit 1; fi\nDRIVE\nif git grep\
     \ -n flock bin/uv-manager | grep -qvE '^bin/uv-manager:[0-9]+:[[:space:]]*#';\
     \ then\n  echo \"FAIL: flock invoked outside a comment\" >&2; exit 1\nfi\n"
+- id: P7
+  name: Stop misreading a released lock as a broken filesystem
+  status: pending
+  satisfies:
+  - R8
+  depends_on:
+  - P6
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: "set -eu\nbash -n bin/uv-manager\n.agents/factory/bin/lint.sh >/dev/null\n\
+    total=0; dead=0\nfor b in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20;\
+    \ do\n  r=$(.agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'\nfor k\
+    \ in $(seq 1 64); do ( uv --version >/dev/null 2>\"$UVM_SANDBOX/err.$k\" || echo\
+    \ x >> \"$UVM_SANDBOX/fail\" ) & done\nwait\nq=$(grep -l 'check permissions and\
+    \ quota' \"$UVM_SANDBOX\"/err.* 2>/dev/null | wc -l | tr -d ' ')\nf=0; [ -f \"\
+    $UVM_SANDBOX/fail\" ] && f=$(wc -l < \"$UVM_SANDBOX/fail\" | tr -d ' ')\necho\
+    \ \"$q $f\"\nDRIVE\n)\n  total=$(( total + ${r% *} )); dead=$(( dead + ${r#* }\
+    \ ))\ndone\necho \"misdiagnosed=${total}/1280 nonzero=${dead}/1280\"\nif [ \"\
+    $total\" -ne 0 ]; then echo \"FAIL: ${total}/1280 ranks reported a permissions/quota\
+    \ fault on a healthy filesystem\" >&2; exit 1; fi\nif [ \"$dead\" -ne 0 ]; then\
+    \ echo \"FAIL: ${dead}/1280 ranks exited non-zero\" >&2; exit 1; fi\n.agents/factory/bin/temp_root.sh\
+    \ --offline sh -s <<'DRIVE'\nA=\"$UVM_ROOT/$(uname -m)\"; mkdir -p \"$A\"; chmod\
+    \ 500 \"$A\"; s=$(date +%s)\nuv --version >/dev/null 2>\"$UVM_SANDBOX/e\" && {\
+    \ chmod 700 \"$A\"; echo \"FAIL: unwritable root accepted\" >&2; exit 1; }\ne=$((\
+    \ $(date +%s) - s )); chmod 700 \"$A\"\nif ! grep -q 'check permissions and quota'\
+    \ \"$UVM_SANDBOX/e\"; then echo \"FAIL: a real permissions fault is no longer\
+    \ named\" >&2; exit 1; fi\nif [ \"$e\" -ge 5 ]; then echo \"FAIL: the fault took\
+    \ ${e}s -- the retry is not bounded by a constant\" >&2; exit 1; fi\nDRIVE"
 review:
   last_reviewed_commit: ''
   verdict: none
@@ -254,7 +283,15 @@ still passes after the wrapper has been replaced by the real `uv`. Shipping the 
 turn today's bounded 600-second leak into a lock nothing can ever break. This is the digest's headline
 finding and the reason the GOAL was amended to cover all four `exec` sites.
 
-Every phase is `hammerable: false`: all five touch `invariants.md` §5 or §2, both in the
+**P7 (R8) lands after P6 (R7), and not folded into it.** The two predicates are duals evaluated at
+different points of one iteration — `[[ ! -d ]]` after *our failed `mkdir`*, `[[ -d ]]` after *our own
+`rmdir`* — and they must give one answer to the same question: when may the loop re-enter `mkdir`
+without paying the accounting? P6 establishes the answer; P7 applies it one branch earlier. They are
+kept separate because P6's gate is deterministic and P7's is statistical, and mixing them makes it
+impossible to say which assertion discriminated; and because both edit the same `local` line, which is
+a sequential edit if ordered and a conflict if not.
+
+Every phase is `hammerable: false`: all six touch `invariants.md` §5 or §2, both in the
 high-blast-radius list. Every phase is `parallel: false`; there is one source file.
 
 ## Conventions (apply to every phase)
@@ -471,6 +508,46 @@ answers.
   regression, so the last phase ends on the cold-provisioning check. Red today at
   `FAIL: still spinning 6s after a 2s timeout` — measured 825 lines before the harness killed it.
 - **Touches:** `bin/uv-manager`.
+
+## Phase P7 — Stop misreading a released lock as a broken filesystem
+**Satisfies:** R8 · **Depends on:** P6
+**Goal:** a failed `mkdir` whose lock is absent is a transient to retry, and only persistence across a
+bounded number of attempts reports a filesystem fault.
+
+- [ ] Add `absent=0` to the `local waited=0 age holder pid` line — the same line P6 adds `broke` to,
+      so build P6 first and this is a sequential edit rather than a conflict.
+- [ ] Replace the `[[ ! -d "${lock}" ]]` die with: increment `absent`; `continue` while
+      `absent < 3`; `die` with **today's message, unchanged** at the bound. The message is right when
+      it is finally reached; only the evidence for reaching it changes.
+- [ ] The bound is a literal, in the style of `lock_beat`. `GOAL.md`'s non-goals forbid a new
+      environment variable, and this needs no site tuning: three consecutive absences is not a
+      threshold anyone tunes, it is the difference between a race and a broken mount.
+- [ ] `absent` is **monotonic** — never reset on the lock-present branch. With P6's
+      `[[ -d "${lock}" ]] || continue` in place, an alternation of absent-retry and successful-break
+      would otherwise never reach the accounting. "No agent can produce that alternation" is the
+      weaker guarantee R7 exists because someone accepted once. Monotonic bounds total iterations at
+      `lock_timeout + 3`, each extra one a single `mkdir` syscall.
+- [ ] Do **not** write the retry as a bare `continue`. It would spin forever on EACCES, EDQUOT or
+      ENOSPC — the ordinary operational faults — turning a clean sub-second non-zero exit into a hot
+      loop, which is strictly worse than the R7 defect nine lines below it.
+- [ ] Do **not** delete the `die` and do not parse errno. Deleting it stalls every rank for the full
+      `UVM_LOCK_TIMEOUT` on a genuinely unwritable mount and then reports the wrong fault; errno means
+      parsing a locale-dependent string.
+- [ ] Overturn `invariants.md` §5's contention bullet in this commit — it states the false premise as
+      doctrine, and it is the only place the premise is written down. `AGENTS.md` never states it and
+      `README.md` never mentions it, so this is one bullet in one file. The imperative survives; the
+      evidence changes from one observation to persistence.
+- **Verify:** twenty cold bursts of 64 ranks leave no rank carrying `check permissions and quota` and
+  no rank exiting non-zero; and an unwritable architecture directory still names that fault,
+  non-zero, in under five seconds. Red today at
+  `FAIL: 33/1280 ranks reported a permissions/quota fault on a healthy filesystem` — measured, 2.6%,
+  with `nonzero` also 33, so every failure in the burst is this defect and nothing else. Gate cost
+  measured at 24.5 s.
+- **Do not shorten the gate.** Twenty bursts is arithmetic: at a pessimistic 0.5% per-rank floor one
+  burst is red with probability `1 - 0.995^64 = 0.27`, so twenty leave a false green at
+  `0.73^20 ≈ 1.6e-3`. The second drive is green today and green after — it exists so nobody satisfies
+  the first by deleting the `die`.
+- **Touches:** `bin/uv-manager`, `.agents/factory/invariants.md`, `AGENTS.md`.
 
 ---
 

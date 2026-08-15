@@ -34,6 +34,15 @@ The stale-breaker is the mechanism behind the first two, and it was sized for a 
 download. `UVM_LOCK_STALE` defaults to 600 s. The timeout message at `:234-236` tells a waiting user,
 verbatim, to `rmdir` the lock — correct for an abandoned lock and destructive for a slow live one.
 
+**A released lock is misread as a broken filesystem.** Added by amendment; found by benchmarking, not
+by the original shaping. `uvm_acquire_lock` decides *why* `mkdir` failed by looking at the filesystem
+again afterwards, and dies on `[[ ! -d "${lock}" ]]`. The inference is unsound: `mkdir` fails
+`EEXIST` because a holder has the lock, the holder releases before the test runs, and the test
+concludes the mount is unwritable. The waiter dies one iteration short of an acquisition it would
+have won, and the message sends its operator to investigate a healthy filesystem. Every release
+supplies the window, including the loop's own break paths, which `rmdir` and `continue` straight back
+into it.
+
 **Who this hurts.** Today, almost nobody: every path needs a holder whose work outlives 600 s, and a
 uv download rarely does. Measured on current `main`, the default ordering (`TIMEOUT` 180 <
 `STALE` 600) means a waiter dies at 180 s before the breaker can fire, so the ownership defect is
@@ -42,6 +51,16 @@ anything holds the lock for a rebuild instead of a download, which is what
 [`issues/purge-tree-repair.md`](../../issues/purge-tree-repair.md) R7 requires. The audience for this
 fix is therefore the *next* cycle and the site that configures it — the failure is two processes
 running `uv tool upgrade --reinstall` against one tree, with no lock left between them.
+
+**R8's audience is different, and it is everybody.** That assessment holds for R1–R7 and is left on
+record as written. It does not survive R8: the acquire race needs no holder outliving
+`UVM_LOCK_STALE`, no raised timeout and no ten-minute download — only ordinary contention on a fast
+node, which is the normal case for a many-rank launch on the hardware this wrapper exists for.
+Measured on Anvil compute node `a706`, 64 concurrent cold starts on GPFS scratch: 62 of 64. The login
+node returned 64 of 64 because it is four times slower, so that figure is a slower machine hiding the
+race, not evidence of correctness. Reproduced on this branch under `temp_root.sh --offline`: 25 of
+640 ranks over ten bursts, a 3.9% rank loss against Anvil's 3.1%. Reachable today, on `main`, at
+shipped defaults.
 
 ## Outcome / vision
 
@@ -93,6 +112,17 @@ repair cycle inherits a lock it can hold for the length of a rebuild.
   `UVM_LOCK_STALE`: the call exits non-zero within `UVM_LOCK_TIMEOUT` and its stderr carries the
   timeout message. Red today — measured 825 stderr lines and still spinning 8 s after a 2 s timeout,
   killed by the harness.*
+
+- **R8** — A failed `mkdir` of the lock directory SHALL NOT be reported as a permissions or quota
+  fault on the evidence of a single observation. WHEN the lock is absent after `mkdir` fails, the
+  waiter SHALL retry; it SHALL report the filesystem fault only after a bounded number of attempts
+  have each found it absent. The bound SHALL be a constant in the script, not a new environment
+  variable, and the retries SHALL NOT reset or bypass the timeout accounting. *Checked by two sandbox
+  drives: twenty cold bursts of 64 concurrent ranks against one shared root, asserting no rank
+  carries `check permissions and quota` and every rank exits 0 — red today, measured at 25 of 640
+  ranks (3.9%) on this branch against 2 of 64 (3.1%) on Anvil compute; and an unwritable
+  architecture directory, asserting a real fault is still named, still non-zero, and still reported
+  in under five seconds rather than after `UVM_LOCK_TIMEOUT` — green today and green after.*
 
 ## Non-goals (no-gos)
 
@@ -168,11 +198,30 @@ repair cycle inherits a lock it can hold for the length of a rebuild.
   **A:** No; the recorded sequencing stands. The blocking subset is narrower than the whole cycle —
   R1 and R3 are what R7 of the repair cycle strictly needs — but the maintainer chose to take the
   cycle whole and in order rather than split it (resolved 2026-08-15).
+- **Q:** A benchmarking run found a fourth defect in `uvm_acquire_lock` — a released lock misread as
+  a broken filesystem — after four phases had already landed. Does it join this cycle or become a
+  seed? — **A:** This cycle, as R8. The R7 precedent does not strictly reach: R7 was admitted on two
+  grounds and the second, "this cycle worsens it", is measurably false here — a matched A/B against
+  `main` gave 1.78% versus 1.98% of ranks lost, 0.83σ, with `main`'s own spread wider than the gap.
+  What decides it instead is that deferring does not protect the cycle. `review-rubric.md`'s single
+  deferral exception requires both that the finding predate the diff *and* that a `GOAL.md` criterion
+  would be failed by repairing it; R6 pins the `mkdir` discipline and the single-download hold, and a
+  bounded retry disturbs neither, so the second condition fails and a blind reviewer who reproduces a
+  3.9% rank loss in a high-blast-radius region blocks the cycle regardless. Deferral buys a
+  `changes-requested` loop and a second human sign-off gate on `uvm_acquire_lock` in exchange for
+  nothing. Two soft circuit-breakers are crossed knowingly: seven phases against `/uvm-plan`'s six,
+  and eight criteria reaching `/uvm-feature`'s 8–10 band (resolved 2026-08-15).
 
 ## Related materials
 
 - Seed: [`issues/lock-ownership-and-hold-time.md`](../../issues/lock-ownership-and-hold-time.md) ·
   `ROADMAP.md` entry, sequenced **before** `purge-tree-repair`.
+- R8's origin: `issue-locking.md` in the companion paper repository, shaped there while this cycle
+  was mid-flight and adopted here by amendment rather than transplanted to `issues/`. Its evidence is
+  `bench/uvm-bench.sh concurrency` against Anvil `a706` and `login00`, run 20260815T160020. Its
+  citations pair this branch's line numbers with `uvm_version="0.4.1"`, where the guard is `:213`;
+  the code is ground truth. The paper's Section V concurrency figure depends on this landing and the
+  burst being re-run.
 - `spec/purge-resilient-run/research/03-lock-reentrancy-and-concurrency.md` — where the defects were
   found; `00-digest.md` D4–D5 — the adversarial pass that corrected it and narrowed that cycle to the
   hot-path guard.

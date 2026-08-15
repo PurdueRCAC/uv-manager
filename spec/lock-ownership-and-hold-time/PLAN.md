@@ -152,6 +152,38 @@ survived, not whether our own `rmdir` returned zero. `broke` — declared on the
 `local waited=0 age` line — keeps a denied break from re-announcing itself once per second, which at
 the default timeout would be 180 identical lines.
 
+### Why the lock is absent, decided by persistence rather than by a second look
+
+`uvm_acquire_lock` infers *why* `mkdir` failed by re-observing the filesystem: `[[ ! -d "${lock}" ]]`
+means permissions, quota or ENOSPC, and it dies. A holder releasing between `mkdir` returning
+`EEXIST` and the test evaluating turns a released lock into an unwritable mount, and the waiter dies
+one iteration short of winning. Any observation after the fact races the same way, so the inference
+cannot be repaired — it has to stop being needed.
+
+Retry, and let persistence rather than a single sample distinguish contention from a broken mount. A
+counter declared beside `waited`, incremented only on the absent branch, `continue` while under a
+literal bound of 3, and today's `die` unchanged at the bound. Reading the errno instead is the
+rejected alternative: `mkdir`'s stderr carries it, at the cost of parsing a locale-dependent string.
+
+Three properties are load-bearing and each is a way to get this wrong. The bound is **not** a
+refinement — a bare `continue` spins forever on EACCES, EDQUOT or ENOSPC, the ordinary operational
+faults, converting a clean sub-second non-zero exit into a hot loop, which is strictly worse than the
+R7 defect. The counter is **monotonic**, never reset on the "lock present" branch: with R7's
+`[[ -d ]] || continue` in place, an alternation of absent-retry and successful-break would otherwise
+never reach the accounting, and "no agent can produce that alternation" is exactly the weaker
+guarantee R7 exists because someone accepted once. A monotonic counter bounds total iterations at
+`lock_timeout + 3`, each extra one a single `mkdir` syscall, and needs no argument. And the `die`
+**stays**: delete it and a genuinely unwritable mount stalls every rank for the full
+`UVM_LOCK_TIMEOUT` and then reports the wrong fault.
+
+R7 and R8 are duals evaluated at different points of one iteration and mutually exclusive within it —
+`[[ ! -d ]]` after *our failed `mkdir`*, `[[ -d ]]` after *our own `rmdir`* — so they compose rather
+than conflict, and they must give one answer to the same question: when may the loop re-enter `mkdir`
+without paying the accounting? R7's answer is "only when the directory is actually gone"; R8 applies
+that rule one branch earlier under a constant bound. The finished loop states one invariant: every
+iteration either removes something or is charged to the timeout, and the number of uncharged
+iterations is bounded by a constant.
+
 ### Messages
 
 The timeout message names the owner line and gives a recovery command that works. Today's does not:
@@ -212,6 +244,7 @@ them cannot be fixed by deletion.
 | R5 | Timeout message carrying the owner line, the cross-host caveat and `rm -f … && rmdir …`; same owner line on the stale-break note; `README.md` § *Troubleshooting* entry |
 | R6 | No `flock`; `mkdir` loop, atomic-rename install path and `current` swap untouched; the warm fast path at `:308` still returns before any lock, so no refresher is spawned |
 | R7 | `[[ -d "${lock}" ]] || continue` after the break attempt, so a denied removal falls through to the accounting and the sleep; a `broke` local suppressing the repeated announcement |
+| R8 | A monotonic `absent` counter beside `waited`, incremented only when `mkdir` fails with the lock gone; `continue` under a literal bound of 3, today's `die` at it; the bound never resets, so total iterations stay under `lock_timeout + 3` |
 
 ## 3. Invariant gate (AGENTS.md constitution check)
 
@@ -233,6 +266,14 @@ against this design.
   recovery-command bullet, because the command it promises has never worked. A third is added for the
   knob ordering. R7 needs no new text: §5 already asserts the wrapper times out after
   `UVM_LOCK_TIMEOUT`, and R7 is what makes that assertion true when a break is denied.
+  **R8 overturns one.** §5's contention bullet states the false premise as doctrine — "if the lock
+  directory is absent after a failed `mkdir`, the failure is permissions/quota/ENOSPC and waiting
+  will never help — die with that message." Anvil disproves it. The bullet's imperative survives;
+  only its evidence changes, from one observation to persistence across bounded attempts. This is the
+  only place the premise is written down: `AGENTS.md` never states it and `README.md` never mentions
+  it. Because it is an overturn rather than an addition, `AGENTS.md`'s same-commit rule puts it in
+  P7's diff *and* in front of a human, "never in the diff alone" — which is what the amendment this
+  section belongs to is for.
 - **§7 Output discipline** — installer output still goes to stderr, stdout still carries only the user's
   answer, verified by the degenerate-owner drives returning `uv 9.9.9 (fixture)` alone. The heartbeat's
   `>/dev/null 2>&1` forecloses a child holding the caller's pipe open. The `die`-versus-heredoc question
@@ -251,6 +292,7 @@ against this design.
 | A **background process** exists during provisioning, on a script whose §10 budget guards forks | The hold is one blocking pipeline; nothing else can refresh an mtime during it, and R2 requires the lock to survive it | Refresh at progress points is structurally dead — two sub-millisecond statements, both after the fetch. Inverting the pipeline works mechanically but welds the heartbeat to `uvm_install`, and `purge-tree-repair` holds the lock across a rebuild that is not that pipeline |
 | `uvm_age` grows a **fallback** (`owner` then the directory) rather than one path | A directory's mtime does not move when a file inside it is rewritten, so the heartbeat is only visible on the file; the directory branch is what keeps locks with no `owner` aging as they do today | Stat only `owner`: an older wrapper's lock, or one caught in the 0.10 ms acquire window, would never age out. Stat only the directory: the heartbeat is invisible and R2 fails |
 | The owner write becomes **fatal**, adding a failure path | Under R1 a holder that cannot prove ownership leaks its own lock for a full stale window; the failure is silent today | Keeping `|| true`: trades a rare loud failure for a rare silent leak in a region where a leak blocks the user until manual repair |
+| R8 **overturns** `invariants.md` §5's contention bullet rather than adding to it, and is admitted to a locked GOAL at 4/6 done | The bullet asserts an inference Anvil measured false at 3.1% of ranks; leaving it means correct code is graded against a premise the hardware disproves. Deferring the code does not protect the cycle either — `review-rubric.md`'s deferral exception needs a `GOAL.md` criterion that repair would fail, and none exists, so a blind reviewer who reproduces it blocks | Deferring to a seed: buys a `changes-requested` loop and a second human sign-off gate on `uvm_acquire_lock` for nothing, and leaves `purge-tree-repair` R7's "wait and then re-test" unsatisfiable against a loop whose waiters die at 2–4%. Reading the errno instead of retrying: locale-dependent string parsing. A bare `continue` without a bound: spins forever on EACCES/EDQUOT/ENOSPC, strictly worse than the R7 defect it sits beside |
 | The timeout message stays on `die`'s single `printf` rather than a **`cat` heredoc**, against §7's letter | Measured: one `printf` behind a departed reader emits one diagnostic line, the same count BSD `cat` produces, and only when the caller ignores SIGPIPE. §7's hazard is N writes, which is why `uvm_status` and `uvm_doctor` needed `cat` | A heredoc costs a fork and an exec, breaks `die`'s single spelling of the prefix plus `exit 1`, and buys zero lines of noise on a message that is the process's last output |
 
 ## 4. Rabbit holes (resolved)
@@ -337,6 +379,14 @@ Post-conditions asserted, per requirement:
 - **R7** — against a lock directory holding an entry the wrapper did not write, aged past
   `UVM_LOCK_STALE`, the call exits within `UVM_LOCK_TIMEOUT` and its stderr carries the timeout
   message rather than a repeated break announcement.
+- **R8** — twenty cold bursts of 64 concurrent ranks against one shared root leave no rank carrying
+  `check permissions and quota` and no rank exiting non-zero; and an unwritable architecture
+  directory still produces that message, non-zero, in under five seconds. The burst count is
+  arithmetic rather than taste: at a pessimistic 0.5% per-rank floor a single burst is red with
+  probability `1 - 0.995^64 = 0.27`, so twenty bursts leave a false green at `0.73^20 ≈ 1.6e-3`; at
+  the measured 3.9% it is far below that. One burst costs 1 s here, so the gate costs about 25 s. Do
+  not economize below twenty — a shorter gate green on a slow machine is exactly how Anvil's login
+  node reported 64 of 64.
 
 All six change gates are red against `653b770`; R6 is green and must stay green. Two clauses are
 **inspection-only** and are called out in `TECH.md` for the reviewer rather than trusted to a gate:
