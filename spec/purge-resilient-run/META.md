@@ -257,7 +257,7 @@
 
 ## F10 — A non-goal may discharge itself by naming a destination, and nothing checks the destination until the seed is deleted
 
-`origin=uvm-roadmap:3 severity=high category=missing-guidance status=open target=.agents/skills/uvm-feature/SKILL.md`
+`origin=uvm-roadmap:3 severity=high category=missing-guidance status=applied target=.agents/skills/uvm-feature/SKILL.md`
 
 - **What happened:** this GOAL's § *Non-goals* reads "No committed regression test.
   `issues/test-harness.md` still owns the runner. R1's counting-stub drive is a case that harness must

@@ -114,6 +114,14 @@ criterion itself: the command that stands in for the drive, the reviewer who gra
 what, or a real cluster, which tells the reviewer it is taken on trust rather than leaving it to
 assume the criterion was checked.
 
+**A non-goal that defers work by naming another file is a promise, and the promise is only real in
+that file.** "No committed regression test — `issues/test-harness.md` owns the runner" is what lets
+the cycle ship without the work, and `spec/{slug}/GOAL.md` is a dated record the named cycle never
+opens. Land the obligation in that seed — an acceptance criterion, not a sentence in this GOAL — in
+the same commit, or do not write the non-goal that way. `/uvm-roadmap` deletes the seed when the
+cycle lands, and a promise recorded only in `GOAL.md` goes with it; Step 3 there is the backstop,
+not the control.
+
 If adopting a hand-written GOAL.md, refine it **in place**: preserve the author's intent, and only
 disambiguate, structure, and add R-IDs, appetite and non-goals. Do not expand scope.
 
@@ -204,6 +212,7 @@ finding as a section **outside** any code fence:
 ```
 git add spec/{slug}/GOAL.md          # add spec/{slug}/META.md too if you recorded a meta-note
 git add issues/{slug}.md ROADMAP.md  # only when promoting: the two Step 4 edits
+git add issues/{other-slug}.md       # a sibling seed this GOAL wrote into
 git commit -m "[{category}] Shape {slug} goal"
 ```
 `{category}` is the `AGENTS.md` commit category matching the work — normally `{kind}` itself
