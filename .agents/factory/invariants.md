@@ -104,6 +104,15 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
   once; one that answers keeps it however long the work takes. Only a holder that cannot be probed —
   on another node, or a lock with no `owner` file — falls through to the mtime. The probe covers
   `kill -0`'s residual pid-reuse gap; the leash covers cross-node waiters, who cannot probe.
+- **`UVM_LOCK_TIMEOUT` must be less than `UVM_LOCK_STALE`**, and `uvm_acquire_lock` refuses the
+  inversion rather than acting on it — a waiter that outlives the threshold breaks the lock it is
+  waiting for. The guard tests numeric form *before* the comparison, because on bash 3.2 a
+  non-numeric value makes the arithmetic fatal under `set -u` and the EXIT trap's status then
+  overrides the error's, so the script exits 0 and `VER=$(uv --version)` comes back empty and true.
+  It then forces base 10 onto the same globals every later reader uses: bash reads `0600` as 384, and
+  `0800` passes a digits-only test and then errors non-fatally inside the comparison, which
+  *accepts*. The guard lives inside the function, never at load time, so `uvm help` and
+  `uvm --version` still answer on a misconfigured node.
 - Break a lock older than `UVM_LOCK_STALE`; time out after `UVM_LOCK_TIMEOUT` with the
   exact `rmdir` command to recover.
 

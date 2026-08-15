@@ -169,6 +169,15 @@ one that answers keeps it however long the work takes — and falls through to t
 holder it cannot probe. The refresher re-reads `owner` before each write, because stamping our
 identity over a new holder's record would make the lock immortal.
 
+**`UVM_LOCK_TIMEOUT` must be less than `UVM_LOCK_STALE`**, and `uvm_acquire_lock` refuses the
+inversion instead of acting on it. The guard tests numeric form before the comparison — on bash 3.2 a
+non-numeric value makes the arithmetic fatal under `set -u`, and the EXIT trap's status overrides the
+error's, so the script exits 0 and `VER=$(uv --version)` returns empty and true — then forces base 10
+onto the globals every later reader shares, because bash reads `0600` as 384 and `0800` passes a
+digits-only test only to error non-fatally inside the comparison and be *accepted*. It sits inside
+the function, never at load, so `uvm help` and `uvm --version` still answer on a node whose
+configuration is broken.
+
 **`current` is swapped atomically, and its target is relative** (`versions/<ver>`), so the tree stays
 relocatable and a concurrent reader never observes a missing or half-written `current`.
 

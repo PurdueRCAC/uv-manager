@@ -185,3 +185,25 @@
   item and record any item that lands on the wrong side of one. A single "which phase would violate
   this?" pass per gate bullet would have caught it.
 - **Confidence:** high · **Effort:** small
+
+## F9 — the "re-run predecessor gates" rule exists only in remediation mode
+`origin=uvm-build:P4 severity=high category=missing-guidance status=open target=.claude/skills/uvm-build/SKILL.md`
+- **What happened:** P4's new ordering guard refuses `UVM_LOCK_TIMEOUT >= UVM_LOCK_STALE`. P3's
+  already-`done` gate held a lock with `UVM_LOCK_STALE=10` against the default timeout of 180 — a
+  pair P4 now refuses — so that gate went red the moment P4 landed. Nothing in the ordinary Steps 3–5
+  path says to re-run it; I did so by choice. Had I not, P3 would have shipped with a permanently red
+  gate that `next_phase.py` still reports as `done`.
+- **Skill cause:** the skill states this hazard exactly, in the words "a `done` phase whose assertion
+  the fix invalidated is invisible to the FSM and ships green" — but only inside **Step 1's
+  Remediation mode**, reached solely when a review has requested changes. A forward build that adds a
+  constraint invalidates predecessor gates by the same mechanism, and Step 4 says nothing about it.
+  The hazard is a property of shared state between phases, not of remediation.
+- **Recommended fix:** move the rule into Step 4, phrased for both paths — after a phase that adds a
+  constraint, a refusal, or anything that narrows legal inputs, re-run the `verify:` of every `done`
+  phase and retune (never silently reopen) any gate whose *setup* the constraint made illegal.
+  Distinguish the two outcomes: a stale gate setup is retuned and the phase stays `done`; a broken
+  assertion reopens the phase.
+- **Confidence:** high · **Effort:** small
+
+**What worked well:** `run_verify.py --phase` made re-running three predecessor gates a one-liner, so
+checking for this cost nothing once the thought occurred.

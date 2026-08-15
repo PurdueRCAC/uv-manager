@@ -275,6 +275,37 @@ uvm_acquire_lock() {
   # stale window, so host and pid alone can name a live foreign holder.
   local owner="host=${HOSTNAME} pid=$$ nonce=${RANDOM}${RANDOM}${RANDOM}"
 
+  # The knobs are read here and nowhere else, so the guard sits against the
+  # code it protects. Inside the function is also what keeps `uvm help` and
+  # `uvm --version` answering on a misconfigured node: the one command that
+  # tells an operator how to fix a configuration must not be the command that
+  # configuration stops them running.
+  #
+  # Form first. On bash 3.2 a non-numeric value makes the comparison fatal
+  # under `set -u`, and the EXIT trap's own status then overrides the error's,
+  # so the script exits 0 — a bare ordering test would turn
+  # `VER=$(uv --version)` into empty and true. The same test catches ' ', 0
+  # and -1, each of which makes every lock instantly stale.
+  if [[ ! "${lock_timeout}" =~ ^[0-9]+$ || ! "${lock_stale}" =~ ^[0-9]+$ ]]; then
+    die "UVM_LOCK_TIMEOUT and UVM_LOCK_STALE must be whole numbers of seconds.
+    UVM_LOCK_TIMEOUT=${lock_timeout}  UVM_LOCK_STALE=${lock_stale}"
+  fi
+  # Then base 10, onto the same globals the age test and the timeout message
+  # read, so all three mean the seconds the operator wrote. Bash reads a
+  # leading zero as octal: 0600 is 384, and 0800 is not a number at all —
+  # which passes the form test, then makes the comparison error non-fatally
+  # and accept. Normalizing cannot come first: `$(( 10# ))` on an empty or
+  # all-space value is silently 0 on bash 3.2 and an error on 5.2.
+  lock_timeout=$(( 10#${lock_timeout} ))
+  lock_stale=$(( 10#${lock_stale} ))
+  if (( lock_timeout >= lock_stale )); then
+    die "UVM_LOCK_TIMEOUT must be less than UVM_LOCK_STALE.
+    UVM_LOCK_TIMEOUT=${lock_timeout}  UVM_LOCK_STALE=${lock_stale}
+    A waiter that outlives the stale threshold breaks the lock it is waiting
+    for while the process holding it is still running. Lower the timeout or
+    raise the stale threshold."
+  fi
+
   (umask 077; mkdir -p "${uvm_root}") \
     || die "cannot create ${uvm_root} — is ${uvm_base} writable?"
 
@@ -1006,6 +1037,7 @@ Environment:
   UVM_INSTALL_URL     Installer base URL, for sites mirroring Astral
   UVM_LOCK_TIMEOUT    Seconds to wait for the provisioning lock (default: 180)
   UVM_LOCK_STALE      Seconds before an untouched lock is broken (default: 600)
+                      The timeout must be less than the stale threshold.
 
 'uvm' is a short alias for 'uv-manager'. The same script is also installed as
 'uv' and 'uvx', which pass through to the real uv for this node's architecture.

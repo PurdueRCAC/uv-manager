@@ -75,6 +75,14 @@
 # Guards against a holder killed by SIGKILL, job cancellation or node failure.
 #export UVM_LOCK_STALE=600
 
+# Both are whole seconds, read as decimal, and the timeout must be less than
+# the stale threshold. The wrapper refuses the inversion the next time it
+# takes the lock: a waiter that outlives the threshold breaks the lock it is
+# waiting for while the process holding it is still running. On NFS, keep the
+# stale threshold above roughly 120 seconds — a waiter on another node sees a
+# holder's refresh no sooner than one heartbeat plus the attribute-cache
+# lifetime, and the wrapper beats once every tenth of the threshold.
+
 # Override the architecture key. Default is `uname -m`. Set this if login and
 # compute images differ in a way `uname -m` does not capture — glibc version
 # skew, musl, or x86-64 microarchitecture levels. Keep it cheap to compute:

@@ -6,7 +6,7 @@ appetite: big
 status: in_progress
 branch: fix/lock-ownership-and-hold-time
 base: main
-current_phase: P4
+current_phase: P5
 last_updated: '2026-08-15'
 phases:
 - id: P1
@@ -106,18 +106,19 @@ phases:
     \ >&2; exit 1\nfi\nwait \"$holder\"\nDRIVE\n.agents/factory/bin/temp_root.sh --offline\
     \ sh -s <<'DRIVE'\nset -e\nA=\"$UVM_ROOT/$(uname -m)\"; L=\"$A/.install.lock\"\
     \nprintf '%s\\n' 'if [ -n \"${UVM_FIXTURE_SLOW:-}\" ]; then sleep \"$UVM_FIXTURE_SLOW\"\
-    ; fi' >> \"$UVM_FIXTURE_DIR/install.sh\"\n( UVM_LOCK_STALE=10 UVM_FIXTURE_SLOW=20\
-    \ uv --version >/dev/null 2>&1 ) & holder=$!\nsleep 2\np=$(sed -n 's/.*pid=\\\
-    ([0-9][0-9]*\\).*/\\1/p' \"$L/owner\" 2>/dev/null || true)\nif [ -z \"$p\" ];\
-    \ then echo \"FAIL: no holder pid recorded\" >&2; exit 1; fi\nkill -9 \"$p\" 2>/dev/null\
-    \ || true\nsleep 1; m1=$(stat -f %m \"$L/owner\" 2>/dev/null || stat -c %Y \"\
-    $L/owner\" 2>/dev/null || true)\nsleep 3; m2=$(stat -f %m \"$L/owner\" 2>/dev/null\
-    \ || stat -c %Y \"$L/owner\" 2>/dev/null || true)\nwait \"$holder\" 2>/dev/null\
-    \ || true\nif [ \"$m1\" != \"$m2\" ]; then\n  echo \"FAIL: something refreshed\
-    \ the lock after its holder was killed ($m1 -> $m2)\" >&2; exit 1\nfi\nDRIVE\n"
+    ; fi' >> \"$UVM_FIXTURE_DIR/install.sh\"\n( UVM_LOCK_TIMEOUT=2 UVM_LOCK_STALE=10\
+    \ UVM_FIXTURE_SLOW=20 uv --version >/dev/null 2>&1 ) & holder=$!\nsleep 2\np=$(sed\
+    \ -n 's/.*pid=\\([0-9][0-9]*\\).*/\\1/p' \"$L/owner\" 2>/dev/null || true)\nif\
+    \ [ -z \"$p\" ]; then echo \"FAIL: no holder pid recorded\" >&2; exit 1; fi\n\
+    kill -9 \"$p\" 2>/dev/null || true\nsleep 1; m1=$(stat -f %m \"$L/owner\" 2>/dev/null\
+    \ || stat -c %Y \"$L/owner\" 2>/dev/null || true)\nsleep 3; m2=$(stat -f %m \"\
+    $L/owner\" 2>/dev/null || stat -c %Y \"$L/owner\" 2>/dev/null || true)\nwait \"\
+    $holder\" 2>/dev/null || true\nif [ \"$m1\" != \"$m2\" ]; then\n  echo \"FAIL:\
+    \ something refreshed the lock after its holder was killed ($m1 -> $m2)\" >&2;\
+    \ exit 1\nfi\nDRIVE"
 - id: P4
   name: Refuse a knob configuration that lets a waiter break a live lock
-  status: pending
+  status: done
   satisfies:
   - R3
   depends_on:
@@ -376,28 +377,28 @@ outcome leaves the directory standing.
 **Goal:** `UVM_LOCK_TIMEOUT >= UVM_LOCK_STALE` is refused before any lock is touched, and `help` still
 answers.
 
-- [ ] Guard at the top of `uvm_acquire_lock`: numeric form first, then ordering, then `die` naming both
+- [x] Guard at the top of `uvm_acquire_lock`: numeric form first, then ordering, then `die` naming both
       variables and their values. Placement is inside the consuming function so `uvm help` and
       `uvm --version` still answer with a broken configuration.
-- [ ] The numeric test is not optional and is a recorded deviation: with `UVM_LOCK_STALE=abc`, `set -u`
+- [x] The numeric test is not optional and is a recorded deviation: with `UVM_LOCK_STALE=abc`, `set -u`
       kills the arithmetic at `:225` but bash 3.2 **exits 0**, so `VER=$(uv --version)` returns empty
       and true. It also catches `' '`, `0` and `-1`, each of which makes every lock instantly stale.
-- [ ] Force base 10 after the form test and before the comparison, assigning back to the **existing
+- [x] Force base 10 after the form test and before the comparison, assigning back to the **existing
       globals**: `lock_timeout=$(( 10#${lock_timeout} ))`, same for `lock_stale`. Not `local` — `:225`,
       `:233` and the timeout message must read the same seconds. `0600` is 384 to bash and `0800` is
       not a number at all, so a guard on the raw strings judges seconds the operator never wrote and
       prints a refusal its own two numbers satisfy.
-- [ ] Keep the form test **ahead** of the normalization: `$(( 10#${x} ))` on an empty or all-space
+- [x] Keep the form test **ahead** of the normalization: `$(( 10#${x} ))` on an empty or all-space
       value is silently `0` on bash 3.2 and an error on 5.2, and a `0` stale makes every lock
       instantly stale.
-- [ ] No extra user-facing surface for the normalization — a padded value now means what it looks
+- [x] No extra user-facing surface for the normalization — a padded value now means what it looks
       like. `etc/uv-manager.conf.example` gains "whole seconds, decimal"; `uvm_help` and `README.md`
       still only gain the ordering constraint.
-- [ ] Same-commit surface: the `uvm_help` knob lines (`:878` is already 78 columns against an 81-column
+- [x] Same-commit surface: the `uvm_help` knob lines (`:878` is already 78 columns against an 81-column
       heredoc, so this needs a continuation line), `etc/uv-manager.conf.example:71-76`, and
       `README.md`'s knob table at `:551-552`. Document the NFS floor — `UVM_LOCK_STALE` below roughly
       120 s is unsafe for cross-node waiters. `share/modulefiles/uv/main.lua` needs no change.
-- [ ] Add the ordering constraint to `invariants.md` §5 and `AGENTS.md` § *Invariants*.
+- [x] Add the ordering constraint to `invariants.md` §5 and `AGENTS.md` § *Invariants*.
 - **Verify:** inverted knobs exit non-zero, name both variables, and leave a pre-existing live lock
   present; a non-numeric value is refused; `uvm --version` and `uvm help` still answer; and all three
   user-facing files state the constraint; plus `TIMEOUT=0600 STALE=500` refused with the refusal
@@ -405,6 +406,23 @@ answers.
   today at `FAIL: inverted knobs accepted (rc=0)`. The `500/0600` drive is green today and red against
   a guard that omits the normalization — it is the row that discriminates the correct guard from the
   one the first draft of this plan specified.
+- **Red state moved, and the reason matters.** The gate went red at `FAIL: refusal does not name both
+  variables`, not at the predicted `FAIL: inverted knobs accepted (rc=0)`. P3 landed first, and its
+  liveness probe already keeps a lock whose recorded pid is alive on this host, so the inverted-knob
+  drive now times out non-zero instead of breaking the lock. The remaining harm R3 names — a waiter
+  breaking a *cross-node* live holder, which no probe can rescue — is unreachable from one machine,
+  so the assertion that still discriminates is the refusal itself.
+- **Observed beyond the gate:** `' '`, `0`, `-1`, `abc`, `12x`, `18:0` and `0x10` each refused with a
+  pre-placed foreign lock and its `owner` file surviving intact; `0600/500` refused printing
+  `UVM_LOCK_TIMEOUT=600` — the seconds judged, not the string written; `500/0600` and the defaults
+  both accepted through to `current -> versions/9.9.9`; `uvm help` answering 0 under inverted knobs
+  and carrying the new constraint line.
+- **P3's gate was retuned in this phase, and P3 stays `done`.** Its second drive held the lock with
+  `UVM_LOCK_STALE=10` against the default `UVM_LOCK_TIMEOUT=180` — a pair this phase now refuses, so
+  the holder never acquired and the gate failed at `FAIL: no holder pid recorded`. The drive was
+  written before the ordering constraint existed; the knobs became illegal, not the assertion. Fixed
+  to `UVM_LOCK_TIMEOUT=2 UVM_LOCK_STALE=10` through `set_phase.py --verify`, re-run green. P1 and P2
+  were re-run and needed nothing — both use the defaults.
 - **Touches:** `bin/uv-manager`, `etc/uv-manager.conf.example`, `README.md`,
   `.agents/factory/invariants.md`, `AGENTS.md`.
 

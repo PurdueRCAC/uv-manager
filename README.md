@@ -548,8 +548,15 @@ precedes its own install directory. That is the arrangement we want.
 | `UVM_PIN` | `uv` version to provision and select. |
 | `UVM_PLATFORM` | Override the architecture key. Default `uname -m`. |
 | `UVM_INSTALL_URL` | Installer base URL, for mirrors. Default `https://astral.sh/uv`. |
-| `UVM_LOCK_TIMEOUT` | Seconds to wait for the provisioning lock. Default 180. |
+| `UVM_LOCK_TIMEOUT` | Seconds to wait for the provisioning lock. Default 180. Must be less than `UVM_LOCK_STALE`. |
 | `UVM_LOCK_STALE` | Seconds after which an untouched lock is broken. Default 600. |
+
+Both lock knobs are whole seconds read as decimal, and the wrapper refuses a configuration in which
+the timeout is not less than the stale threshold: a waiter that outlives the threshold breaks the
+lock it is waiting for while the process holding it is still running. A live holder refreshes its own
+lock every tenth of the threshold, so a long provisioning run is not mistaken for an abandoned one.
+On NFS, keep `UVM_LOCK_STALE` above roughly 120 seconds — a waiter on another node sees that refresh
+no sooner than one beat plus the attribute-cache lifetime.
 
 ### `uv` variables the wrapper sets
 
