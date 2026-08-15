@@ -31,7 +31,7 @@
 
 ## F1 — Free text alongside an issue path is routed as scope, with no rule for the case where it is about a different seed
 
-`origin=uvm-feature:argument-parsing severity=medium category=instruction status=open target=.agents/skills/uvm-feature/SKILL.md`
+`origin=uvm-feature:argument-parsing severity=medium category=instruction status=applied target=.agents/skills/uvm-feature/SKILL.md`
 
 - **What happened:** the invocation was `issues/purge-resilient-run.md` plus a sentence about a
   `UVM_INSTALL` variable that the hosted `uvm.sh` would read. Argument Parsing resolves the path to a
@@ -85,7 +85,7 @@
 
 ## F3 — A GOAL found unbuildable at plan time has no route back to shaping
 
-`origin=uvm-plan:5 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-plan/SKILL.md`
+`origin=uvm-plan:5 severity=medium category=missing-guidance status=deferred target=.agents/skills/uvm-plan/SKILL.md`
 
 - **What happened:** research established that three of this GOAL's eight criteria cannot be built as
   written — R4's acceptance oracle is satisfiable with zero implementation, R3 promises detection no

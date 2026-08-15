@@ -55,7 +55,11 @@ Parse `$ARGUMENTS` case-insensitively. If self-contradictory, STOP and ask.
 - `fix` / `bug` / `refactor` → set `kind`; otherwise infer from the wording, defaulting to `feature`.
 - `appetite small` / `appetite big` → set appetite; else default `small` for `kind: fix`, `big` for
   `feature`/`refactor`.
-- Everything else → the inline feature description (the seed prompt).
+- Everything else → the inline feature description (the seed prompt). Alongside a path it is not the
+  seed: prose accompanying a promoted issue is shaping input for that seed, never an automatic scope
+  extension. Check it against the injected *Open issues* list — a remark owned by a different seed is
+  recorded there and named as a non-goal here (Step 4), and where it is unclear which seed owns it,
+  ask. Merging two cycles is an appetite decision, not a parsing one.
 - No arguments **and** no untracked `spec/*/GOAL.md` present → STOP and ask for a description or a
   GOAL.md path.
 
