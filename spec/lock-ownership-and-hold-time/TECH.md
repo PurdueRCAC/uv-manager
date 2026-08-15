@@ -274,7 +274,8 @@ checklists below are the work.
 
 - **Vision / requirements (locked):** [`GOAL.md`](GOAL.md) — R-IDs are the contract.
 - **Authoritative design:** [`PLAN.md`](PLAN.md).
-- **Backing research:** [`research/00-digest.md`](research/00-digest.md) plus six briefs.
+- **Backing research:** [`research/00-digest.md`](research/00-digest.md) plus seven briefs — six from
+  the planning fan-out, and [`07`](research/07-acquire-race.md) carrying R8's Anvil evidence.
 
 ## Ordering, and why it is not negotiable
 

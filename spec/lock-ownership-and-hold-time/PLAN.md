@@ -160,7 +160,8 @@ means permissions, quota or ENOSPC, and it dies. A holder releasing between `mkd
 one iteration short of winning. Any observation after the fact races the same way, so the inference
 cannot be repaired — it has to stop being needed.
 
-Retry, and let persistence rather than a single sample distinguish contention from a broken mount. A
+Retry, and let persistence rather than a single sample distinguish contention from a broken mount
+([`07`](research/07-acquire-race.md)). A
 counter declared beside `waited`, incremented only on the absent branch, `continue` while under a
 literal bound of 3, and today's `die` unchanged at the bound. Reading the errno instead is the
 rejected alternative: `mkdir`'s stderr carries it, at the cost of parsing a locale-dependent string.
@@ -321,6 +322,10 @@ against this design.
 - **How a drive holds a lock long enough to test staleness** → append a sleep to the fixture copy inside
   the sandbox; the fixture is copied per invocation, so nothing tracked is touched
   ([`06`](research/06-verification-recipes.md)).
+- **Whether the "why did `mkdir` fail" inference can be made correct** → no. Any observation after the
+  fact races the same way; the lock's absence at *t+1* says nothing about why `mkdir` failed at *t*.
+  Reading the errno works and costs a locale-dependent string parse; retrying under a bound costs
+  neither ([`07`](research/07-acquire-race.md)).
 
 ## 5. Risks & open questions
 
@@ -338,6 +343,11 @@ against this design.
   which would make the trap capable of deleting a lock this process failed to take.
 - **Sleep-based gate timings were reliable here but have not run on a loaded shared machine.** A
   `verify:` retried under load may need wider margins.
+- **R8's gate is statistical, and its floor is assumed rather than measured.** Twenty bursts is sized
+  against a pessimistic 0.5% per-rank rate; the observed rate is 2.6–3.9% on two machine classes. A
+  machine slow enough to push the true rate below that floor would weaken the gate the way Anvil's
+  login node did — that is the failure mode to watch, not a flaky red
+  ([`07`](research/07-acquire-race.md)).
 - **`uvm_age` read `0600` as octal 384 s** at `:225`. Folded into R3's guard rather than seeded: the
   guard forces base 10 on the same globals `:225` and `:233` read, so all three sites and the timeout
   message mean the seconds the operator wrote. No `issues/` seed is owed.

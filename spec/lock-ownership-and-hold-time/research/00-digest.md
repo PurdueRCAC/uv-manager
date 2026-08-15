@@ -1,8 +1,13 @@
 # 00 — Digest
 
-Six briefs, fanned out breadth-first over R1-R6. Everything below is settled unless it says otherwise;
-where two briefs disagreed, the resolution and its reason are recorded here rather than left for the
-build to discover.
+Six briefs, fanned out breadth-first over R1-R6, plus a seventh added later. Everything below is
+settled unless it says otherwise; where two briefs disagreed, the resolution and its reason are
+recorded here rather than left for the build to discover.
+
+R7 and R8 postdate the fan-out. R7 came from an audit of `invariants.md` against the code and is
+argued in `PLAN.md` rather than in a brief. R8 came from a benchmarking run on Anvil after P1-P4 had
+landed, and brief [07](07-acquire-race.md) carries its evidence — it is the one brief here that is not
+this cycle's own research.
 
 | Brief | Question | Verdict |
 |---|---|---|
@@ -12,6 +17,7 @@ build to discover.
 | [04](04-exec-release-guard.md) | Which `exec` sites, and how | Four sites, two release points |
 | [05](05-timeout-message.md) | What the timeout message says | Owner line inline, and a recovery command that works |
 | [06](06-verification-recipes.md) | How each criterion is driven | One red recipe per R-ID, `sh -s` heredocs under `temp_root.sh` |
+| [07](07-acquire-race.md) | Why a released lock reads as a broken mount | The `[[ ! -d ]]` inference is unsound; retry under a monotonic bound |
 
 ## The headline: R2 makes R4 load-bearing
 
@@ -110,6 +116,13 @@ started inside a single drive and assertions must live there too. The fixture is
 sandbox, so appending a `UVM_FIXTURE_SLOW` sleep to `$UVM_FIXTURE_DIR/install.sh` stretches the hold
 without touching anything tracked — the lever for every timing recipe. All five change gates are red
 against `653b770`; R6 is green and must stay green.
+
+R8's gate is the exception to the one-drive shape: it is statistical, not deterministic. Twenty bursts
+of 64 concurrent ranks, because a single burst is red with probability `1 - 0.995^64 = 0.27` at a
+pessimistic 0.5% per-rank floor, so twenty leave a false green at `0.73^20 ≈ 1.6e-3`. Measured red at
+33 of 1280 and 24.5 s. Its second drive — an unwritable architecture directory still naming the fault,
+non-zero, in under five seconds — is green today and green after, and exists so nobody satisfies the
+first by deleting the `die`.
 
 Two clauses no command can decide, marked inspection-only for the reviewer: R4's fork-free-release cost
 claim, which the GOAL already assigns to a human, and "every `exec` site covered", which is a reading
