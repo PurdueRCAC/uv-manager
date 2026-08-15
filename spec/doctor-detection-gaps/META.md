@@ -76,3 +76,24 @@
   gate must be a substring of a single line, and hard-wrapped prose usually is not — verify the anchor
   matches before relying on its absence.
 - **Confidence:** high · **Effort:** small
+
+## F4 — a gate may cover half a criterion and still read as full coverage
+`origin=uvm-build:P1 severity=medium category=missing-guidance status=open target=.claude/skills/uvm-plan/SKILL.md`
+- **What happened:** R5's *Checked by* clause names two checks — the finding set must equal the one
+  `git show main:bin/uv-manager` produces on the same tree, and the walk must be measurably faster.
+  The authored P1 gate asserted neither. It asserted one case the rewrite could regress — a `RECORD`
+  with no trailing newline — which is worth having but is not the equality claim, and it went green
+  with that claim unverified. I built the comparison by hand and retuned the gate to encode the three
+  verdicts `main` produces on the awkward shapes.
+- **Skill cause:** `uvm-plan` Step 6 requires a gate be proven red before the fix, which certifies
+  that the gate *works*, not that it covers what the criterion says it checks. Nothing asks the
+  author to reconcile the gate against the R-ID's own *Checked by* clause, or — where a check cannot
+  be mechanized — to say in the phase body who grades the remainder. P4's body does exactly that
+  delegation voluntarily, so the practice already exists in this cycle and is simply not a rule.
+  Red-first also mis-tests a gate that mixes classes: an assertion protecting *preserved* behavior
+  must be **green** before the fix, and calling the whole gate "red before" hides that half.
+- **Recommended fix:** in Step 6, require each phase to account for every R-ID it `satisfies` — the
+  gate encodes the criterion's *Checked by* clause, or the phase body names the reviewer as grader
+  for the part it cannot. Add the corollary that a gate mixing new-behavior and regression
+  assertions is proven by running both halves against the pre-fix tree and confirming the split.
+- **Confidence:** high · **Effort:** small

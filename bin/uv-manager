@@ -699,23 +699,40 @@ uvm_doctor() {
 
   # Files missing from inside an environment. uv does not catch this: with a
   # valid receipt it assumes the environment is intact and execs it, and the
-  # user gets an ImportError from Python rather than a re-provision. Every
-  # installed distribution ships a RECORD manifest, which is enough to check
-  # for the damage a per-file purge causes.
-  local record sp missing total
-  for record in "${uvm_root}"/tools/*/lib/*/site-packages/*.dist-info/RECORD; do
-    [[ -f "${record}" ]] || continue
-    sp="$(dirname -- "$(dirname -- "${record}")")"
+  # user gets an ImportError from Python rather than a re-provision. The walk
+  # is driven from the dist-info directory rather than the RECORD inside it,
+  # because RECORD is read only on uninstall — the coldest file in a
+  # distribution, and so an early casualty of an atime-ordered purge. A
+  # manifest that is itself gone has to be a finding; globbing for it made the
+  # check blind exactly on the trees it exists to catch.
+  local di record sp rel missing total
+  for di in "${uvm_root}"/tools/*/lib/*/site-packages/*.dist-info; do
+    [[ -d "${di}" ]] || continue
+    name="${di##*/}"; name="${name%.dist-info}"
+    record="${di}/RECORD"
+    sp="${di%/*}"
+    if [[ ! -f "${record}" ]]; then
+      printf 'FAIL  %s has no RECORD manifest (partial purge)\n' "${name}"
+      problems=$(( problems + 1 ))
+      continue
+    fi
     missing=0; total=0
-    while IFS= read -r rel; do
+    # `read` returns non-zero on a final line with no trailing newline, and
+    # RECORD files like that exist; without the guard the loop discards that
+    # entry and the walk goes silent on a damaged distribution. Splitting on
+    # every comma truncates a quoted path that contains one — the awk this
+    # replaced did the same, and correcting it would move the verdict on real
+    # trees.
+    while IFS=, read -r rel _ || [[ -n "${rel}" ]]; do
       [[ -n "${rel}" ]] || continue
+      rel="${rel#\"}"; rel="${rel%\"}"
       case "${rel}" in ../*|/*) continue ;; esac   # scripts outside site-packages
       total=$(( total + 1 ))
       [[ -e "${sp}/${rel}" ]] || missing=$(( missing + 1 ))
-    done < <(awk -F, 'NF { gsub(/^"|"$/, "", $1); print $1 }' "${record}")
+    done < "${record}"
     if (( missing > 0 )); then
       printf 'FAIL  %s is missing %d of %d files (partial purge)\n' \
-          "$(basename -- "$(dirname -- "${record}")" .dist-info)" "${missing}" "${total}"
+          "${name}" "${missing}" "${total}"
       problems=$(( problems + 1 ))
     fi
   done

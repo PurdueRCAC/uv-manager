@@ -1,135 +1,154 @@
 ---
 slug: doctor-detection-gaps
-title: "`uvm doctor` reports OK on the damage it exists to find"
+title: '`uvm doctor` reports OK on the damage it exists to find'
 kind: fix
 appetite: big
-status: planned
+status: in_progress
 branch: fix/doctor-detection-gaps
 base: main
-current_phase: P1
-last_updated: "2026-08-14"
+current_phase: P2
+last_updated: '2026-08-14'
 phases:
-  - id: P1
-    name: "Drive the walk from the dist-info glob: detect a missing manifest, drop the per-distribution forks"
-    status: pending
-    satisfies: [R1, R5]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: crest
-    verify: |
-      set -eu
-      bash -n bin/uv-manager
-      .agents/factory/bin/lint.sh >/dev/null
-      .agents/factory/bin/temp_root.sh --offline sh -c '
-      set -e
-      uv --version >/dev/null 2>&1
-      A="$UVM_ROOT/$(uname -m)"; S="$A/tools/t/lib/python3.12/site-packages"
-      mkdir -p "$S/a-1.0.dist-info" "$S/b-1.0.dist-info" "$S/b" "$A/tools/t/bin"
-      printf "home = /usr\n" > "$A/tools/t/pyvenv.cfg"
-      printf "[tool]\n" > "$A/tools/t/uv-receipt.toml"
-      printf "b/gone.py,sha256=x,1" > "$S/b-1.0.dist-info/RECORD"
-      out=$(uvm doctor) && { echo "FAIL: doctor exited 0 on a damaged tree" >&2; exit 1; }
-      case "$out" in *"a-1.0"*) ;; *) echo "FAIL: dist-info with no RECORD not reported" >&2; exit 1 ;; esac
-      case "$out" in *"b-1.0 is missing 1 of 1"*) ;; *) echo "FAIL: unterminated RECORD not walked" >&2; exit 1 ;; esac
-      '
-  - id: P2
-    name: "Probe for a missing pyvenv.cfg, and hold detection read-only"
-    status: pending
-    satisfies: [R2, R6]
-    depends_on: [P1]
-    parallel: false
-    hammerable: false
-    hill: crest
-    verify: |
-      set -eu
-      .agents/factory/bin/lint.sh >/dev/null
-      .agents/factory/bin/temp_root.sh --offline sh -c '
-      set -e
-      uv --version >/dev/null 2>&1
-      A="$UVM_ROOT/$(uname -m)"; S="$A/tools/t/lib/python3.12/site-packages"
-      mkdir -p "$S/a-1.0.dist-info" "$S/a" "$A/tools/t/bin"
-      printf "[tool]\n" > "$A/tools/t/uv-receipt.toml"
-      printf "a/x.py,sha,1\n" > "$S/a-1.0.dist-info/RECORD"; : > "$S/a/x.py"
-      find "$A" -type f -exec shasum {} + | sort > "$UVM_SANDBOX/before"
-      find "$A" | sort >> "$UVM_SANDBOX/before"
-      out=$(uvm doctor) && { echo "FAIL: tool with no pyvenv.cfg but doctor exited 0" >&2; exit 1; }
-      case "$out" in *pyvenv*) ;; *) echo "FAIL: missing pyvenv.cfg not reported" >&2; exit 1 ;; esac
-      case "$out" in *"no automated repair"*) ;; *) echo "FAIL: no-safe-repair wording absent" >&2; exit 1 ;; esac
-      find "$A" -type f -exec shasum {} + | sort > "$UVM_SANDBOX/after"
-      find "$A" | sort >> "$UVM_SANDBOX/after"
-      if ! diff "$UVM_SANDBOX/before" "$UVM_SANDBOX/after" >/dev/null; then
-        echo "FAIL: doctor wrote to the state tree" >&2; exit 1
-      fi
-      '
-  - id: P3
-    name: "Split advice from failure in the exit status, and print remedies that repair"
-    status: pending
-    satisfies: [R3, R4]
-    depends_on: [P2]
-    parallel: false
-    hammerable: false
-    hill: crest
-    verify: |
-      set -eu
-      .agents/factory/bin/lint.sh >/dev/null
-      .agents/factory/bin/temp_root.sh --offline sh -c '
-      set -e
-      uv --version >/dev/null 2>&1
-      A="$UVM_ROOT/$(uname -m)"; T="$A/tools/t"; S="$T/lib/python3.12/site-packages"
-      mkdir -p "$S/a-1.0.dist-info" "$S/a" "$T/bin"
-      printf "home = /usr\n" > "$T/pyvenv.cfg"
-      printf "a/x.py,sha,1\n" > "$S/a-1.0.dist-info/RECORD"; : > "$S/a/x.py"
-      find "$A" -type f -exec shasum {} + | sort > "$UVM_SANDBOX/before"
-      find "$A" | sort >> "$UVM_SANDBOX/before"
-      out=$(uvm doctor) || { echo "FAIL: advisory-only tree exited non-zero" >&2; exit 1; }
-      case "$out" in *receipt*) ;; *) echo "FAIL: advisory line absent" >&2; exit 1 ;; esac
-      find "$A" -type f -exec shasum {} + | sort > "$UVM_SANDBOX/after"
-      find "$A" | sort >> "$UVM_SANDBOX/after"
-      if ! diff "$UVM_SANDBOX/before" "$UVM_SANDBOX/after" >/dev/null; then
-        echo "FAIL: doctor wrote to the state tree" >&2; exit 1
-      fi
-      unlink "$S/a/x.py"
-      out2=$(uvm doctor) && { echo "FAIL: real damage did not set the exit status" >&2; exit 1; }
-      case "$out2" in *"uv-manager install"*) echo "FAIL: remediation still recommends uv-manager install" >&2; exit 1 ;; esac
-      case "$out2" in *"--no-cache"*) ;; *) echo "FAIL: remediation omits the --no-cache idiom" >&2; exit 1 ;; esac
-      uvm doctor 2>"$UVM_SANDBOX/err" | head -1 >/dev/null
-      if grep -q "write error" "$UVM_SANDBOX/err"; then
-        echo "FAIL: printf SIGPIPE leaked through the remediation block" >&2; exit 1
-      fi
-      '
-  - id: P4
-    name: "State the detection floor in README rather than implying the check is exhaustive"
-    status: pending
-    satisfies: [R7]
-    depends_on: [P3]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: |
-      set -eu
-      .agents/factory/bin/lint.sh >/dev/null
-      if git grep -q "detects what uv does not" -- README.md; then
-        echo "FAIL: README still presents doctor's detection as a complete list" >&2; exit 1
-      fi
-      .agents/factory/bin/temp_root.sh --offline sh -c '
-      set -e
-      uv --version >/dev/null 2>&1
-      A="$UVM_ROOT/$(uname -m)"; S="$A/tools/t/lib/python3.12/site-packages"
-      mkdir -p "$S/a-1.0.dist-info" "$S/a" "$A/tools/t/bin"
-      printf "home = /usr\n" > "$A/tools/t/pyvenv.cfg"
-      printf "[tool]\n" > "$A/tools/t/uv-receipt.toml"
-      printf "a/x.py,sha,1\n" > "$S/a-1.0.dist-info/RECORD"; : > "$S/a/x.py"
-      out=$(uvm doctor) || { echo "FAIL: intact tree no longer exits 0" >&2; exit 1; }
-      case "$out" in "OK"*) ;; *) echo "FAIL: intact tree did not report OK" >&2; exit 1 ;; esac
-      '
+- id: P1
+  name: 'Drive the walk from the dist-info glob: detect a missing manifest, drop the
+    per-distribution forks'
+  status: done
+  satisfies:
+  - R1
+  - R5
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: crest
+  verify: 'set -eu
+
+    bash -n bin/uv-manager
+
+    .agents/factory/bin/lint.sh >/dev/null
+
+    .agents/factory/bin/temp_root.sh --offline sh -c ''
+
+    set -e
+
+    uv --version >/dev/null 2>&1
+
+    A="$UVM_ROOT/$(uname -m)"; T="$A/tools/t"; S="$T/lib/python3.12/site-packages"
+
+    mkdir -p "$T/bin" "$S/a-1.0.dist-info" "$S/c-1.0.dist-info" "$S/c" "$S/d-1.0.dist-info"
+    "$S/d" "$S/e-1.0.dist-info" "$S/e"
+
+    printf "home = /usr\\n" > "$T/pyvenv.cfg"
+
+    printf "[tool]\\n" > "$T/uv-receipt.toml"
+
+    : > "$S/c/here.py"; : > "$S/d/here.py"; : > "$S/e/here.py"
+
+    printf "c/here.py,sha,1\\n\\n\"c/quoted,comma.py\",sha,2\\n../../bin/x,sha,3\\n/abs/x.py,sha,4\\n,,\\nc/gone.py,sha,5\\n"
+    > "$S/c-1.0.dist-info/RECORD"
+
+    printf "d/here.py,sha,1\\r\\nd/gone.py,sha,2\\r\\n" > "$S/d-1.0.dist-info/RECORD"
+
+    printf "e/here.py,sha,1\\ne/gone.py,sha,2" > "$S/e-1.0.dist-info/RECORD"
+
+    out=$(uvm doctor) && { echo "FAIL: doctor exited 0 on a damaged tree" >&2; exit
+    1; }
+
+    case "$out" in *"a-1.0 has no RECORD"*) ;; *) echo "FAIL: dist-info with no RECORD
+    not reported" >&2; exit 1 ;; esac
+
+    case "$out" in *"c-1.0 is missing 2 of 3"*) ;; *) echo "FAIL: verdict moved on
+    quoted-comma, ../, absolute or blank lines" >&2; exit 1 ;; esac
+
+    case "$out" in *"d-1.0 is missing 1 of 2"*) ;; *) echo "FAIL: verdict moved on
+    a CRLF RECORD" >&2; exit 1 ;; esac
+
+    case "$out" in *"e-1.0 is missing 1 of 2"*) ;; *) echo "FAIL: RECORD with no trailing
+    newline not walked" >&2; exit 1 ;; esac
+
+    '''
+- id: P2
+  name: Probe for a missing pyvenv.cfg, and hold detection read-only
+  status: pending
+  satisfies:
+  - R2
+  - R6
+  depends_on:
+  - P1
+  parallel: false
+  hammerable: false
+  hill: crest
+  verify: "set -eu\n.agents/factory/bin/lint.sh >/dev/null\n.agents/factory/bin/temp_root.sh\
+    \ --offline sh -c '\nset -e\nuv --version >/dev/null 2>&1\nA=\"$UVM_ROOT/$(uname\
+    \ -m)\"; S=\"$A/tools/t/lib/python3.12/site-packages\"\nmkdir -p \"$S/a-1.0.dist-info\"\
+    \ \"$S/a\" \"$A/tools/t/bin\"\nprintf \"[tool]\\n\" > \"$A/tools/t/uv-receipt.toml\"\
+    \nprintf \"a/x.py,sha,1\\n\" > \"$S/a-1.0.dist-info/RECORD\"; : > \"$S/a/x.py\"\
+    \nfind \"$A\" -type f -exec shasum {} + | sort > \"$UVM_SANDBOX/before\"\nfind\
+    \ \"$A\" | sort >> \"$UVM_SANDBOX/before\"\nout=$(uvm doctor) && { echo \"FAIL:\
+    \ tool with no pyvenv.cfg but doctor exited 0\" >&2; exit 1; }\ncase \"$out\"\
+    \ in *pyvenv*) ;; *) echo \"FAIL: missing pyvenv.cfg not reported\" >&2; exit\
+    \ 1 ;; esac\ncase \"$out\" in *\"no automated repair\"*) ;; *) echo \"FAIL: no-safe-repair\
+    \ wording absent\" >&2; exit 1 ;; esac\nfind \"$A\" -type f -exec shasum {} +\
+    \ | sort > \"$UVM_SANDBOX/after\"\nfind \"$A\" | sort >> \"$UVM_SANDBOX/after\"\
+    \nif ! diff \"$UVM_SANDBOX/before\" \"$UVM_SANDBOX/after\" >/dev/null; then\n\
+    \  echo \"FAIL: doctor wrote to the state tree\" >&2; exit 1\nfi\n'\n"
+- id: P3
+  name: Split advice from failure in the exit status, and print remedies that repair
+  status: pending
+  satisfies:
+  - R3
+  - R4
+  depends_on:
+  - P2
+  parallel: false
+  hammerable: false
+  hill: crest
+  verify: "set -eu\n.agents/factory/bin/lint.sh >/dev/null\n.agents/factory/bin/temp_root.sh\
+    \ --offline sh -c '\nset -e\nuv --version >/dev/null 2>&1\nA=\"$UVM_ROOT/$(uname\
+    \ -m)\"; T=\"$A/tools/t\"; S=\"$T/lib/python3.12/site-packages\"\nmkdir -p \"\
+    $S/a-1.0.dist-info\" \"$S/a\" \"$T/bin\"\nprintf \"home = /usr\\n\" > \"$T/pyvenv.cfg\"\
+    \nprintf \"a/x.py,sha,1\\n\" > \"$S/a-1.0.dist-info/RECORD\"; : > \"$S/a/x.py\"\
+    \nfind \"$A\" -type f -exec shasum {} + | sort > \"$UVM_SANDBOX/before\"\nfind\
+    \ \"$A\" | sort >> \"$UVM_SANDBOX/before\"\nout=$(uvm doctor) || { echo \"FAIL:\
+    \ advisory-only tree exited non-zero\" >&2; exit 1; }\ncase \"$out\" in *receipt*)\
+    \ ;; *) echo \"FAIL: advisory line absent\" >&2; exit 1 ;; esac\nfind \"$A\" -type\
+    \ f -exec shasum {} + | sort > \"$UVM_SANDBOX/after\"\nfind \"$A\" | sort >> \"\
+    $UVM_SANDBOX/after\"\nif ! diff \"$UVM_SANDBOX/before\" \"$UVM_SANDBOX/after\"\
+    \ >/dev/null; then\n  echo \"FAIL: doctor wrote to the state tree\" >&2; exit\
+    \ 1\nfi\nunlink \"$S/a/x.py\"\nout2=$(uvm doctor) && { echo \"FAIL: real damage\
+    \ did not set the exit status\" >&2; exit 1; }\ncase \"$out2\" in *\"uv-manager\
+    \ install\"*) echo \"FAIL: remediation still recommends uv-manager install\" >&2;\
+    \ exit 1 ;; esac\ncase \"$out2\" in *\"--no-cache\"*) ;; *) echo \"FAIL: remediation\
+    \ omits the --no-cache idiom\" >&2; exit 1 ;; esac\nuvm doctor 2>\"$UVM_SANDBOX/err\"\
+    \ | head -1 >/dev/null\nif grep -q \"write error\" \"$UVM_SANDBOX/err\"; then\n\
+    \  echo \"FAIL: printf SIGPIPE leaked through the remediation block\" >&2; exit\
+    \ 1\nfi\n'\n"
+- id: P4
+  name: State the detection floor in README rather than implying the check is exhaustive
+  status: pending
+  satisfies:
+  - R7
+  depends_on:
+  - P3
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: "set -eu\n.agents/factory/bin/lint.sh >/dev/null\nif git grep -q \"detects\
+    \ what uv does not\" -- README.md; then\n  echo \"FAIL: README still presents\
+    \ doctor's detection as a complete list\" >&2; exit 1\nfi\n.agents/factory/bin/temp_root.sh\
+    \ --offline sh -c '\nset -e\nuv --version >/dev/null 2>&1\nA=\"$UVM_ROOT/$(uname\
+    \ -m)\"; S=\"$A/tools/t/lib/python3.12/site-packages\"\nmkdir -p \"$S/a-1.0.dist-info\"\
+    \ \"$S/a\" \"$A/tools/t/bin\"\nprintf \"home = /usr\\n\" > \"$A/tools/t/pyvenv.cfg\"\
+    \nprintf \"[tool]\\n\" > \"$A/tools/t/uv-receipt.toml\"\nprintf \"a/x.py,sha,1\\\
+    n\" > \"$S/a-1.0.dist-info/RECORD\"; : > \"$S/a/x.py\"\nout=$(uvm doctor) || {\
+    \ echo \"FAIL: intact tree no longer exits 0\" >&2; exit 1; }\ncase \"$out\" in\
+    \ \"OK\"*) ;; *) echo \"FAIL: intact tree did not report OK\" >&2; exit 1 ;; esac\n\
+    '\n"
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — `uvm doctor` reports OK on the damage it exists to find
 
 The **context engine and finite-state machine** for building this fix. The YAML frontmatter above is
@@ -161,24 +180,30 @@ checklists below are the work.
 loop stops spawning six processes per distribution. One edit, because R1's probe and R5's rewrite are
 the same loop.
 
-- [ ] Change the glob at `bin/uv-manager:706` from `*.dist-info/RECORD` to `*.dist-info`, and derive
+- [x] Change the glob at `bin/uv-manager:706` from `*.dist-info/RECORD` to `*.dist-info`, and derive
       `record="${di}/RECORD"` and `sp="${di%/*}"` inside the loop.
-- [ ] Report a `dist-info` with no `RECORD` as a failure and `continue`.
-- [ ] Replace `sp="$(dirname -- "$(dirname -- "${record}")")"` with parameter expansion, and the
+- [x] Report a `dist-info` with no `RECORD` as a failure and `continue`.
+- [x] Replace `sp="$(dirname -- "$(dirname -- "${record}")")"` with parameter expansion, and the
       `$(basename -- "$(dirname …)" .dist-info)` chain with `${di##*/}` / `${name%.dist-info}`.
-- [ ] Replace `< <(awk -F, …)` with `< "${record}"`, splitting via `IFS=, read -r rel _` and stripping
+- [x] Replace `< <(awk -F, …)` with `< "${record}"`, splitting via `IFS=, read -r rel _` and stripping
       quotes with `${rel#\"}` / `${rel%\"}`.
-- [ ] **Keep the `|| [[ -n "${rel}" ]]` guard on the read loop.** Without it a `RECORD` whose final
+- [x] **Keep the `|| [[ -n "${rel}" ]]` guard on the read loop.** Without it a `RECORD` whose final
       line lacks a trailing newline loses that entry and the walk goes silent on a damaged
       distribution — see [`research/01`](research/01-fork-free-record-walk.md) §4. This is the one
       detail in the phase that fails silently if dropped.
-- [ ] Preserve `awk`'s truncation of a quoted path containing a comma. Byte-identical means
+- [x] Preserve `awk`'s truncation of a quoted path containing a comma. Byte-identical means
       reproducing that, not correcting it.
-- **Verify:** the gate builds a tree with `a-1.0.dist-info` (no `RECORD` at all) and
-  `b-1.0.dist-info` (a one-line `RECORD` with **no trailing newline** naming a file that is absent).
-  Post-conditions: doctor exits non-zero, names `a-1.0`, and reports `b-1.0 is missing 1 of 1`. The
-  second assertion is what catches a dropped guard. No speed threshold is asserted — the ratio is
-  tree-shaped (PLAN §5).
+- **Verify:** the gate builds `a-1.0.dist-info` (no `RECORD` at all) and three manifests carrying the
+  shapes the rewrite could move — `c-1.0` (a quoted path containing a comma, a `../` escape, an
+  absolute path, a blank line, a bare `,,`), `d-1.0` (CRLF), and `e-1.0` (final line with **no
+  trailing newline**). Post-conditions: doctor exits non-zero, reports `a-1.0 has no RECORD`, and
+  reaches `c-1.0 is missing 2 of 3`, `d-1.0 is missing 1 of 2`, `e-1.0 is missing 1 of 2`.
+  **Amended during the build** (was: `a-1.0` named plus a single `b-1.0 is missing 1 of 1`). Those
+  three counts are what `git show main:bin/uv-manager` produces on the same tree, verified by running
+  both against it, so they are R5's verdict-equality half made durable — the original gate left it
+  unchecked, and a comparison against `main` cannot be written into a gate that outlives the merge.
+  No speed threshold is asserted — the ratio is tree-shaped (PLAN §5); measured 0.505 s → 0.090 s over
+  100 distributions.
 - **Touches:** `bin/uv-manager`.
 
 ## Phase P2 — Probe for a missing `pyvenv.cfg`, and hold detection read-only
