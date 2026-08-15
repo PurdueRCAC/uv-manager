@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-readonly uvm_version="0.4.0"
+readonly uvm_version="0.4.1"
 
 # ---- identity: uv, uvx or uv-manager, decided purely by argv[0] ------------
 #
