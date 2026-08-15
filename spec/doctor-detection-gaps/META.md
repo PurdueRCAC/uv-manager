@@ -32,6 +32,11 @@
   `git show main:bin/uv-manager` into `$TMPDIR` and drive both walks against one fixture tree, which is
   the only honest way to grade R5's equality claim. A pre-rendered diff would have made that reach
   awkward enough to skip.
+- `uvm-build` Step 1's "prefer reopening the existing phase whose `satisfies` covers the failing
+  R-IDs" landed the cycle-1 remediation in one assertion: P3's gate already built the mixed tree the
+  finding described, because the gate was written from R4's *Checked by* clause rather than from the
+  change. Reopening cost less than a new phase would have, and the retuned gate covers the finding
+  permanently instead of once.
 
 ## Friction findings
 
@@ -174,3 +179,25 @@
   as a disposition. Keep the auto-block unconditional for any §1–§11 violation regardless of the
   severity assigned.
 - **Confidence:** med · **Effort:** small
+
+## F8 — the refutation protocol certifies that the bad thing happened, never that the fixture can explain it
+`origin=uvm-build:P3 severity=medium category=missing-guidance status=open target=.agents/factory/review-rubric.md`
+- **What happened:** cycle 1's finding read "exits 1 **without repairing anything**", CONFIRMED
+  against a probe holding one tool. Remediating it meant writing that claim into user-facing prose, so
+  I measured it first with two tools — and `uv tool upgrade --all --reinstall --no-cache` restored the
+  damaged file and *then* exited 1 on the orphan. The observation (rc 1) was right; the explanation
+  attached to it was not, and it is the explanation the fix has to encode. Had I trusted the finding,
+  doctor would now talk users out of a command that repairs their tree.
+- **Skill cause:** § *Refutation protocol* turns on whether the wrong behavior **reproduced**, and
+  § *What counts as evidence* lists observations — an exit code, a captured stderr line, a `readlink`.
+  Neither asks whether the constructed state can *distinguish* the stated cause from its alternatives.
+  With one tool in the tree, "fails wholesale" and "repairs the rest, then fails" emit the same rc 1,
+  so the fixture could not have refuted the wrong one. This is not reviewer sloppiness and not
+  one-off: `spec/purge-resilient-run/research/04-uv-repair-idioms.md` §4 characterized the same class
+  the same way, from the same single-tool shape, and the finding inherited it.
+- **Recommended fix:** add a step 1b to the protocol — before writing the finding, state the competing
+  explanation for the same observation and say what in the fixture rules it out; if nothing does,
+  either widen the fixture or downgrade the *explanation* to PLAUSIBLE while keeping the observation
+  CONFIRMED. A finding whose severity or remedy turns on the mechanism needs a fixture with at least
+  two of whatever the mechanism ranges over.
+- **Confidence:** high · **Effort:** small

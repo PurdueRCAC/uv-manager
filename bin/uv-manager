@@ -812,6 +812,11 @@ command needs network access; uv never caches interpreter tarballs. A missing uv
 binary needs no command at all — the next uv call re-provisions it and honors
 UVM_PIN.
 
+The first command exits 1 on a tool reported above as having no receipt, and says
+that tool is not installed. It repairs every other tool before it gets there, so the
+failure is about the orphan and not the repair. Clear the orphan as its own line
+says and the status is worth reading again.
+
 Neither command repairs a tool whose pyvenv.cfg is gone, and neither is safe to run
 against one: uv falls back to the base interpreter and writes outside this tree.
 Remove that tool's directory and install the tool again, naming the version you

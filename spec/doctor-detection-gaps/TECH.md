@@ -3,7 +3,7 @@ slug: doctor-detection-gaps
 title: '`uvm doctor` reports OK on the damage it exists to find'
 kind: fix
 appetite: big
-status: blocked
+status: in_review
 branch: fix/doctor-detection-gaps
 base: main
 current_phase: done
@@ -118,10 +118,12 @@ phases:
     \ did not set the exit status\" >&2; exit 1; }\ncase \"$out2\" in *\"uv-manager\
     \ install\"*) echo \"FAIL: remediation still recommends uv-manager install\" >&2;\
     \ exit 1 ;; esac\ncase \"$out2\" in *\"--no-cache\"*) ;; *) echo \"FAIL: remediation\
-    \ omits the --no-cache idiom\" >&2; exit 1 ;; esac\nuvm doctor 2>\"$UVM_SANDBOX/err\"\
-    \ | head -1 >/dev/null\nif grep -q \"write error\" \"$UVM_SANDBOX/err\"; then\n\
-    \  echo \"FAIL: printf SIGPIPE leaked through the remediation block\" >&2; exit\
-    \ 1\nfi\n'\n"
+    \ omits the --no-cache idiom\" >&2; exit 1 ;; esac\ncase \"$out2\" in *\"exits\
+    \ 1 on a tool reported above\"*) ;; *) echo \"FAIL: remediation does not say a\
+    \ receipt-less tool fails the first command\" >&2; exit 1 ;; esac\nuvm doctor\
+    \ 2>\"$UVM_SANDBOX/err\" | head -1 >/dev/null\nif grep -q \"write error\" \"$UVM_SANDBOX/err\"\
+    ; then\n  echo \"FAIL: printf SIGPIPE leaked through the remediation block\" >&2;\
+    \ exit 1\nfi\n'"
 - id: P4
   name: State the detection floor in README rather than implying the check is exhaustive
   status: done
@@ -260,6 +262,20 @@ tree instead of overriding the site's pin.
       ([`research/02`](research/02-doctor-baseline.md) §5).
 - [x] Add the `pyvenv.cfg` paragraph — neither command repairs that class and neither is safe against
       it. PLAN §2 has the drafted text.
+- [x] **Remediation, review cycle 1 (F1).** Say what the first command does when the same tree also
+      carries the receipt-less advisory this phase made non-failing. Reopened rather than deferred
+      because the finding is against R4's own text, which is this phase's deliverable.
+
+      The finding reported the command as failing without repairing. Measured before writing the
+      sentence, against real `uv 0.12.4` with `UV_TOOL_DIR`, `UV_CACHE_DIR`, `UV_TOOL_BIN_DIR` and
+      `XDG_CONFIG_HOME` isolated under `$TMPDIR`: with one orphaned tool and one tool missing a
+      recorded file, `uv tool upgrade --all --reinstall --no-cache` **restored the missing file** and
+      then exited 1 naming the orphan. It is not all-or-nothing, and it does not stop at the first
+      failure — the orphan sorts first and the healthy tool was still repaired. Both the reviewer's
+      repro and `spec/purge-resilient-run/research/04-uv-repair-idioms.md` §4 characterized this class
+      with a single tool in the tree, where "exits 1" and "repairs nothing" are indistinguishable.
+      The block therefore states the real behavior rather than warning the command is useless, which
+      would have been the wrong repair and would have talked a user out of a command that works.
 - **Verify:** post-conditions are that an advisory-only tree exits **0** with the advisory printed and
   the state tree unchanged; that adding a real failure makes it exit **1**; that the output contains
   no `uv-manager install` and does contain `--no-cache`; and that `uvm doctor | head -1` writes
@@ -270,6 +286,11 @@ tree instead of overriding the site's pin.
   first shown non-vacuous — 20 of 20 runs leak at `main`, 0 of 20 after — since a race asserted once
   proves little either way. The heredoc's single expansion was checked against a tool directory named
   ``ev$(id)x-${HOME}-`id`-il``: all three forms reach stdout literally and nothing executes.
+  **Retuned in review cycle 1** with a fourth assertion on `out2`, which the gate already builds as
+  the mixed tree the finding describes — a receipt-less tool alongside a real failure. Proven red
+  before the edit and green after, both under `run_verify.py` so the folded YAML is what executed.
+  The anchor sits inside one line of the block: `git grep` is line-based and this file's prose is
+  hard-wrapped, which produced a false green once already while authoring P4.
 - **Touches:** `bin/uv-manager`.
 
 ## Phase P4 — State the detection floor in `README.md`
