@@ -27,6 +27,13 @@ it reaches a cluster.
 - A **separate, later** completeness sub-pass *may* read `TECH.md` to ask "was every planned phase
   shipped? did scope balloon?" — kept isolated so the plan never contaminates the correctness verdict.
 
+**The `spec/` exclusion bounds the artifacts, not the rationale.** A cycle that defers work writes the
+evidence into `issues/{slug}.md` and its position into the `ROADMAP.md` entry — outside `spec/`, inside
+the graded diff. A correctly filtered pass therefore reads the plan's conclusions in the seeds it is
+grading. Excluding `issues/` is the wrong repair, because those files are part of the delta and a
+deferral is graded work. Read what the diff's own new prose asserts as a claim to verify, not as a
+question already settled.
+
 ## Scope — flag ONLY
 
 1. **Correctness bugs** — wrong behavior, a crash, a corrupted or misplaced state tree.

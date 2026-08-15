@@ -208,7 +208,7 @@
 
 ## F8 — The blind-review boundary is drawn at `spec/`, but `issues/` and `ROADMAP.md` restate the research on the same branch
 
-`origin=uvm-review:step-2 severity=medium category=missing-guidance status=open target=.agents/factory/review-rubric.md`
+`origin=uvm-review:step-2 severity=medium category=missing-guidance status=applied target=.agents/factory/review-rubric.md`
 
 - **What happened:** the cycle-2 reviewer disclosed, unprompted, that author rationale reached it
   through the legitimately-scoped diff. `issues/purge-tree-repair.md` and
