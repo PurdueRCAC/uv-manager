@@ -143,7 +143,7 @@
 - **Confidence:** high · **Effort:** small
 
 ## F5 — "a red gate is a STOP" does not distinguish iterating from failing
-`origin=uvm-build:P3 severity=medium category=instruction status=open target=.claude/skills/uvm-build/SKILL.md`
+`origin=uvm-build:P3 severity=medium category=instruction status=applied target=.agents/skills/uvm-build/SKILL.md`
 - **What happened:** P3's gate went red on its first run, for a real reason — the plan converted only
   the remediation block to a heredoc, and R4's check covers the whole command. Step 4 says, without
   qualification, "Red → STOP; do not mark done or advance state," and record an attempt against the

@@ -69,7 +69,7 @@ Parse `$ARGUMENTS` case-insensitively; if ambiguous, STOP and ask.
   writes into the developer's real state root and can pull hundreds of megabytes. **Exit 0 is
   necessary but not sufficient:** assert the concrete post-condition (a `readlink` on `current`, a path
   that exists, a version string, a specific line on stderr). A drive that "completed" but left the
-  wrong tree is a FAIL. A red gate is a STOP — do not mark the phase done or advance state.
+  wrong tree is a FAIL. A still-red gate is a STOP — do not mark the phase done or advance state.
 - **Amend `TECH.md` freely; the GOAL is locked.** When reality diverges from the plan — a phase is
   wrong, needs splitting, or a new one is required — rewrite `TECH.md` (regenerate frontmatter with
   `set_phase.py`, edit phase bodies as needed) and **note the amendment in the commit body**. But if
@@ -81,7 +81,7 @@ Parse `$ARGUMENTS` case-insensitively; if ambiguous, STOP and ask.
   feature-scoped spec ids (`R1`, `P3`) in `bin/uv-manager` or `README.md`**.
 - **Prefer deleting to adding.** If a phase can be satisfied by removing a special case rather than
   adding one, do that and say so in the commit body.
-- **Circuit breaker (durable).** Every red verify gate is recorded on file via
+- **Circuit breaker (durable).** Every gate that stays red is recorded on file via
   `set_phase.py --phase {id} --record-attempt` — the counter, not session memory, trips the breaker.
   When a phase's `attempts` reaches about 3 (`next_phase.py` warns), or it stays `hill: uphill` across
   builds, **stop and re-shape**: STOP and recommend `/uvm-plan` or human input rather than looping.
@@ -148,7 +148,11 @@ shell and executed later by `lint.sh`, by CI, and by anyone reading `TECH.md` un
 aliases, shell functions and GNU-versus-BSD utilities all diverge — a `grep` that is a shell function
 here is `/usr/bin/grep` there. A gate never observed failing is not a gate.
 
-Green → proceed. Red → STOP; do not mark done or advance state. Record the failure:
+Green → proceed. A red you can name the correction for is the inner loop of implementation: make the
+fix, re-run, and record what it took in the commit body, not as an attempt — the counter catches a
+phase that will not converge, and one converging exactly as planned would trip it in three reds. A
+gate that stays red — no correction left to try, or the one you predicted would clear it did not —
+says the phase is mis-shaped → STOP; do not mark done or advance state. Record the failure:
 ```
 uv run .agents/factory/bin/set_phase.py spec/{slug}/TECH.md --phase {id} --record-attempt --touch
 ```
