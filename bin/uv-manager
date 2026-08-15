@@ -680,13 +680,24 @@ uvm_doctor() {
     done
   done
 
-  # Tool environments missing their receipt, or their interpreter.
+  # Tool environments missing their receipt, their virtualenv marker, or their
+  # interpreter.
   if [[ -d "${uvm_root}/tools" ]]; then
     for d in "${uvm_root}/tools"/*/; do
       [[ -d "${d}" ]] || continue
       name="$(basename -- "${d%/}")"
       if [[ ! -f "${d}uv-receipt.toml" ]]; then
         printf 'WARN  tool %s has no receipt (uv will treat it as not installed)\n' "${name}"
+        problems=$(( problems + 1 ))
+      fi
+      # pyvenv.cfg is what marks the directory as a virtualenv. Without it uv
+      # resolves the base interpreter instead, and a repair aimed at this tool
+      # installs into that interpreter's site-packages — outside the tree the
+      # wrapper owns, and on a shared image outside the user's control. Say so
+      # in the finding: this is the one class where the obvious next move is
+      # worse than the damage.
+      if [[ ! -f "${d}pyvenv.cfg" ]]; then
+        printf 'FAIL  tool %s has no pyvenv.cfg; no automated repair is safe for it\n' "${name}"
         problems=$(( problems + 1 ))
       fi
       target="${d}bin/python"

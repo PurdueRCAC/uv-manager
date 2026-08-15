@@ -6,7 +6,7 @@ appetite: big
 status: in_progress
 branch: fix/doctor-detection-gaps
 base: main
-current_phase: P2
+current_phase: P3
 last_updated: '2026-08-14'
 phases:
 - id: P1
@@ -68,7 +68,7 @@ phases:
     '''
 - id: P2
   name: Probe for a missing pyvenv.cfg, and hold detection read-only
-  status: pending
+  status: done
   satisfies:
   - R2
   - R6
@@ -211,17 +211,22 @@ the same loop.
 **Goal:** the damage class that makes any in-place repair escape the tree becomes visible, and the
 whole detection surface is proven to write nothing.
 
-- [ ] Add `[[ -f "${d}pyvenv.cfg" ]]` to the existing `for d in "${uvm_root}/tools"/*/` loop — no new
+- [x] Add `[[ -f "${d}pyvenv.cfg" ]]` to the existing `for d in "${uvm_root}/tools"/*/` loop — no new
       glob, no fork.
-- [ ] Report it as a failure whose text states that no automated repair is safe for the class, because
+- [x] Report it as a failure whose text states that no automated repair is safe for the class, because
       uv falls back to the base interpreter and writes outside this tree.
-- [ ] Add nothing that writes. R6 is preservation, not repair: doctor is already read-only
+- [x] Add nothing that writes. R6 is preservation, not repair: doctor is already read-only
       ([`research/02`](research/02-doctor-baseline.md) §3).
 - **Verify:** post-conditions are that a tool with no `pyvenv.cfg` is named, the phrase
   `no automated repair` appears, doctor exits 1, and a path list plus `shasum` of every file under the
   arch root is byte-identical across the run. The manifest deliberately compares paths, mtimes and
   content and **not** atime — the walk reads every `RECORD`, so an atime comparison would fail on
-  correct code (R6's own carve-out).
+  correct code (R6's own carve-out). Observed: `FAIL  tool t1 has no pyvenv.cfg; no automated repair
+  is safe for it`, exit 1, a fully intact tool alongside it silent, and a tool missing both markers
+  reporting both. The gate's two halves were proven separately against the pre-change tree — the
+  `pyvenv` assertion red, the read-only manifest green — and the manifest was proven non-vacuous by
+  writing a file into the tree mid-run and watching it go red. A preservation assertion is green on
+  both sides of the fix, so red-before-green-after cannot certify it; tampering can.
 - **Touches:** `bin/uv-manager`.
 
 ## Phase P3 — Split advice from failure, and print remedies that repair

@@ -77,7 +77,7 @@
   matches before relying on its absence.
 - **Confidence:** high · **Effort:** small
 
-## F4 — a gate may cover half a criterion and still read as full coverage
+## F4 — a gate may cover half a criterion and still read as full coverage · seen again
 `origin=uvm-build:P1 severity=medium category=missing-guidance status=open target=.claude/skills/uvm-plan/SKILL.md`
 - **What happened:** R5's *Checked by* clause names two checks — the finding set must equal the one
   `git show main:bin/uv-manager` produces on the same tree, and the walk must be measurably faster.
@@ -96,4 +96,14 @@
   gate encodes the criterion's *Checked by* clause, or the phase body names the reviewer as grader
   for the part it cannot. Add the corollary that a gate mixing new-behavior and regression
   assertions is proven by running both halves against the pre-fix tree and confirming the split.
+- **Recurrence (P2):** the same shape, with a sharper edge. P2's gate pairs the `pyvenv.cfg`
+  assertion with R6's read-only manifest, and a *preservation* assertion is green on both sides of
+  the fix — so `uvm-build` Step 4's "red before, green after" cannot certify it at all, and following
+  that rule literally would have let a vacuous manifest diff pass as proof. An empty `find`, a
+  mistyped path, and a correct read-only run are the same green. I proved it by writing a file into
+  the tree mid-run and watching it go red. The rule to add alongside the split: **an assertion that
+  must be green before the fix is certified by tampering, not by red-first** — make the condition it
+  guards against actually happen once, and watch the gate catch it. `research/01` §4 records this
+  lesson for fixtures ("assert that a fixture mutation actually applied"); it belongs in the skill,
+  where it applies to every preservation criterion, not just this cycle's.
 - **Confidence:** high · **Effort:** small
