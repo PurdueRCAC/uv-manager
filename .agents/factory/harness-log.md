@@ -523,17 +523,37 @@ Read `origin`, `severity` and `category` from the finding in `META.md`; this led
   Parsing, which an agent reads first and which would otherwise contradict Step 5 about what the flag
   controls.
 
-## 2026-08-15 — doctor-detection-gaps F6 and F7: held for an explicit override
-`decision=deferred commit=— target=.agents/skills/uvm-review/SKILL.md, .agents/factory/review-rubric.md`
-- **Rationale:** both were shaped to their narrow forms and both were authored, and both came back
-  self-reporting that they relax the letter of a rule. F6 lets one `spec/` path named by the locked
-  `GOAL.md` reach the reviewer, which is bounded and is strictly less than the hand-pasting it
-  replaces — but blind-review integrity is named in Safety §3, and the consent on record is a choice
-  among forms made before anyone had measured that even the narrow form loosens the text. F7 carves
-  an exception into the unconditional `CONFIRMED → blocked` route. Adversarial review found both
-  drafts materially incomplete: F6's does not scope the `research/` category ban, so an orchestrator
-  following it still cannot pass the file that produced the finding, and it repeats a mis-citation
-  `b8afd6a` dropped one entry back; F7's prescribes a deferral written outside `spec/`, which trips
-  `uvm-publish`'s staleness gate and sends the branch back to review — the loop the carve-out exists
-  to prevent — and contradicts `uvm-review` Step 4, which still routes every CONFIRMED to blocked.
-  Corrected forms exist for both. Held rather than applied.
+## 2026-08-15 — doctor-detection-gaps F6: a GOAL may cite a `spec/` record the reviewer may not read
+`decision=applied commit=5d65af7 target=.agents/skills/uvm-review/SKILL.md`
+- **Rationale:** **applied under an explicit Safety §3 override**, asked for and granted after the
+  fix was authored and measured, because blind-review integrity is named on that list and the earlier
+  consent was a choice among forms made before anyone knew the narrow form still loosens the text.
+  The maintainer granted it on the ground the flag understates: today's practice is hand-pasting the
+  cited file's contents into the reviewer prompt, unbounded and unrecorded, so one path named by the
+  locked contract is strictly less. **Rejected the finding's own fix** — redrawing the boundary at
+  `spec/{slug}/` plus `spec/*/REVIEW.md` — which would pass every sibling cycle's GOAL and research
+  by default. Three confinements hold: cited by the locked `GOAL.md`, a landed cycle's record only,
+  and a path rather than contents. Adversarial review caught the first draft failing its own
+  motivating case, since the `research/` category ban is stated separately and the draft did not
+  scope it; the applied text says the ban is on this branch's artifacts and the exception is the
+  cited path, not the category. It also dropped a "records are kept for later work to cite"
+  justification that `methodology.md` does not support — the same class of mis-citation `b8afd6a`
+  removed from a draft one entry back. The rubric's § *What the reviewer sees* still carries the
+  blanket ban and was left alone as outside the granted scope; that contradiction is known.
+
+## 2026-08-15 — doctor-detection-gaps F7: the rubric graded four severities and routed on one bit
+`decision=applied commit=cd995b4 target=.agents/factory/review-rubric.md`
+- **Rationale:** departed from in both directions from the same defect — one cycle blocked on a LOW
+  and consumed a cycle of a bounded loop, another approved past two CONFIRMED LOWs because blocking
+  was indefensible. **Rejected the finding's own fix**, routing the auto-block on CONFIRMED at MEDIUM
+  or above, which turns every verdict into a severity argument and is the loosening Safety §3 treats
+  as a warning sign. Took instead the one case that needs no severity judgment and is checkable
+  against artifacts already in hand: the behavior predates the diff *and* a criterion requires
+  preserving it, so repairing it this cycle would fail that criterion — the recurring shape is a
+  parity criterion demanding the rewritten code reach the old code's verdict. If either condition
+  fails, it blocks. Adversarial review found the draft's prescribed deferral writes `issues/{slug}.md`
+  and `ROADMAP.md`, both outside `spec/`, which trips `uvm-publish`'s staleness gate and returns the
+  branch to review — the loop the carve-out exists to prevent; the applied text orders that commit
+  before `set_phase.py --reviewed-commit`. Carried into `uvm-review` Step 4 in the same commit,
+  which still routed every CONFIRMED to blocked and would otherwise contradict the rubric, the shape
+  `9228a75` and `f6748ef` were written to stop.
