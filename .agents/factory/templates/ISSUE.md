@@ -1,7 +1,7 @@
 ---
 status: unshaped | shaped | adopted:{slug} | declined | accepted-behaviour
 kind: feature | fix | refactor
-appetite: small | medium | big
+appetite: small | big
 lane: public
 ---
 

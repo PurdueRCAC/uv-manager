@@ -52,7 +52,7 @@
 <!-- Real findings are appended below this line by the lifecycle skills. -->
 
 ## F1 — `appetite: medium` is a legal issue value with no legal GOAL translation
-`origin=uvm-feature:step-2 severity=medium category=template status=open target=.agents/factory/templates/GOAL.md`
+`origin=uvm-feature:step-2 severity=medium category=template status=applied target=.agents/factory/templates/ISSUE.md`
 - **What happened:** the seed carried `appetite: medium`, which `templates/ISSUE.md:4` explicitly
   permits (`small | medium | big`), but `templates/GOAL.md:10` and `uvm-feature`'s Argument Parsing
   both admit only `small | big`. No rule anywhere says how a `medium` seed becomes a GOAL appetite, so

@@ -54,7 +54,9 @@ Parse `$ARGUMENTS` case-insensitively. If self-contradictory, STOP and ask.
   "Promoting an issue" in Step 4.
 - `fix` / `bug` / `refactor` → set `kind`; otherwise infer from the wording, defaulting to `feature`.
 - `appetite small` / `appetite big` → set appetite; else default `small` for `kind: fix`, `big` for
-  `feature`/`refactor`.
+  `feature`/`refactor`. Those two values are the whole vocabulary; a seed whose frontmatter still
+  reads `medium` rounds to `big`, because rounding up costs a research fan-out and rounding down
+  fails `uvm-review`'s scope check against a contract a human already accepted.
 - Everything else → the inline feature description (the seed prompt). Alongside a path it is not the
   seed: prose accompanying a promoted issue is shaping input for that seed, never an automatic scope
   extension. Check it against the injected *Open issues* list — a remark owned by a different seed is
