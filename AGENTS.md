@@ -50,7 +50,11 @@ convenience.
 - **Same-commit rule.** A change to wrapper behavior updates, in the *same commit*, whichever of these
   it invalidates: the `uvm_help` heredoc, `README.md`, `etc/uv-manager.conf.example`, and
   `share/modulefiles/uv/main.lua`. The script's own help text and the README are the only user-facing
-  documentation; drift there is a defect, not a chore.
+  documentation; drift there is a defect, not a chore. A change that **overturns an invariant** asserted
+  below adds two more: § *Invariants* and `.agents/factory/invariants.md`. `/uvm-review` grades against
+  that file, so a section left asserting the decision a change reversed turns correct code into an
+  auto-CRITICAL finding. Overturning one is a design decision, not bookkeeping — it belongs in the
+  plan's deviation table and in front of a human, never in the diff alone.
 
 ## Commands
 

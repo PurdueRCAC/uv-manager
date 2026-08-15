@@ -149,7 +149,10 @@ A `verify:` must name a **post-condition**, not merely exit 0. Build it from the
 `bash -n`, `.agents/factory/bin/lint.sh`, and a drive under `.agents/factory/bin/temp_root.sh`
 (`--offline` for anything touching provisioning, `--arch` for anything touching the architecture
 split). Any change to the user-facing surface gets a phase item for the same-commit rule —
-`uvm_help`, `README.md`, `etc/uv-manager.conf.example`, `share/modulefiles/uv/main.lua`.
+`uvm_help`, `README.md`, `etc/uv-manager.conf.example`, `share/modulefiles/uv/main.lua`. A design that
+overturns an invariant gets one for `AGENTS.md` § *Invariants* and `.agents/factory/invariants.md`:
+Step 5's deviation row records the bend, and the phase that lands the code has to make those records
+true, or `/uvm-review` grades correct code against the decision it reversed.
 
 Then read each phase's `verify:` back against that phase's own checklist, both directions. A gate can
 **contradict** an item: `! git grep -q OLD_NAME` goes red the moment the same phase adds the design

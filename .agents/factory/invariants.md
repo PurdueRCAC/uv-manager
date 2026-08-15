@@ -167,7 +167,10 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
   `README.md` quotes it and moves with it.
 - **Same-commit rule.** A behavior change updates whichever of these it invalidates, in the same
   commit: the `uvm_help` heredoc, `README.md`, `etc/uv-manager.conf.example`,
-  `share/modulefiles/uv/main.lua`.
+  `share/modulefiles/uv/main.lua`, and — when the change overturns an invariant asserted above — this
+  file together with `AGENTS.md` § *Invariants*. A §1–§11 section still asserting the reversed decision
+  makes correct code an auto-CRITICAL violation. An edit to this file sits inside the graded diff, so
+  it revises the standard and is judged on its merits, never read as license.
 - `bin/{uv,uvx,uvm}` are **symlinks** to `bin/uv-manager` (git mode `120000`). Four independent copies
   still dispatch correctly but drift on the next update.
 - Adding a name is one symlink plus one pattern in the `case`. Unrecognized names fall through to `uv`

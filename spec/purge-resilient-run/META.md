@@ -56,7 +56,7 @@
 
 ## F2 — The same-commit list omits the two files that record the invariants, so revising one ships a self-contradicting repository
 
-`origin=uvm-plan:2 severity=high category=missing-guidance status=open target=AGENTS.md`
+`origin=uvm-plan:2 severity=high category=missing-guidance status=applied target=AGENTS.md`
 
 - **What happened:** R1 reverses a decision asserted as an invariant in
   `.agents/factory/invariants.md:122-123` ("`mkdir -p` runs unconditionally rather than behind a
