@@ -27,6 +27,11 @@
   rather than the block the design happened to be changing — caught a design gap the plan had missed:
   the pipe closes after the *first finding*, so converting only the remediation block left the leak in
   place. A gate scoped to the design would have gone green over it. This is the argument for F4's fix.
+- `uvm-review`'s instruction to hand the reviewer the *command* that produces the diff rather than the
+  diff itself paid off unexpectedly: the reviewer used the same repo to extract
+  `git show main:bin/uv-manager` into `$TMPDIR` and drive both walks against one fixture tree, which is
+  the only honest way to grade R5's equality claim. A pre-rendered diff would have made that reach
+  awkward enough to skip.
 
 ## Friction findings
 
@@ -131,3 +136,41 @@
   to make, and say that reds resolved inside the same invocation are recorded in the phase body as
   amendments rather than on the attempts counter. One sentence, next to the circuit-breaker bullet.
 - **Confidence:** high · **Effort:** small
+
+## F6 — the blind-reviewer exclusion is `spec/`, but a GOAL may cite a prior cycle's record as ground truth
+`origin=uvm-review:step-2 severity=medium category=instruction status=open target=.claude/skills/uvm-review/SKILL.md`
+- **What happened:** R4 names `spec/purge-resilient-run/research/04-uv-repair-idioms.md` as the
+  reference the reviewer grades the remediation idioms against. Step 2 tells the reviewer to keep
+  `research/` out of context and to exclude `spec/` from every repository-wide search. Following both
+  is impossible, so I inlined 138 lines of a prior cycle's research into the reviewer prompt by hand.
+- **Skill cause:** Step 2 and the rubric write `spec/` as if it were coextensive with *this* cycle's
+  artifacts. It is not — retained records from every landed cycle live there, and `methodology.md`
+  keeps them deliberately so later work can cite them. A GOAL pointing at one is correct behavior, not
+  an author overreaching. Nothing in the skill says what to do, and the two obvious resolutions differ
+  in kind: narrowing the exclusion to `spec/{slug}/` would let the reviewer read a sibling cycle's
+  PLAN, while inlining costs the orchestrator a manual step and scales with the file.
+- **Recommended fix:** state the rule as `spec/{slug}/` for PLAN/TECH/research/META plus `spec/*/REVIEW.md`,
+  and let other cycles' `GOAL.md` and `research/` through — a landed cycle's record carries no intent
+  about *this* diff. Add one line to Step 2's curated-input list: when `GOAL.md` names a file under
+  `spec/` as a grading reference, name it to the reviewer as readable rather than inlining it.
+- **Confidence:** high · **Effort:** small
+
+## F7 — the rubric grades four severities and then routes on one bit
+`origin=uvm-review:step-4 severity=medium category=instruction status=open target=.agents/factory/review-rubric.md`
+- **What happened:** the pass returned exactly one finding, LOW and CONFIRMED — the ordering of a
+  printed remediation block, not a defect in what it names. § *Verdict & loop* says "**CONFIRMED**
+  findings → `status: blocked` … loop back to `uvm-build`" with no reference to severity, so a LOW
+  finding blocks the branch on the same terms a CRITICAL one does and consumes one of at most three
+  cycles. I followed the letter and set `changes-requested`, then had to tell the human separately
+  that the finding is LOW and accepting it is reasonable — which is the triage the routing rule
+  removed.
+- **Skill cause:** the rubric defines a four-level severity table immediately above a routing rule that
+  ignores it, in the same file. PLAUSIBLE findings already have a human-triage path; CONFIRMED-but-LOW
+  has none, and the alternative disposition this repository already uses — defer it to
+  `issues/{slug}.md` with a `ROADMAP.md` entry — is documented in `AGENTS.md` and unreachable from
+  Step 4.
+- **Recommended fix:** in § *Verdict & loop*, route on CONFIRMED **at MEDIUM or above**; a CONFIRMED
+  LOW is surfaced to the human alongside the PLAUSIBLE set, with deferral to `issues/{slug}.md` named
+  as a disposition. Keep the auto-block unconditional for any §1–§11 violation regardless of the
+  severity assigned.
+- **Confidence:** med · **Effort:** small

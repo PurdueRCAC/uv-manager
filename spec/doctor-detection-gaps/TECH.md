@@ -3,11 +3,11 @@ slug: doctor-detection-gaps
 title: '`uvm doctor` reports OK on the damage it exists to find'
 kind: fix
 appetite: big
-status: in_review
+status: blocked
 branch: fix/doctor-detection-gaps
 base: main
 current_phase: done
-last_updated: '2026-08-14'
+last_updated: '2026-08-15'
 phases:
 - id: P1
   name: 'Drive the walk from the dist-info glob: detect a missing manifest, drop the
@@ -144,10 +144,11 @@ phases:
     \ \"OK\"*) ;; *) echo \"FAIL: intact tree did not report OK\" >&2; exit 1 ;; esac\n\
     '\n"
 review:
-  last_reviewed_commit: ''
-  verdict: none
-  blocked_reason: ''
-  cycle: 0
+  last_reviewed_commit: 01ffcb6101b0d9bbf0515ae074ac89ca9133971b
+  verdict: changes-requested
+  blocked_reason: Remediation block leads with an idiom that exits 1 on a receipt-less
+    orphan
+  cycle: 1
 ---
 # TECH.md — `uvm doctor` reports OK on the damage it exists to find
 
