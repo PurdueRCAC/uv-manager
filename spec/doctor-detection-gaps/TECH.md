@@ -6,7 +6,7 @@ appetite: big
 status: in_progress
 branch: fix/doctor-detection-gaps
 base: main
-current_phase: P3
+current_phase: P4
 last_updated: '2026-08-14'
 phases:
 - id: P1
@@ -93,7 +93,7 @@ phases:
     \  echo \"FAIL: doctor wrote to the state tree\" >&2; exit 1\nfi\n'\n"
 - id: P3
   name: Split advice from failure in the exit status, and print remedies that repair
-  status: pending
+  status: done
   satisfies:
   - R3
   - R4
@@ -234,26 +234,41 @@ whole detection surface is proven to write nothing.
 **Goal:** automation can key on doctor's exit status, and a user who follows its advice repairs the
 tree instead of overriding the site's pin.
 
-- [ ] Split `problems` into failures and advisories. The rule to implement and document: a `FAIL`
+- [x] Split `problems` into failures and advisories. The rule to implement and document: a `FAIL`
       means the tree does not work and sets the exit status; a `WARN` is information about a tree that
       does work and does not. Exactly one existing finding moves — the receipt-less tool directory.
-- [ ] Make the `WARN` line self-contained, since a tree with no failures now prints no remediation
+- [x] Make the `WARN` line self-contained, since a tree with no failures now prints no remediation
       block: uv ignores such a directory, so say to remove it or reinstall the tool by name.
-- [ ] Give the success line an advisory suffix so it does not contradict what was printed above it.
-- [ ] Replace the six `printf`s at `bin/uv-manager:744-749` with one heredoc through `cat`
+- [x] Give the success line an advisory suffix so it does not contradict what was printed above it.
+- [x] Replace the six `printf`s at `bin/uv-manager:744-749` with one heredoc through `cat`
       (invariant §7). The delimiter stays unquoted because the failure count interpolates — confirm
       the body contains no unescaped `$`.
-- [ ] Name `uv tool upgrade --all --reinstall --no-cache` and `uv python install --reinstall`, and say
+- [x] **Amendment — every finding leaves through `cat`, not only the remediation block.** The plan
+      scoped the heredoc to the trailing block, and that is not enough to satisfy R4's own check:
+      `uvm doctor | head -1` closes the pipe after the *first finding*, so the second finding's
+      `printf` reports `write error: Broken pipe` while the remediation block is never reached. The
+      gate caught it — red on the first run of this phase. Findings therefore accumulate into one
+      `findings` string and the whole report leaves through a single `cat`, which also deletes the
+      remaining ten `printf` calls in the function. Buffering costs incremental output on a slow scan;
+      the managed-interpreter probe execs a python per interpreter, so a large tree now prints nothing
+      until it finishes. Judged the cheaper side of the trade against an invariant that exists because
+      the noise lands in a job log.
+- [x] Name `uv tool upgrade --all --reinstall --no-cache` and `uv python install --reinstall`, and say
       why `--no-cache` carries the repair. **Delete `uv-manager install` rather than replacing it**: an
       ordinary `uv` call re-provisions and honors `UVM_PIN`
       ([`research/02`](research/02-doctor-baseline.md) §5).
-- [ ] Add the `pyvenv.cfg` paragraph — neither command repairs that class and neither is safe against
+- [x] Add the `pyvenv.cfg` paragraph — neither command repairs that class and neither is safe against
       it. PLAN §2 has the drafted text.
 - **Verify:** post-conditions are that an advisory-only tree exits **0** with the advisory printed and
   the state tree unchanged; that adding a real failure makes it exit **1**; that the output contains
   no `uv-manager install` and does contain `--no-cache`; and that `uvm doctor | head -1` writes
   nothing matching `write error` to stderr. The read-only manifest is repeated here so the assertion
-  covers the completed implementation, not just P2's snapshot.
+  covers the completed implementation, not just P2's snapshot. Observed: advisory-only tree prints
+  `WARN … Remove it or reinstall by name.` then `OK … (1 advisory finding(s) above)` and exits 0;
+  removing one recorded file flips it to exit 1 with the two-command block. The SIGPIPE assertion was
+  first shown non-vacuous — 20 of 20 runs leak at `main`, 0 of 20 after — since a race asserted once
+  proves little either way. The heredoc's single expansion was checked against a tool directory named
+  ``ev$(id)x-${HOME}-`id`-il``: all three forms reach stdout literally and nothing executes.
 - **Touches:** `bin/uv-manager`.
 
 ## Phase P4 — State the detection floor in `README.md`

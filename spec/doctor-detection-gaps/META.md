@@ -23,6 +23,10 @@
   on the asserted post-condition caught **two** false greens in this cycle — a `sed` fixture mutation
   that silently matched nothing, and a `git grep` anchor that wraps across lines. Both would have
   shipped as green gates. This step earns its cost; do not soften it.
+- Writing P3's gate from R4's *Checked by* clause verbatim — the whole command, `uvm doctor | head -1`,
+  rather than the block the design happened to be changing — caught a design gap the plan had missed:
+  the pipe closes after the *first finding*, so converting only the remediation block left the leak in
+  place. A gate scoped to the design would have gone green over it. This is the argument for F4's fix.
 
 ## Friction findings
 
@@ -106,4 +110,24 @@
   guards against actually happen once, and watch the gate catch it. `research/01` §4 records this
   lesson for fixtures ("assert that a fixture mutation actually applied"); it belongs in the skill,
   where it applies to every preservation criterion, not just this cycle's.
+- **Confidence:** high · **Effort:** small
+
+## F5 — "a red gate is a STOP" does not distinguish iterating from failing
+`origin=uvm-build:P3 severity=medium category=instruction status=open target=.claude/skills/uvm-build/SKILL.md`
+- **What happened:** P3's gate went red on its first run, for a real reason — the plan converted only
+  the remediation block to a heredoc, and R4's check covers the whole command. Step 4 says, without
+  qualification, "Red → STOP; do not mark done or advance state," and record an attempt against the
+  durable circuit breaker. Read literally that ends the invocation on the first red of a phase I was
+  still implementing. I diagnosed the gap, widened the change, went green, and did not record an
+  attempt — a deliberate departure from the letter of the step, taken because the alternative
+  misreports what happened.
+- **Skill cause:** the step conflates two states with the same name. A gate that is red because the
+  implementation is not finished yet is the normal inner loop; a gate that is red after the phase is
+  believed complete is evidence the phase is mis-shaped. Only the second is what `attempts` is
+  counting — the breaker trips at about 3, so recording every mid-implementation red would trip it on
+  a phase converging exactly as intended, and the signal `/uvm-plan` is meant to receive from a
+  tripped breaker becomes noise. Nothing in the step tells the builder which state it is in.
+- **Recommended fix:** scope the STOP to a gate still red when the builder has no further correction
+  to make, and say that reds resolved inside the same invocation are recorded in the phase body as
+  amendments rather than on the attempts counter. One sentence, next to the circuit-breaker bullet.
 - **Confidence:** high · **Effort:** small

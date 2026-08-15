@@ -662,11 +662,26 @@ uvm_list_versions() {
 # piecemeal. uv performs no integrity check on an environment it believes is
 # installed; it will exec a half-deleted venv and produce an ImportError.
 # Look for the damage uv does not notice.
+#
+# Two counters, under one rule: a FAIL means the tree does not work and sets
+# the exit status; a WARN is information about a tree that does work and does
+# not. The rule matters more than the current split, because it tells whoever
+# adds the next finding which counter it belongs to. Automation keyed on the
+# exit status — a job prologue, which README.md recommends — is the reason
+# advice must not fail: a tool that runs perfectly well while missing its
+# receipt would otherwise hold the status at 1 until someone deleted it.
+#
+# Findings accumulate into one string and leave through a single `cat`. Every
+# document that sends a user here sends them through a pipe as often as not,
+# and on `uvm doctor | head` bash's printf builtin reports `write error:
+# Broken pipe` once per finding still queued behind the reader that left.
+# `cat` dies quietly. The string is expanded once inside the heredoc and not
+# rescanned, so a path containing `$` is data rather than an expansion.
 uvm_doctor() {
-  local problems=0 d f target name
+  local problems=0 advisories=0 findings="" d f target name
 
   if [[ ! -x "${real_uv}" ]]; then
-    printf 'FAIL  uv binary missing: %s\n' "${real_uv}"; problems=$(( problems + 1 ))
+    findings+="FAIL  uv binary missing: ${real_uv}"$'\n'; problems=$(( problems + 1 ))
   fi
 
   # Dangling tool/python shims: the target was purged or removed.
@@ -675,7 +690,7 @@ uvm_doctor() {
     for f in "${d}"/*; do
       [[ -e "${f}" || -L "${f}" ]] || continue
       if [[ ! -x "${f}" ]]; then
-        printf 'FAIL  dangling executable: %s\n' "${f}"; problems=$(( problems + 1 ))
+        findings+="FAIL  dangling executable: ${f}"$'\n'; problems=$(( problems + 1 ))
       fi
     done
   done
@@ -686,9 +701,13 @@ uvm_doctor() {
     for d in "${uvm_root}/tools"/*/; do
       [[ -d "${d}" ]] || continue
       name="$(basename -- "${d%/}")"
+      # Advisory, not damage: uv ignores a receipt-less directory, but whatever
+      # is installed there keeps working when invoked. The line carries its own
+      # remedy because a tree with no failures prints no remediation block.
       if [[ ! -f "${d}uv-receipt.toml" ]]; then
-        printf 'WARN  tool %s has no receipt (uv will treat it as not installed)\n' "${name}"
-        problems=$(( problems + 1 ))
+        findings+="WARN  tool ${name} has no receipt; uv ignores it."
+        findings+=" Remove it or reinstall by name."$'\n'
+        advisories=$(( advisories + 1 ))
       fi
       # pyvenv.cfg is what marks the directory as a virtualenv. Without it uv
       # resolves the base interpreter instead, and a repair aimed at this tool
@@ -697,12 +716,12 @@ uvm_doctor() {
       # in the finding: this is the one class where the obvious next move is
       # worse than the damage.
       if [[ ! -f "${d}pyvenv.cfg" ]]; then
-        printf 'FAIL  tool %s has no pyvenv.cfg; no automated repair is safe for it\n' "${name}"
+        findings+="FAIL  tool ${name} has no pyvenv.cfg; no automated repair is safe for it"$'\n'
         problems=$(( problems + 1 ))
       fi
       target="${d}bin/python"
       if [[ -e "${target}" || -L "${target}" ]] && [[ ! -x "${target}" ]]; then
-        printf 'FAIL  tool %s has a broken interpreter link\n' "${name}"
+        findings+="FAIL  tool ${name} has a broken interpreter link"$'\n'
         problems=$(( problems + 1 ))
       fi
     done
@@ -723,7 +742,7 @@ uvm_doctor() {
     record="${di}/RECORD"
     sp="${di%/*}"
     if [[ ! -f "${record}" ]]; then
-      printf 'FAIL  %s has no RECORD manifest (partial purge)\n' "${name}"
+      findings+="FAIL  ${name} has no RECORD manifest (partial purge)"$'\n'
       problems=$(( problems + 1 ))
       continue
     fi
@@ -742,8 +761,7 @@ uvm_doctor() {
       [[ -e "${sp}/${rel}" ]] || missing=$(( missing + 1 ))
     done < "${record}"
     if (( missing > 0 )); then
-      printf 'FAIL  %s is missing %d of %d files (partial purge)\n' \
-          "${name}" "${missing}" "${total}"
+      findings+="FAIL  ${name} is missing ${missing} of ${total} files (partial purge)"$'\n'
       problems=$(( problems + 1 ))
     fi
   done
@@ -756,7 +774,7 @@ uvm_doctor() {
       for f in "${d}bin/python3" "${d}bin/python"; do
         [[ -x "${f}" ]] || continue
         if ! "${f}" -c 'import json, os, ssl' >/dev/null 2>&1; then
-          printf 'FAIL  managed interpreter %s is damaged (stdlib import failed)\n' "${name}"
+          findings+="FAIL  managed interpreter ${name} is damaged (stdlib import failed)"$'\n'
           problems=$(( problems + 1 ))
         fi
         break
@@ -764,17 +782,43 @@ uvm_doctor() {
     done
   fi
 
+  # The delimiters below are unquoted because the findings and the counts
+  # interpolate, so no body may contain an unescaped `$` of its own.
   if (( problems == 0 )); then
-    printf 'OK    no damage detected under %s\n' "${uvm_root}"
+    # The success line has to stay true when advisories were printed above it.
+    if (( advisories > 0 )); then
+      cat <<EOF
+${findings}OK    no damage detected under ${uvm_root} (${advisories} advisory finding(s) above)
+EOF
+    else
+      cat <<EOF
+OK    no damage detected under ${uvm_root}
+EOF
+    fi
     return 0
   fi
 
-  printf '\n%d problem(s) found. Most are caused by a scratch purge removing\n' "${problems}"
-  printf 'files from under a tree uv still believes is intact. To rebuild:\n\n'
-  printf '    uv-manager install         # reinstall uv itself\n'
-  printf '    uv tool uninstall <name> && uv tool install <name>\n'
-  printf '    uv python uninstall <ver> && uv python install <ver>\n\n'
-  printf 'Consider pointing UVM_ROOT at non-purged storage instead.\n'
+  cat <<EOF
+${findings}
+${problems} problem(s) found. A scratch purge removes files from under a tree uv still
+believes is intact, and uv re-checks nothing, so a repair has to bypass its cache:
+
+    uv tool upgrade --all --reinstall --no-cache
+    uv python install --reinstall
+
+--no-cache carries the repair: uv runs no integrity check on its unpacked archive
+store, so a rebuild that reuses the cache reinstalls the same damage. The python
+command needs network access; uv never caches interpreter tarballs. A missing uv
+binary needs no command at all — the next uv call re-provisions it and honors
+UVM_PIN.
+
+Neither command repairs a tool whose pyvenv.cfg is gone, and neither is safe to run
+against one: uv falls back to the base interpreter and writes outside this tree.
+Remove that tool's directory and install the tool again, naming the version you
+want — the recorded requirement may not be the version that was installed.
+
+Consider pointing UVM_ROOT at non-purged storage instead.
+EOF
   return 1
 }
 
