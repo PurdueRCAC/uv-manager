@@ -107,7 +107,7 @@
 
 ## F4 — Gate-authoring guidance misses the `!` prefix, which silently disables an assertion under `set -e`
 
-`origin=uvm-plan:6 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-plan/SKILL.md`
+`origin=uvm-plan:6 severity=medium category=missing-guidance status=applied target=.agents/skills/uvm-plan/SKILL.md`
 
 - **What happened:** I wrote a phase gate whose documentation assertion was `! git grep -q "..." -- bin/uv-manager`,
   inside a `set -eu` script. POSIX exempts a `!`-prefixed pipeline from `set -e`, so a failing

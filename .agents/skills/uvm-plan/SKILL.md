@@ -169,10 +169,19 @@ that motivates this is silent: a census gate whose pathspec is interpolated from
 one nonexistent path under `zsh`, which does not word-split, and reports a clean tree with thirteen
 hits in it. Write the paths literally.
 
+Under `set -e`, POSIX exempts `! cmd` from errexit: `sh -c 'set -e; ! true; echo REACHED'` prints
+`REACHED` and exits 0. A `! cmd` that is the gate's last command, or a link in an `&&` chain, still
+reports its status — most committed gates use it that way and are correct. Appending a drive after
+one silently disables it, and the gate then goes green with the assertion unmet. There, write
+`if cmd; then echo "FAIL: …" >&2; exit 1; fi`, which also names the post-condition that failed.
+
 Red is necessary, not sufficient. Read the failure output and confirm the gate died on the asserted
 post-condition rather than on itself — a typo, a missing flag, a tool that is not installed, a string
-the YAML layer mangled. A gate red for its own reasons stays red through the build, walking
-`--record-attempt` toward the circuit breaker at 3 while the code is correct. When the output does not
+the YAML layer mangled. In a multi-clause gate, confirm it died on the *first* unmet clause: output
+from a later clause means an earlier assertion ran without aborting — usually a bare `! cmd` with
+something after it — and the gate turns green the day those later clauses pass. A gate red for its own
+reasons stays red through the build, walking `--record-attempt` toward the circuit breaker at 3 while
+the code is correct. When the output does not
 settle it, prove the gate can go green: copy the repository outside the working tree
 (`cp -R . "$(mktemp -d)/probe"`), apply the phase's change to the copy, and run the gate from inside
 it.
