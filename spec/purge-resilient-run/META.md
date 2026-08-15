@@ -254,3 +254,40 @@
   hunk-scoping inverts and the reviewer grades at file and repository scope, which has to be said
   explicitly or a prose-scoped pass grades only the moved lines and cannot see an omission.
 - **Confidence:** high · **Effort:** small
+
+## F10 — A non-goal may discharge itself by naming a destination, and nothing checks the destination until the seed is deleted
+
+`origin=uvm-roadmap:3 severity=high category=missing-guidance status=open target=.agents/skills/uvm-feature/SKILL.md`
+
+- **What happened:** this GOAL's § *Non-goals* reads "No committed regression test.
+  `issues/test-harness.md` still owns the runner. R1's counting-stub drive is a case that harness must
+  cover." That sentence is the reason the cycle was allowed to ship untested. The case was never
+  written into `issues/test-harness.md`. It existed in exactly one place — `spec/purge-resilient-run/GOAL.md`,
+  a dated record the harness cycle has no reason to open — and `/uvm-roadmap` Step 3 caught it at the
+  moment before `del`, which is the last instant it was recoverable. **This is the second occurrence,
+  to the same destination file.** R3a arrived identically from
+  `spec/trampoline-ignores-platform-override/GOAL.md`, and `issues/test-harness.md:81-84` already
+  records that one as a lesson. Two cycles have now discharged "no committed regression test" by
+  naming a seed that never heard about it.
+- **Skill cause:** the convention and its enforcement were never built together. Naming a destination
+  in a non-goal is not an accident — it is the applied fix from
+  `spec/trampoline-ignores-platform-override/META.md` F1, which told `uvm-feature` to record a
+  negotiated deferral "as a Clarification and a Non-goal". Nothing was added to make the named file
+  receive it. A sweep of `.agents/` for `non-goal` finds `uvm-feature` *writing* them, `uvm-plan:68`
+  *reading* them as scope input, `uvm-publish` never mentioning them, and exactly one step in the whole
+  factory treating one as an obligation to verify: `uvm-roadmap` Step 3. That step is correct and
+  well-written, but it is positioned at deletion — after the cycle shipped, after review, after merge,
+  and only if someone runs the sweep at all. A cycle that ships and is never swept loses the
+  obligation silently, and the only party who would notice is the cycle that owed it, which never
+  learns it was owed anything.
+- **Recommended fix:** move the check to where the claim is made, and keep Step 3 as the backstop. In
+  `uvm-feature`, where non-goals are authored: a non-goal that discharges by naming a destination is a
+  promise, so land the obligation in that file in the shaping commit — an R-ID in the seed, not a
+  sentence in the GOAL — or do not write the non-goal that way. In `uvm-publish`, add it to the
+  pre-flight: for each non-goal naming an `issues/*.md`, confirm the file records the obligation, and
+  STOP if it does not. Publish is the right second position because it already reports an un-retired
+  seed and so already reads that surface. Marked `severity=high` because the failure is silent and
+  loses agreed scope rather than leaving litter — `uvm-roadmap` § Step 3 names this as "the one
+  failure in the sweep that costs work" — and because two confirmed occurrences make it the factory's
+  most reliably reproducible defect.
+- **Confidence:** high · **Effort:** small
