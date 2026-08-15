@@ -70,7 +70,7 @@ Open questions for shaping, each with a real trade-off:
   what makes the collision above dangerous: nobody is surprised by a path they named. Two questions
   come with it. How does it relate to `UVM_ROOT` — the same scratch tree keeps everything in one place
   and costs no second decision, but then a purge that removes the wrapper removes the thing that would
-  have repaired the tree, which is exactly the failure `issues/purge-resilient-run.md` is about. And
+  have repaired the tree, which is exactly the failure `issues/purge-tree-repair.md` is about. And
   what is the default when it is unset, given `~/.local/bin/uv` is forbidden. — the maintainer,
   2026-08-09.
 - **The `curl | sh` posture.** The project already fetches uv this way (`uvm_fetch`, `:249`, and the
@@ -87,7 +87,7 @@ Open questions for shaping, each with a real trade-off:
 - **Where it is served from.** The repository is `PurdueRCAC/uv-manager`. A raw-content URL pins to a
   branch and changes under users; a release asset pins to a tag and needs the release process to
   publish it. `/uvm-release` would grow a step either way.
-- Related: [`issues/purge-resilient-run.md`](purge-resilient-run.md). The two are one story for
+- Related: [`issues/purge-tree-repair.md`](purge-tree-repair.md). The two are one story for
   automation — the Anvil MEP endpoint may need to bootstrap the wrapper *and* face a tree purged since
   the user's last run, thirty days earlier, in the same invocation.
 - **Same-commit rule.** A new top-level script is user-facing surface, so `README.md` and the

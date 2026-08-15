@@ -55,6 +55,10 @@ were never executed.
   set, asserting it execs under the override rather than under `uname -m`. This case is owed: the
   trampoline cycle shipped its fix without a regression test on the written condition that the harness
   cover it.
+- **R3b** — The suite SHALL cover the state-directory guard in `uvm_export_env` with a counting
+  `mkdir` stub first on `PATH`: a warm invocation against an intact tree SHALL invoke it zero times,
+  and the same invocation after one state directory is removed SHALL invoke it and leave that
+  directory at mode `700`. Owed on the same terms as R3a.
 - **R4** — The suite SHALL assert post-conditions on the state tree, not merely exit status.
 - **R5** — The suite SHALL run on bash 3.2 and on bash 5, and SHALL run in CI on both Linux and macOS.
 - **R6** — The suite SHALL report a coverage measurement over `bin/uv-manager`.
@@ -82,4 +86,11 @@ Open questions for shaping, each with a real trade-off:
   § *Non-goals* made "no committed regression test" conditional on this suite covering the case. That
   condition was written down in one place — the roadmap entry the shipped fix then retired — so it is
   restated here, where the cycle that owes it will read it.
+- **R3b arrived the same way**, from `spec/purge-resilient-run/GOAL.md` § *Non-goals*, and was again
+  recorded only where the retirement would have taken it. Two cycles have now discharged "no committed
+  regression test" by naming this seed; a third should assume the obligation is not written down until
+  it is written down here. What the stub cannot see is worth knowing before writing the case: it
+  counts `mkdir` executions, so it is blind to whether the guard sits outside the `umask 077`
+  subshell. A guard moved inside keeps the fork and about a third of the saving, and the count is
+  unchanged. That placement needs an assertion of its own — timing, or a structural check.
 - Found by: the maintainer, ahead of the third post-harness cycle.

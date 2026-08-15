@@ -17,19 +17,6 @@ See `AGENTS.md` for why.
 
 ## Queued
 
-### Stop paying for the state-directory `mkdir` on every invocation
-**Seed:** [`issues/purge-resilient-run.md`](issues/purge-resilient-run.md) · `feature` · appetite big ·
-**adopted** as [`spec/purge-resilient-run/`](spec/purge-resilient-run/GOAL.md)
-
-Narrowed in flight to its hot-path half. Research established that the repair half's acceptance
-criteria could not be built as written — the oracle passed with zero implementation, and the bounded
-check promised detection nothing delivers — so repair moved to `issues/purge-tree-repair.md` with the
-evidence, and this cycle ships what the measurement supports: six `[[ -d ]]` tests replacing the
-unconditional six-directory `mkdir -p`, worth 2.0 ms of 12.0 ms and two of three warm-path forks, plus
-the documentation and invariant corrections that reversal drags in. The stamp the original scope
-assumed is dead in both forms; the layout question has a free, self-healing test and the contents
-question has no cheap one.
-
 ### `uvm doctor` reports OK on the damage it exists to find
 **Seed:** [`issues/doctor-detection-gaps.md`](issues/doctor-detection-gaps.md) · `fix` · appetite medium
 
@@ -70,8 +57,8 @@ rather than an integrity stamp. Depends on the two fixes above.
 module and for automation that cannot presume Lmod. Installs when absent, execs when present, and
 checks the wrapper is current without putting a network round trip in the hot path. The sharp
 constraint is already written at `bin/uv-manager:9-12`: never land on `~/.local/bin/uv`, and stay
-opt-in rather than on default `PATH`. Second because it completes the automation story the cycle above
-starts.
+opt-in rather than on default `PATH`. Follows `purge-tree-repair` because it completes the automation
+story that cycle starts.
 
 ### A real test harness
 **Seed:** [`issues/test-harness.md`](issues/test-harness.md) · `feature` · appetite big
@@ -79,9 +66,9 @@ starts.
 The two hard parts for a shell script — mocking the network and the filesystem — are already solved by
 `temp_root.sh` and the `file://` installer fixture. What is missing is a runner, a corpus of cases,
 and a coverage measurement. It converts the factory's process guarantees into actual coverage, and it
-now also owes R3a, the trampoline regression case the shipped `UVM_PLATFORM` fix left it. Sequenced
-below the two cycles above only because those are live operational gaps; nothing about its value has
-changed.
+now carries two regression cases that shipped cycles owe it: R3a from the `UVM_PLATFORM` trampoline
+fix, and R3b from the state-directory guard. Sequenced below the operational gaps above only because
+those are live; nothing about its value has changed.
 
 ### An onboarding guide for the factory
 **Seed:** [`issues/factory-onboarding-guide.md`](issues/factory-onboarding-guide.md) · `feature` ·
