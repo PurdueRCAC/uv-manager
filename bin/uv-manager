@@ -286,7 +286,7 @@ uvm_age() {
 uvm_acquire_lock() {
   local want="$1" force="$2"
   local lock="${uvm_root}/.install.lock"
-  local waited=0 age holder pid broke="" reason absent=0 host started
+  local waited=0 age holder pid broke="" reason absent=0 host started still
   # uname -n, not HOSTNAME, which bash leaves at whatever it inherited. A
   # container image that sets it, or a login-node value carried out by
   # `sbatch --export=ALL`, gives two nodes one name — and the host token is
@@ -411,8 +411,20 @@ uvm_acquire_lock() {
       # default timeout is 180 identical lines.
       [[ -n "${broke}" ]] || note "${reason}: ${lock}
     its owner file recorded: ${holder:-<none recorded>}"
-      rm -f "${lock}/owner" 2>/dev/null || true
-      rmdir "${lock}" 2>/dev/null || true
+      # Re-read immediately before acting. The forfeiture above was decided
+      # from a line read up to a second ago, and a directory has no identity
+      # a shell can see: another waiter may have broken that instance already
+      # and a third won mkdir at the same path, so an unqualified removal
+      # deletes a lock this process never judged. Removing the owner file is
+      # what makes the directory empty, so gating it also arms rmdir's refusal
+      # of a non-empty directory as the second half of the same guard — which
+      # is why both calls sit inside the test and not one of them.
+      still=""
+      read -r still 2>/dev/null < "${lock}/owner" || true
+      if [[ "${still}" == "${holder}" ]]; then
+        rm -f "${lock}/owner" 2>/dev/null || true
+        rmdir "${lock}" 2>/dev/null || true
+      fi
       # Re-enter mkdir at once only where the directory is actually gone. A
       # removal denied by an entry we did not write, or by a read-only
       # remount, is charged to the timeout like any other wait; retrying it

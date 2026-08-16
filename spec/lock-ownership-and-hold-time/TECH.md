@@ -7,7 +7,7 @@ status: in_progress
 branch: fix/lock-ownership-and-hold-time
 base: main
 current_phase: P8
-last_updated: '2026-08-15'
+last_updated: '2026-08-16'
 phases:
 - id: P1
   name: Give the lock an identity, and release only what matches it
@@ -319,32 +319,35 @@ phases:
     \ ${e}s -- the retry is not bounded by a constant\" >&2; exit 1; fi\nDRIVE"
 - id: P8
   name: 'F7 remediation: break a lock by ownership, not by path'
-  status: pending
+  status: in_progress
   satisfies: []
   depends_on:
   - P3
   parallel: false
   hammerable: false
   hill: uphill
+  attempts: 1
   verify: "set -eu\nbash -n bin/uv-manager\n.agents/factory/bin/lint.sh >/dev/null\n\
-    for b in 1 2 3 4 5 6 7 8 9 10; do\n  .agents/factory/bin/temp_root.sh --offline\
-    \ sh -s <<'DRIVE'\nset -e\nA=\"$UVM_ROOT/$(uname -m)\"; L=\"$A/.install.lock\"\
+    tot_o=0; tot_i=0\nfor burst in 1 2 3 4 5 6 7 8 9 10; do\n  r=$(.agents/factory/bin/temp_root.sh\
+    \ --offline sh -s <<'DRIVE'\nset -e\nA=\"$UVM_ROOT/$(uname -m)\"; L=\"$A/.install.lock\"\
     ; mkdir -p \"$L\"\nprintf 'host=%s pid=999999 nonce=0\\n' \"$(uname -n)\" > \"\
     $L/owner\"\nfor k in $(seq 1 32); do ( uv --version >\"$UVM_SANDBOX/out.$k\" 2>\"\
     $UVM_SANDBOX/err.$k\" ) & done\nwait\no=$(grep -l 'cannot record ownership' \"\
     $UVM_SANDBOX\"/err.* 2>/dev/null | wc -l | tr -d ' ')\ni=$(grep -l 'installing\
-    \ uv' \"$UVM_SANDBOX\"/err.* 2>/dev/null | wc -l | tr -d ' ')\nb=$(grep -c . \"\
-    $UVM_SANDBOX\"/out.* 2>/dev/null | grep -cv ':1$' || true)\nif [ \"$o\" -ne 0\
-    \ ]; then echo \"FAIL: $o ranks died proving ownership of a lock a rival breaker\
-    \ deleted\" >&2; exit 1; fi\nif [ \"$i\" -gt 1 ]; then echo \"FAIL: $i ranks entered\
+    \ uv' \"$UVM_SANDBOX\"/err.* 2>/dev/null | wc -l | tr -d ' ')\nt=$(readlink \"\
+    $A/current\" 2>/dev/null || echo missing)\necho \"$o $i $t\"\nDRIVE\n)\n  set\
+    \ -- $r\n  tot_o=$(( tot_o + $1 )); tot_i=$(( tot_i + $2 ))\n  if [ \"$3\" !=\
+    \ versions/9.9.9 ]; then echo \"FAIL: burst $burst left current=$3\" >&2; exit\
+    \ 1; fi\n  if [ \"$2\" -gt 1 ]; then echo \"FAIL: burst $burst put $2 ranks in\
     \ the installer at once -- mutual exclusion lost across the break\" >&2; exit\
-    \ 1; fi\nif [ \"$(readlink \"$A/current\")\" != versions/9.9.9 ]; then echo \"\
-    FAIL: current is $(readlink \"$A/current\" || echo missing)\" >&2; exit 1; fi\n\
-    DRIVE\ndone\nfor c in $(sed -n 's/.*bin\\/uv-manager:\\([0-9]*\\).*/\\1/p' issues/invariant-audit-gaps.md);\
-    \ do\n  if [ \"$c\" -gt \"$(wc -l < bin/uv-manager)\" ]; then echo \"FAIL: seed\
-    \ cites bin/uv-manager:$c, past end of file\" >&2; exit 1; fi\ndone\nif ! grep\
-    \ -q 'bin/uv-manager:558' issues/invariant-audit-gaps.md; then echo \"FAIL: seed\
-    \ does not cite the mv at its branch line\" >&2; exit 1; fi\n"
+    \ 1; fi\ndone\necho \"robbed=${tot_o}/320 installers=${tot_i}/10bursts\"\nif [\
+    \ \"$tot_o\" -ne 0 ]; then echo \"FAIL: ${tot_o}/320 ranks died proving ownership\
+    \ of a lock a rival breaker deleted\" >&2; exit 1; fi\nfor c in $(sed -n 's/.*bin\\\
+    /uv-manager:\\([0-9]*\\).*/\\1/p' issues/invariant-audit-gaps.md); do\n  if [\
+    \ \"$c\" -gt \"$(wc -l < bin/uv-manager)\" ]; then echo \"FAIL: seed cites bin/uv-manager:$c,\
+    \ past end of file\" >&2; exit 1; fi\ndone\nif ! grep -q 'bin/uv-manager:558'\
+    \ issues/invariant-audit-gaps.md; then echo \"FAIL: seed does not cite the mv\
+    \ at its branch line\" >&2; exit 1; fi"
 review:
   last_reviewed_commit: fadd87eeb09e9fd76f18b3722b614b367f984655
   verdict: changes-requested
@@ -810,6 +813,56 @@ release can destroy a live lock — reached here through the break path rather t
   file. The gate asserts the post-condition and not the mechanism, so it grades either design.
 - **Touches:** `bin/uv-manager`, `issues/invariant-audit-gaps.md`, and — under the rename design —
   P6's `verify:`.
+
+### Attempt 1 — the rename is out, and the replacement is not yet proven
+
+**Design A is rejected on evidence, not taste.** Four independent design critiques converged on
+`rename-is-unsound`, and the two decisive reasons hold up against the file:
+
+- **`mv` is not `rename(2)`.** The exclusivity argument is an argument about the syscall. A shell can
+  only call `mv`, and `mv -T` does not exist at the portability floor — `uvm_point_current` already
+  carries a documented non-atomic fallback for exactly that reason, and it does not generalize here.
+  Without `-T`, `mv` onto an existing name moves the source *inside* it and exits 0, so two breakers
+  can both believe they won and the second nests a live tree inside a lock.
+- **`rmdir` refusing a non-empty directory was load-bearing and unremarked.** It is what stops a
+  stale breaker destroying an *established* lock today, and it is what makes R7 true for the
+  stray-entry construction. A rename removes the directory whatever it contains, so Design A widens
+  the destructive window from the 0.10 ms acquire gap to the whole hold, and defeats **both** of P6's
+  denied-break constructions — the stray entry and `chmod 500`, since a same-parent rename needs no
+  write permission on the directory itself.
+
+Litter compounds it: a breaker that dies between the rename and the delete leaves a permanent
+sibling that nothing reaps and no trap covers, because a breaker holds no lock and `uvm_unlock`
+early-returns.
+
+**Design C is built and is not yet sufficient.** The break now re-reads `owner` immediately before
+acting and removes the file *and* the directory only while it still names the holder the forfeiture
+was decided on. It parses, lints, and is a strict narrowing — a declined break falls through to the
+timeout accounting and the next iteration re-decides — but the gate is **red** and the measurements
+do not support calling it done:
+
+| | robbed (`cannot record ownership`) | simultaneous installers | installer entries |
+|---|---|---|---|
+| committed code, 320 ranks | 5 | 2 | 12 |
+| Design C, 320 ranks | 2 | 4 | 14 |
+
+The gate failed at burst 9 on the two-installers assertion. Two things are wrong and both are the
+measurement's fault before they are the design's: 320 ranks give counts too small to separate from
+noise, and the simultaneity sentinel emitted `violations: No such file or directory` on several
+bursts, so the concurrency column is contaminated and cannot be read as a regression.
+
+**The open question is which defect the two-installer signal names.** `uvm_install` re-checks
+`uvm_have` under the lock (`:550`), so a second *sequential* acquisition should not reach the
+installer — but the early-out at `:547` returns before `uvm_point_current`, which a prior review
+recorded as a real, pre-existing, self-correcting defect on `main`. Until the sentinel is fixed and
+the burst is large enough, this gate cannot say whether it is catching F7 or that. A gate that
+cannot name the mechanism it failed on is the trap `META.md` F18 already records.
+
+**What the next attempt owes:** repair the sentinel so it cannot write into a removed sandbox, size
+the burst by the arithmetic P7's notes use rather than by guess, and separate the robbed-winner
+signal from the two-installer signal so each has its own assertion. Only then is the residual — the
+case where the judged lock carried *no* owner line, which makes the identity test vacuous — worth
+designing against.
 
 ---
 
