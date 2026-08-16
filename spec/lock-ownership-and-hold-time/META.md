@@ -355,3 +355,23 @@
   >&2; exit 1; fi`), never left bare under `set -e`. It costs three lines per drive and it is the
   difference between "the knobs became illegal" and an exit code.
 - **Confidence:** high · **Effort:** small
+
+## F17 — the cycle-1 commit log leaks the plan's phase decomposition
+`origin=uvm-review:Step 2 severity=high category=instruction target=.claude/skills/uvm-review/SKILL.md`
+- **What happened:** Step 2 hands the reviewer `git log --oneline {base}..HEAD -- . ':(exclude)spec/'`
+  and only drops the **subjects** on `review.cycle` >= 1, where they would name a prior verdict. On
+  cycle 1 this branch's subjects read `[fix] Build lock-ownership-and-hold-time P1: release only what
+  we own`, `… P2: release before every exec`, `… P5: name the lock's holder` — the phase ids, the
+  phase order and each phase's thesis. That is `PLAN.md` content, arriving through the one channel the
+  `spec/` pathspec cannot filter. I noticed and omitted the log, which the step permits in a trailing
+  clause, but nothing directed me to.
+- **Skill cause:** the step models the log's leak as *prior-cycle findings* and therefore times the
+  mitigation to the cycle counter. The leak is not cycle-scoped: `/uvm-build`'s own commit convention
+  embeds `P{n}: {phase thesis}` in every build subject, so a first-cycle log discloses the plan's
+  decomposition on every branch the factory produces. The permission to omit is buried as "Omitting
+  the log is equally correct" after 90 words about the cycle >= 1 form, which reads as a stylistic
+  aside rather than the default.
+- **Recommended fix:** invert it — `git log {base}..HEAD --format=%h -- . ':(exclude)spec/'` (or no log
+  at all) is the default at every cycle, and `--oneline` is the exception, justified only where the
+  subjects are known not to carry phase or finding ids. One sentence replaces the current three.
+- **Confidence:** high · **Effort:** small
