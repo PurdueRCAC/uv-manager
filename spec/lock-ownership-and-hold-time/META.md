@@ -465,3 +465,42 @@ on the record instead of a default nobody examined.
   single-file project that is normally all of them. Keep `depends_on` as the ordering constraint it
   is. One sentence, and it costs a few minutes of gates against a class of defect that ships silently.
 - **Confidence:** high · **Effort:** small
+
+## F22 — nothing makes a new primitive meet the portability floor before it is designed
+`origin=uvm-build:step-2 severity=medium category=missing-guidance status=open target=.claude/skills/uvm-build/SKILL.md`
+- **What happened:** P8's design turned on `rename(2)` being atomic and exclusive. That is true of
+  the syscall and irrelevant to this script, which can only call `mv`, and `mv -T` does not exist at
+  the portability floor. `AGENTS.md` § *Portability floor* and `invariants.md` §10 both say so, and
+  `uvm_point_current` carries a documented non-atomic `mv -T` fallback eleven lines from code I had
+  read that session. I proposed the design to the maintainer, got approval, and only then put it in
+  front of a five-lens fan-out that spent an hour re-deriving what those three places already said.
+- **Skill cause:** Step 2 says to read the region the phase will touch, including its banner comment,
+  which I did. It says nothing about the region a phase's *new mechanism* depends on. A break that
+  introduces `mv` is not an edit to `uvm_point_current`, so nothing pointed there, and the invariant
+  gate in `invariants.md` is framed for `/uvm-plan` rather than for a design decided mid-build — the
+  case that arises whenever a review reopens a phase and the remedy is not the one the plan foresaw.
+- **Recommended fix:** add a clause to Step 3: when a phase introduces a shell primitive the script
+  does not already use, check it against `invariants.md` §10 and grep the file for an existing use
+  before designing around it. One grep. It would have cost a minute and saved the fan-out, the
+  approval, and the reversal.
+- **Confidence:** high · **Effort:** small
+
+## F23 — a mid-build design fork has no route to a human that is not a finished plan
+`origin=uvm-build:step-3 severity=low category=missing-guidance status=open target=.claude/skills/uvm-build/SKILL.md`
+- **What happened:** P8's checklist had to carry two candidate designs and the sentence "the design
+  is not settled and is a human's call", because the skill's only escalation is "STOP and escalate on
+  a `GOAL.md` contradiction". This was not a contradiction — it was a fork inside the appetite where
+  the two branches had materially different blast radius. I invented the format, and the record is
+  worse for it: `TECH.md` briefly held unchecked boxes describing work nobody had agreed to.
+- **Skill cause:** Step 3 models divergence as either an amendment the agent makes freely or a
+  contract violation that stops the cycle. The middle case — a design decision that is the
+  maintainer's but does not touch the GOAL — has no home, so it lands wherever the agent puts it.
+- **Recommended fix:** name the middle case in Step 3 and give it one shape: state the options and
+  their blast radius, ask, and record the answer as a dated line in the phase body the way `GOAL.md`
+  records a clarification. Then a reversal has somewhere to attach.
+- **Confidence:** med · **Effort:** small
+
+**What worked well (P8):** the census-not-drive decision. Once the guard's window was too small to
+open on demand, pinning the count of lock removals in the file was a real assertion rather than a
+drive that would have passed by luck — and the first version of that census failed immediately by
+counting two legitimate removals, which is the gate catching the gate.

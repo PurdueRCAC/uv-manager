@@ -3,10 +3,10 @@ slug: lock-ownership-and-hold-time
 title: The provisioning lock can be released by a process that does not hold it
 kind: fix
 appetite: big
-status: in_progress
+status: in_review
 branch: fix/lock-ownership-and-hold-time
 base: main
-current_phase: P8
+current_phase: done
 last_updated: '2026-08-16'
 phases:
 - id: P1
@@ -318,36 +318,66 @@ phases:
     \ named\" >&2; exit 1; fi\nif [ \"$e\" -ge 5 ]; then echo \"FAIL: the fault took\
     \ ${e}s -- the retry is not bounded by a constant\" >&2; exit 1; fi\nDRIVE"
 - id: P8
-  name: 'F7 remediation: break a lock by ownership, not by path'
-  status: in_progress
+  name: Narrow the break to the instance it judged; repair the seed's citations
+  status: done
   satisfies: []
   depends_on:
   - P3
   parallel: false
   hammerable: false
-  hill: uphill
+  hill: downhill
   attempts: 1
   verify: "set -eu\nbash -n bin/uv-manager\n.agents/factory/bin/lint.sh >/dev/null\n\
-    tot_o=0; tot_i=0\nfor burst in 1 2 3 4 5 6 7 8 9 10; do\n  r=$(.agents/factory/bin/temp_root.sh\
+    # Census, not a drive: the guard fires in a sub-millisecond window no sandbox\
+    \ can\n# open on demand, so what is assertable is that both removals sit inside\
+    \ it.\n# Gating the owner removal is what leaves rmdir a non-empty directory to\
+    \ refuse.\nif ! grep -F -A3 'if [[ \"${still}\" == \"${holder}\" ]]; then' bin/uv-manager\
+    \ | grep -F -q 'rm -f \"${lock}/owner\"'; then\n  echo \"FAIL: the owner removal\
+    \ is not inside the identity guard\" >&2; exit 1\nfi\nif ! grep -F -A3 'if [[\
+    \ \"${still}\" == \"${holder}\" ]]; then' bin/uv-manager | grep -F -q 'rmdir \"\
+    ${lock}\"'; then\n  echo \"FAIL: the rmdir is not inside the identity guard --\
+    \ it can still empty a lock it did not judge\" >&2; exit 1\nfi\n# Three removals\
+    \ of the lock directory are legitimate and no more: uvm_unlock's,\n# which is\
+    \ ownership-guarded; the break's, guarded above; and the cleanup of a\n# directory\
+    \ we created and could not claim. A fourth is an unguarded path.\nif [ \"$(grep\
+    \ -c -F 'rmdir \"${lock}\" 2>/dev/null' bin/uv-manager | tr -d ' ')\" != 3 ];\
+    \ then\n  echo \"FAIL: rmdir census is $(grep -c -F 'rmdir \"${lock}\" 2>/dev/null'\
+    \ bin/uv-manager | tr -d ' '), expected 3\" >&2; exit 1\nfi\n# The guard must\
+    \ not decline a break that is genuinely owed.\n.agents/factory/bin/temp_root.sh\
     \ --offline sh -s <<'DRIVE'\nset -e\nA=\"$UVM_ROOT/$(uname -m)\"; L=\"$A/.install.lock\"\
-    ; mkdir -p \"$L\"\nprintf 'host=%s pid=999999 nonce=0\\n' \"$(uname -n)\" > \"\
-    $L/owner\"\nfor k in $(seq 1 32); do ( uv --version >\"$UVM_SANDBOX/out.$k\" 2>\"\
-    $UVM_SANDBOX/err.$k\" ) & done\nwait\no=$(grep -l 'cannot record ownership' \"\
-    $UVM_SANDBOX\"/err.* 2>/dev/null | wc -l | tr -d ' ')\ni=$(grep -l 'installing\
-    \ uv' \"$UVM_SANDBOX\"/err.* 2>/dev/null | wc -l | tr -d ' ')\nt=$(readlink \"\
-    $A/current\" 2>/dev/null || echo missing)\necho \"$o $i $t\"\nDRIVE\n)\n  set\
-    \ -- $r\n  tot_o=$(( tot_o + $1 )); tot_i=$(( tot_i + $2 ))\n  if [ \"$3\" !=\
-    \ versions/9.9.9 ]; then echo \"FAIL: burst $burst left current=$3\" >&2; exit\
-    \ 1; fi\n  if [ \"$2\" -gt 1 ]; then echo \"FAIL: burst $burst put $2 ranks in\
-    \ the installer at once -- mutual exclusion lost across the break\" >&2; exit\
-    \ 1; fi\ndone\necho \"robbed=${tot_o}/320 installers=${tot_i}/10bursts\"\nif [\
-    \ \"$tot_o\" -ne 0 ]; then echo \"FAIL: ${tot_o}/320 ranks died proving ownership\
-    \ of a lock a rival breaker deleted\" >&2; exit 1; fi\nfor c in $(sed -n 's/.*bin\\\
-    /uv-manager:\\([0-9]*\\).*/\\1/p' issues/invariant-audit-gaps.md); do\n  if [\
-    \ \"$c\" -gt \"$(wc -l < bin/uv-manager)\" ]; then echo \"FAIL: seed cites bin/uv-manager:$c,\
-    \ past end of file\" >&2; exit 1; fi\ndone\nif ! grep -q 'bin/uv-manager:558'\
-    \ issues/invariant-audit-gaps.md; then echo \"FAIL: seed does not cite the mv\
-    \ at its branch line\" >&2; exit 1; fi"
+    ; mkdir -p \"$A\"; mkdir \"$L\"\nprintf 'host=node0042 pid=12345 nonce=0\\n' >\
+    \ \"$L/owner\"\nsleep 3\nif ! UVM_LOCK_STALE=2 UVM_LOCK_TIMEOUT=1 uv --version\
+    \ >/dev/null 2>\"$UVM_SANDBOX/brk\"; then\n  echo \"FAIL: the identity guard declined\
+    \ a break that was owed:\" >&2; cat \"$UVM_SANDBOX/brk\" >&2; exit 1\nfi\nif !\
+    \ grep -q 'breaking' \"$UVM_SANDBOX/brk\"; then echo \"FAIL: no break occurred\"\
+    \ >&2; exit 1; fi\nif [ \"$(readlink \"$A/current\")\" != versions/9.9.9 ]; then\
+    \ echo \"FAIL: break did not provision\" >&2; exit 1; fi\nDRIVE\n# A dead holder\
+    \ on this node is still broken at once, the guard notwithstanding.\n.agents/factory/bin/temp_root.sh\
+    \ --offline sh -s <<'DRIVE'\nset -e\nA=\"$UVM_ROOT/$(uname -m)\"; L=\"$A/.install.lock\"\
+    ; mkdir -p \"$A\"; mkdir \"$L\"\nprintf 'host=%s pid=999999 nonce=0\\n' \"$(uname\
+    \ -n)\" > \"$L/owner\"\nif ! UVM_LOCK_STALE=600 UVM_LOCK_TIMEOUT=5 uv --version\
+    \ >/dev/null 2>\"$UVM_SANDBOX/dead\"; then\n  echo \"FAIL: a dead holder's lock\
+    \ was not reclaimed:\" >&2; cat \"$UVM_SANDBOX/dead\" >&2; exit 1\nfi\nif ! grep\
+    \ -q 'abandoned by a dead process' \"$UVM_SANDBOX/dead\"; then\n  echo \"FAIL:\
+    \ the dead-holder fast path did not fire\" >&2; cat \"$UVM_SANDBOX/dead\" >&2;\
+    \ exit 1\nfi\nDRIVE\n# Full R6 regression.\n.agents/factory/bin/temp_root.sh --offline\
+    \ sh -s <<'DRIVE'\nset -e\nout=$(uv --version)\nif [ \"$out\" != \"uv 9.9.9 (fixture)\"\
+    \ ]; then echo \"FAIL: stdout was '$out'\" >&2; exit 1; fi\nA=\"$UVM_ROOT/$(uname\
+    \ -m)\"\nif [ \"$(readlink \"$A/current\")\" != versions/9.9.9 ]; then echo \"\
+    FAIL: current target moved\" >&2; exit 1; fi\nif [ -d \"$A/.install.lock\" ];\
+    \ then echo \"FAIL: lock left behind\" >&2; exit 1; fi\nDRIVE\nif git grep -n\
+    \ flock bin/uv-manager | grep -qvE '^bin/uv-manager:[0-9]+:[[:space:]]*#'; then\n\
+    \  echo \"FAIL: flock invoked outside a comment\" >&2; exit 1\nfi\n# Every citation\
+    \ the seed makes must land inside the file, and on what it names.\nfor c in $(sed\
+    \ -n 's/.*bin\\/uv-manager:\\([0-9]*\\).*/\\1/p' issues/invariant-audit-gaps.md);\
+    \ do\n  if [ \"$c\" -gt \"$(wc -l < bin/uv-manager)\" ]; then echo \"FAIL: seed\
+    \ cites bin/uv-manager:$c, past end of file\" >&2; exit 1; fi\ndone\nsed -n '595p'\
+    \ bin/uv-manager | grep -q 'mv \"${tmp}\" \"${dest}\"' || { echo \"FAIL: :595\
+    \ is not the unguarded rename\" >&2; exit 1; }\nsed -n '725,729p' bin/uv-manager\
+    \ | grep -q 'uvm_tramp_marker' || { echo \"FAIL: :725-729 is not the trampoline\
+    \ overwrite guard\" >&2; exit 1; }\nsed -n '767,772p' bin/uv-manager | grep -q\
+    \ 'cache-dir' || { echo \"FAIL: :767-772 is not the banner naming --cache-dir\"\
+    \ >&2; exit 1; }"
 review:
   last_reviewed_commit: fadd87eeb09e9fd76f18b3722b614b367f984655
   verdict: changes-requested
@@ -777,7 +807,7 @@ bounded number of attempts reports a filesystem fault.
   trap would overwrite the exit status — the same shape that made a bare ordering test exit 0 in P4.
 - **Touches:** `bin/uv-manager`, `.agents/factory/invariants.md`.
 
-## Phase P8 — F7 remediation: break a lock by ownership, not by path
+## Phase P8 — Narrow the break to the instance it judged; repair the seed's citations
 **Satisfies:** — · **Depends on:** P3
 **Goal:** a waiter that judges a lock forfeit cannot delete the directory a rival breaker has already
 replaced.
@@ -790,29 +820,38 @@ ownership at `:424`. Measured at 4 ranks of 1280 plus three bursts with two conc
 The window is the same `mkdir`-to-`owner` interval §5 already names as the only one in which a stale
 release can destroy a live lock — reached here through the break path rather than the release path.
 
-- [ ] **The design is not settled and is a human's call.** Two shapes were costed:
-      - *Re-read `owner` immediately before the `rmdir` and require it to still equal the judged
-        line.* Small, local, mirrors `uvm_unlock`'s discipline exactly. It **narrows** the window
-        without closing it: a loser that re-read before the winner's `rm -f` still proceeds.
-      - *Claim the right to break with a rename* — `mv "${lock}" "${lock}.breaking.<nonce>"`, then
-        remove the renamed tree. `rename(2)` is exclusive, so exactly one breaker wins and a loser
-        touches nothing. It **closes** the window, at the cost of a second name in the architecture
-        directory and litter if a breaker dies mid-sequence.
-      The second is correct and the first is cheap. The second also makes R7's stray-entry
-      construction breakable — a rename succeeds whatever the directory contains — so P6's gate would
-      need retuning to deny the break through the parent directory's permissions instead. R7 itself
-      still holds either way: it is conditional on a break attempt leaving the directory in place.
-- [ ] **F8** — repair `issues/invariant-audit-gaps.md`'s three `bin/uv-manager` citations. They are
-      `main`'s line numbers and already point into unrelated code on the branch that adds the file;
-      the real locations are `:558`, `:688-693` and `:731-736`. The seed's substantive claims verify
-      against `uv 0.12.4` and are unaffected. It rides here because it maps to no R-ID either and is
-      three numbers.
-- **Verify:** ten bursts of 32 ranks against a pre-planted dead-holder lock, asserting no rank
-  carries `cannot record ownership`, no burst puts two ranks in the installer at once, and every
-  burst still reaches `current -> versions/9.9.9`; plus every seed citation resolving inside the
-  file. The gate asserts the post-condition and not the mechanism, so it grades either design.
-- **Touches:** `bin/uv-manager`, `issues/invariant-audit-gaps.md`, and — under the rename design —
-  P6's `verify:`.
+- [x] **The design was settled against the maintainer's first choice, on evidence.** An exclusive
+      rename was costed, approved, and then rejected: `mv` is not `rename(2)`, `mv -T` is absent at
+      the portability floor so `mv` nests instead of failing, and `rmdir` refusing a non-empty
+      directory turned out to be what protects an established lock and what makes R7 true for the
+      stray-entry construction. Full reasoning in *Attempt 1* below.
+- [x] The break re-reads `owner` immediately before acting and removes the file **and** the directory
+      only while it still holds the line the forfeiture was decided on. Gating the owner removal is
+      what leaves `rmdir` a non-empty directory to refuse, so the two calls sit inside one test
+      rather than one of them.
+- [x] **F8** — repair `issues/invariant-audit-gaps.md`'s citations. Anchored to function names as
+      well as lines (`uvm_install` `:595`, `uvm_trampolines` `:725-729`, `uvm_global_takes_value`'s
+      banner `:767-772`), so the next shift degrades the reference rather than silently misdirecting
+      it. The fourth citation, inside R1, is now a name with no number at all.
+- [x] **The closure is deferred, and the deferral is recorded, not implied.**
+      [`issues/lock-break-instance-identity.md`](../../issues/lock-break-instance-identity.md) plus
+      its `ROADMAP.md` entry carry the residual, the rejected rename and why, the measurement debt
+      that blocks any candidate fix, the lock's unmeasured performance claims, and its
+      taken-on-trust safety properties. Decided by the maintainer on 2026-08-16.
+- **Verify (re-scoped to what shipped).** The original gate graded a closure this phase no longer
+  claims, and it stayed red on both the control and the candidate. What is assertable is: a census
+  that both removals sit inside the identity guard and that the file holds exactly three removals of
+  the lock directory, the other two being `uvm_unlock`'s ownership-guarded one and the cleanup of a
+  directory we created and could not claim; that the guard does not decline a break that is owed,
+  driven both for an aged lock and for a dead holder on this node; the full R6 regression; and every
+  seed citation landing on what it names. A statistical gate for the closure belongs to the seed,
+  which owes the harness first.
+- **Why a census and not a drive.** The guard fires in a window no sandbox can open on demand — a
+  breaker's decision and its act are separated by microseconds — so a drive that exercised it would
+  be a drive that got lucky. The census is the R4 pattern: pin the count, and a fourth unguarded
+  removal added later trips the gate.
+- **Touches:** `bin/uv-manager`, `issues/invariant-audit-gaps.md`, `issues/lock-break-instance-identity.md`,
+  `ROADMAP.md`, `spec/lock-ownership-and-hold-time/REVIEW.md`.
 
 ### Attempt 1 — the rename is out, and the replacement is not yet proven
 
@@ -863,6 +902,14 @@ the burst by the arithmetic P7's notes use rather than by guess, and separate th
 signal from the two-installer signal so each has its own assertion. Only then is the residual — the
 case where the judged lock carried *no* owner line, which makes the identity test vacuous — worth
 designing against.
+
+**Resolution.** None of that was done in this cycle. The maintainer deferred the closure rather than
+take a third review round, in the highest-blast-radius function in the repository, on evidence that
+could not separate a fix from noise. What shipped is the narrowing above, on the argument that it
+cannot make anything worse: a declined break falls through to the timeout accounting and the next
+iteration re-decides, and the only line that ever matches the re-read is one a live heartbeat rewrote
+byte-identically. All eight phase gates were re-run green afterwards, including P7's 1280-rank burst
+at `misdiagnosed=0/1280 nonzero=0/1280`.
 
 ---
 

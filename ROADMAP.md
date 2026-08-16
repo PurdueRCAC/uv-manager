@@ -44,6 +44,21 @@ the criteria must name what is caught and concede the rest. Cost is handled by a
 rather than an integrity stamp. The detector it reads shipped in 0.5.0; what remains above it is the
 lock fix.
 
+### The break still deletes locks it did not judge, and nothing here can measure it yet
+**Seed:** [`issues/lock-break-instance-identity.md`](issues/lock-break-instance-identity.md) · `fix` ·
+appetite big
+
+What `lock-ownership-and-hold-time` narrowed but did not close. A forfeiture decided from an `owner`
+line read a second ago is acted on against a path, and a path is not an instance, so a losing breaker
+deletes a lock a third process just won. The shipped guard re-reads `owner` before acting and is
+vacuous for a lock that had none. The exclusive rename is the obvious fix and is wrong twice over:
+`mv -T` does not exist at the portability floor, so `mv` nests instead of failing, and `rmdir`
+refusing a non-empty directory turned out to be the thing protecting established locks. The real
+blocker is measurement — 320 ranks gave 5 robbed winners against 2, which is noise — so the harness
+comes first and the fix follows it. Carries the lock's unmeasured performance claims and its
+taken-on-trust safety properties. Sequenced above `purge-tree-repair`, which is what makes long holds
+real and this defect common.
+
 ### Three small code gaps behind inaccurate invariants
 **Seed:** [`issues/invariant-audit-gaps.md`](issues/invariant-audit-gaps.md) · `fix` · appetite small
 

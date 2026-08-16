@@ -27,20 +27,23 @@ option". Measured against `uv 0.12.4`: `uv --cache-dir DIR tool dir` succeeds, a
 missing from the list is bare-shifted, `uvm_cmd` latches onto its value, and `self update`, `tool` and
 `python` all go unrecognized — no trampoline resync, no self-update interception. `--cache-dir` is the
 likeliest to be hit in practice: `uvm_set_paths` exports `UV_CACHE_DIR` unconditionally, so the flag
-is the only remaining way to redirect the cache. The banner at `bin/uv-manager:533-538` names
-`--cache-dir` by name as an example of the category it is a counterexample to.
+is the only remaining way to redirect the cache. The banner above `uvm_global_takes_value`
+(`bin/uv-manager:767-772`) names `--cache-dir` as an example of the category it is a counterexample
+to.
 
 **The trampoline overwrite guard tests `-x`.** `invariants.md` §9 and `AGENTS.md` say a file that is
 non-empty, executable and unmarked is left alone, and that "only marked files are ever overwritten or
-removed". Removal is genuinely marker-only. Overwriting is not: the guard at `bin/uv-manager:491-496`
-is a three-way conjunction, so an unmarked file failing `-s` **or** `-x` is written over. A planted
+removed". Removal is genuinely marker-only. Overwriting is not: the guard in `uvm_trampolines`
+(`bin/uv-manager:725-729`) is a three-way conjunction, so an unmarked file failing `-s` **or** `-x` is
+written over. A planted
 0644, non-empty user file named for a tool in the union was replaced by the generated trampoline with
 no note. `-s` alone already satisfies the "repair a truncated trampoline" requirement the bullet above
 it states, so `-x` is buying nothing and costing somebody's file.
 
 **The rename in `uvm_install` is unguarded.** `invariants.md` §6 says "on any failure, remove the
 staging directory, release the lock, and die with the pre-warm instructions". Two of the three failure
-paths do. The `mv "${tmp}" "${dest}"` at `bin/uv-manager:361` is guarded by nothing: it dies under
+paths do. The `mv "${tmp}" "${dest}"` in `uvm_install` (`bin/uv-manager:595`) is guarded by nothing:
+it dies under
 `set -e` with a bare `mv: ... Permission denied` and leaves `versions/.incoming.XXXXXXXX` behind,
 which nothing collects.
 
@@ -60,9 +63,9 @@ wrote, and no failure path leaves uncollected litter in `versions/`.
 
 ## Sketch of the acceptance criteria
 
-- **R1** — `uvm_global_takes_value` SHALL cover `--cache-dir` and `--python-preference`, and the
-  banner at `:533-538`, `AGENTS.md` and `invariants.md` §11 SHALL stop asserting that no
-  pre-subcommand option outside the five takes a value.
+- **R1** — `uvm_global_takes_value` SHALL cover `--cache-dir` and `--python-preference`, and its
+  banner, `AGENTS.md` and `invariants.md` §11 SHALL stop asserting that no pre-subcommand option
+  outside the five takes a value.
 - **R2** — WHEN a file in the trampoline directory is non-empty and lacks `uvm_tramp_marker`, the
   wrapper SHALL leave it alone whatever its mode, and say so.
 - **R3** — IF the rename into `versions/<ver>` fails, THEN the wrapper SHALL remove the staging

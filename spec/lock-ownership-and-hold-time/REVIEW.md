@@ -428,6 +428,25 @@ Per the rubric this gate is cleared by the human and never by the agent's own re
 has been given.
 
 - **Cleared by:** — · **Date:** — · **Grounds:** —
+- **Disposition (2026-08-16):** F6 remediated and proven; F8 repaired; **F7 deferred** to
+  [`issues/lock-break-instance-identity.md`](../../issues/lock-break-instance-identity.md) with a
+  `ROADMAP.md` entry, both committed before this note. The gate stands and is re-evaluated against
+  cycle 3's verdict.
+
+  **The deferral rests on a premise cycle 2 got wrong, and the correction belongs here.** This
+  section graded F7 blocking because the rubric's exception requires that repairing it fail a
+  `GOAL.md` criterion, and reasoned that "both remedies named by the reviewers are small". The first
+  remedy attempted — an exclusive rename — is not a remedy: `mv` is not `rename(2)`, `mv -T` is
+  absent at the portability floor so `mv` nests instead of failing, and `rmdir` refusing a non-empty
+  directory turned out to be what protects an established lock and what makes R7 true for its own
+  gate's construction. Measured, the rename left robbed winners at 15 of 320 against the unfixed
+  code's 16 of 208. The second remedy — the identity guard — shipped, and 320 ranks put robbed
+  winners at 5 against 2, which is noise rather than a closure.
+
+  So the finding is not small, and the reason is not one this cycle can retire: the repository
+  cannot yet measure a lock race well enough to accept or reject a candidate. That is now the seed's
+  first requirement. F7 remains CONFIRMED, remains pre-existing on `main` and measurably worse
+  there, and the narrowing that shipped is recorded as a narrowing and not as a fix.
 
 ## Reconciliation note (debate variant)
 
