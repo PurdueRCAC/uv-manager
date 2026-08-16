@@ -176,13 +176,22 @@ uvm_lock=""
 uvm_lock_owner=""
 uvm_lock_beat_pid=""
 
+# Absolute start time of a pid, or empty when it cannot be determined. A pid
+# is a number the kernel reuses, not an identity; pairing it with a start time
+# is what distinguishes a process from whatever later inherits its number.
+# lstart is not POSIX but is carried by both the BSD and procps ps, in the
+# same spirit as the stat -c / stat -f pair.
+uvm_proc_start() {
+  ps -o lstart= -p "$1" 2>/dev/null || true
+}
+
 # Refresh the lock's mtime for as long as the holder lives, so a hold longer
 # than UVM_LOCK_STALE is not mistaken for an abandoned one. The bytes written
 # are the ones recorded at acquisition, never the current time: identity is
 # fixed at acquire and freshness lives entirely in the mtime, so a holder can
 # never become foreign to itself.
 uvm_lock_heartbeat() {
-  local lock="$1" beat="$2" recorded=""
+  local lock="$1" beat="$2" started="$3" recorded="" running=""
   # An async subshell resets traps to their default, so this cannot release
   # its parent's lock by exiting. Clearing them says so out loud, because the
   # cost of being wrong is a refresher deleting the live lock it exists to
@@ -196,6 +205,17 @@ uvm_lock_heartbeat() {
     # leashed refresher cannot tell the interval elapsing from its parent
     # dying.
     kill -0 "$$" 2>/dev/null || return 0
+    # kill -0 answered for a pid number, so it cannot tell the holder from
+    # whatever reoccupied its number — and pid space wraps in under a minute
+    # on a node spawning `uv run` in a loop, against a beat a tenth of the
+    # stale threshold. A holder killed without running its traps would
+    # otherwise leave this refresher rewriting owner forever: the age net
+    # never fires because the mtime keeps moving, the waiter's own probe
+    # never fires because it finds the reoccupying process alive, and the
+    # lock is left for a human to clear. Both readings must be non-empty to
+    # forfeit, so a ps that cannot answer costs a live holder nothing.
+    running="$(uvm_proc_start "$$")"
+    [[ -z "${started}" || -z "${running}" || "${running}" == "${started}" ]] || return 0
     # Re-read before writing. If the lock were broken and retaken at this
     # path, stamping our identity over the new holder's owner file would stop
     # that holder from ever releasing its own lock — an immortal lock
@@ -266,7 +286,7 @@ uvm_age() {
 uvm_acquire_lock() {
   local want="$1" force="$2"
   local lock="${uvm_root}/.install.lock"
-  local waited=0 age holder pid broke="" reason absent=0 host
+  local waited=0 age holder pid broke="" reason absent=0 host started
   # uname -n, not HOSTNAME, which bash leaves at whatever it inherited. A
   # container image that sets it, or a login-node value carried out by
   # `sbatch --export=ALL`, gives two nodes one name — and the host token is
@@ -275,6 +295,11 @@ uvm_acquire_lock() {
   # and break a live holder's lock on its first iteration. One fork, on the
   # provisioning path only.
   host="$(uname -n)"
+  # Our own start time, read here for the same reason as the host token: it
+  # is what lets the refresher tell this process from a later one wearing its
+  # pid, and both forks belong above the loop rather than inside the window
+  # the owner write has to close.
+  started="$(uvm_proc_start "$$")"
   # Built before the mkdir, from expansions only. Two command substitutions
   # here left the directory standing with no owner file for 3.0 ms rather
   # than 0.10 ms, and that gap is the only interval in which a stale release
@@ -436,7 +461,7 @@ uvm_acquire_lock() {
   (( lock_beat > 0 )) || lock_beat=1
   # Detached, because a surviving background child holds the caller's pipe
   # open and `VER=$(uv --version)` was measured blocking 9s behind one.
-  uvm_lock_heartbeat "${lock}" "${lock_beat}" >/dev/null 2>&1 &
+  uvm_lock_heartbeat "${lock}" "${lock_beat}" "${started}" >/dev/null 2>&1 &
   uvm_lock_beat_pid=$!
   return 0
 }

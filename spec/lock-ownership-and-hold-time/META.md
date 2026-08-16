@@ -445,3 +445,23 @@ that produced the defect — where the next reader meets them together.
 **What worked well (cycle 2):** offering the scoped-versus-full choice as an explicit question, with
 the reason a scoped pass was the weaker option on this diff, meant the graded surface was a decision
 on the record instead of a default nobody examined.
+
+## F21 — the remediation re-run rule follows `depends_on`, which is not what a shared-file edit invalidates
+`origin=uvm-build:step-1 severity=medium category=instruction status=open target=.claude/skills/uvm-build/SKILL.md`
+- **What happened:** Step 1.3 says to re-run "the `verify:` of every `done` phase that lists the
+  reopened phase in `depends_on`". Reopening P3 makes that P4 alone — P5 lists P4, P6 lists P5, and
+  P1 and P2 list nothing. Yet the F6 fix edits `uvm_acquire_lock` and the heartbeat, which P1, P2,
+  P4, P5, P6 and P7 all assert against. I re-ran all six because this cycle's own P3 notes recorded
+  doing so after the last remediation, not because the skill asked. Following the letter would have
+  re-run one gate of six and left five `done` phases graded against code that had moved — the exact
+  "invisible to the FSM and ships green" failure the rule was written to prevent.
+- **Skill cause:** `depends_on` encodes *build order*, not *assertion overlap*. In a repository whose
+  entire subject is one script, ordering and blast radius come apart immediately: every phase here
+  edits the same function, so the dependency graph says almost nothing about which gates a fix can
+  invalidate. The rule picked the field that was available rather than the one that answers the
+  question.
+- **Recommended fix:** restate the rule by surface rather than by edge — after a remediation edit,
+  re-run every `done` phase whose gate exercises a function the edit touched, and say that in a
+  single-file project that is normally all of them. Keep `depends_on` as the ordering constraint it
+  is. One sentence, and it costs a few minutes of gates against a class of defect that ships silently.
+- **Confidence:** high · **Effort:** small

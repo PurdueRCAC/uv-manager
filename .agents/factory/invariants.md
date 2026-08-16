@@ -100,7 +100,17 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
   the one guarantee a pin exists to provide.
 - **Age is measured from the heartbeat, not from acquisition.** `uvm_acquire_lock` spawns a detached
   refresher that rewrites `${lock}/owner` with byte-identical content every `UVM_LOCK_STALE/10`
-  seconds and exits when `kill -0 "$$"` fails; `uvm_unlock` reaps it with `kill` **then** `wait`.
+  seconds; `uvm_unlock` reaps it with `kill` **then** `wait`.
+- **The refresher's leash is a pid and a start time, never a pid alone.** `kill -0 "$$"` answers for
+  a number the kernel reuses, so a holder killed without running its traps leaves a refresher that
+  keeps rewriting `owner` the moment that number is reoccupied. Nothing then recovers the lock: the
+  age net cannot fire because the mtime keeps moving, and the waiter's own probe cannot fire because
+  it finds the reoccupying process alive. `uvm_acquire_lock` records `uvm_proc_start "$$"` beside the
+  host token, above the `mkdir` loop, and the refresher forfeits when the pid's start time no longer
+  matches. Both readings must be non-empty to forfeit, so a `ps` that cannot answer degrades to the
+  bare probe rather than costing a live holder its lock. A ceiling on the refresher's lifetime is the
+  rejected alternative: a hold that outlives it silently loses the protection the heartbeat exists to
+  give.
   `uvm_age` stats `${lock}/owner` and falls back to the directory, because a directory's mtime tracks
   its entry list rather than writes to files inside it — left on the directory the heartbeat is
   invisible and a long hold is broken as abandoned. The refresher re-reads `owner` before every

@@ -161,8 +161,8 @@ impossible when something does, and on a path holding no lock it costs one built
 A new `exec` site owes the same call.
 
 **A live holder's lock never ages out.** `uvm_acquire_lock` spawns a detached refresher that rewrites
-`owner` with byte-identical content every `UVM_LOCK_STALE/10` seconds and stops when `kill -0 "$$"`
-fails; `uvm_unlock` reaps it with `kill` then `wait`. Age is therefore read from `${lock}/owner` and
+`owner` with byte-identical content every `UVM_LOCK_STALE/10` seconds and stops when the holder is
+gone; `uvm_unlock` reaps it with `kill` then `wait`. Age is therefore read from `${lock}/owner` and
 not from the directory, whose mtime tracks its entry list rather than writes to files inside it. A
 waiter probes liveness first as a fast path — a holder on this node whose pid is gone loses the lock
 immediately — but the age test runs whatever the probe answered, because `kill -0` answers for a pid
@@ -170,7 +170,10 @@ number rather than for the process that recorded it, and a lock gated behind a r
 unbreakable until a human removes it. The heartbeat is what keeps a live holder's lock, not a skipped
 age test. Its host token is `uname -n` and never the inherited `HOSTNAME`, so two nodes cannot
 present one identity and break each other's live locks. The refresher re-reads `owner` before each
-write, because stamping our identity over a new holder's record would make the lock immortal.
+write, because stamping our identity over a new holder's record would make the lock immortal. Its
+own leash is a pid paired with the start time `uvm_proc_start` reads, never `kill -0` alone: a
+refresher that survives its holder by inheriting the reoccupied number keeps the lock fresh forever,
+and neither the age net nor the waiter's probe can then recover it.
 
 **`UVM_LOCK_TIMEOUT` must be less than `UVM_LOCK_STALE`**, and `uvm_acquire_lock` refuses the
 inversion instead of acting on it. The guard tests numeric form before the comparison — on bash 3.2 a

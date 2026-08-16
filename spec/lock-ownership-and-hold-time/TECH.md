@@ -3,10 +3,10 @@ slug: lock-ownership-and-hold-time
 title: The provisioning lock can be released by a process that does not hold it
 kind: fix
 appetite: big
-status: blocked
+status: in_progress
 branch: fix/lock-ownership-and-hold-time
 base: main
-current_phase: done
+current_phase: P8
 last_updated: '2026-08-15'
 phases:
 - id: P1
@@ -138,7 +138,28 @@ phases:
     ; then\n  echo \"FAIL: an inherited HOSTNAME reached the lock's owner record\"\
     \ >&2\n  cat \"$UVM_TEST_CAP\" >&2; exit 1\nfi\nif ! grep -q \"host=$(uname -n)\
     \ \" \"$UVM_TEST_CAP\"; then\n  echo \"FAIL: the owner line does not record uname\
-    \ -n\" >&2\n  cat \"$UVM_TEST_CAP\" >&2; exit 1\nfi\nDRIVE"
+    \ -n\" >&2\n  cat \"$UVM_TEST_CAP\" >&2; exit 1\nfi\nDRIVE\n.agents/factory/bin/temp_root.sh\
+    \ --offline sh -s <<'DRIVE'\nset -e\nA=\"$UVM_ROOT/$(uname -m)\"; L=\"$A/.install.lock\"\
+    \nprintf '%s\\n' 'if [ -n \"${UVM_FIXTURE_SLOW:-}\" ]; then sleep \"$UVM_FIXTURE_SLOW\"\
+    ; fi' >> \"$UVM_FIXTURE_DIR/install.sh\"\n( UVM_FIXTURE_SLOW=600 uv --version\
+    \ >/dev/null 2>&1 ) & holder=$!\nsleep 3\nP=$(sed -n 's/.*pid=\\([0-9][0-9]*\\\
+    ).*/\\1/p' \"$L/owner\" 2>/dev/null || true)\n[ -n \"$P\" ] || { echo \"FAIL:\
+    \ no holder pid recorded\" >&2; exit 1; }\nkill -9 \"$P\" 2>/dev/null || true\n\
+    wait \"$holder\" 2>/dev/null || true\nt0=$(date +%s)\nvictim=\"\"\nwhile [ -z\
+    \ \"$victim\" ]; do\n  i=0; while [ $i -lt 200 ]; do ( : ) & i=$(( i + 1 )); done;\
+    \ wait\n  ( : ) & c=$!; wait \"$c\" 2>/dev/null || true\n  if [ \"$c\" -lt \"\
+    $P\" ] && [ $(( P - c )) -le 600 ]; then\n    while :; do\n      sleep 300 & c=$!\n\
+    \      if [ \"$c\" = \"$P\" ]; then victim=$c; break; fi\n      kill -9 \"$c\"\
+    \ 2>/dev/null || true; wait \"$c\" 2>/dev/null || true\n      [ \"$c\" -lt \"\
+    $P\" ] || break\n    done\n  fi\ndone\nburn=$(( $(date +%s) - t0 ))\nif [ \"$burn\"\
+    \ -ge 50 ]; then\n  kill -9 \"$victim\" 2>/dev/null || true\n  echo \"FAIL: the\
+    \ walk took ${burn}s against a 60s beat -- the refresher stood down for want of\
+    \ a pid, not for want of its holder\" >&2\n  exit 1\nfi\nm1=$(stat -f %m \"$L/owner\"\
+    \ 2>/dev/null || stat -c %Y \"$L/owner\" 2>/dev/null || true)\nsleep 75\nm2=$(stat\
+    \ -f %m \"$L/owner\" 2>/dev/null || stat -c %Y \"$L/owner\" 2>/dev/null || true)\n\
+    kill -9 \"$victim\" 2>/dev/null || true\nif [ \"$m1\" != \"$m2\" ]; then\n  echo\
+    \ \"FAIL: the refresher outlived its holder and kept the lock fresh ($m1 -> $m2)\
+    \ -- a recycled pid makes the lock immortal\" >&2\n  exit 1\nfi\nDRIVE"
 - id: P4
   name: Refuse a knob configuration that lets a waiter break a live lock
   status: done
@@ -296,6 +317,34 @@ phases:
     \ \"$UVM_SANDBOX/e\"; then echo \"FAIL: a real permissions fault is no longer\
     \ named\" >&2; exit 1; fi\nif [ \"$e\" -ge 5 ]; then echo \"FAIL: the fault took\
     \ ${e}s -- the retry is not bounded by a constant\" >&2; exit 1; fi\nDRIVE"
+- id: P8
+  name: 'F7 remediation: break a lock by ownership, not by path'
+  status: pending
+  satisfies: []
+  depends_on:
+  - P3
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: "set -eu\nbash -n bin/uv-manager\n.agents/factory/bin/lint.sh >/dev/null\n\
+    for b in 1 2 3 4 5 6 7 8 9 10; do\n  .agents/factory/bin/temp_root.sh --offline\
+    \ sh -s <<'DRIVE'\nset -e\nA=\"$UVM_ROOT/$(uname -m)\"; L=\"$A/.install.lock\"\
+    ; mkdir -p \"$L\"\nprintf 'host=%s pid=999999 nonce=0\\n' \"$(uname -n)\" > \"\
+    $L/owner\"\nfor k in $(seq 1 32); do ( uv --version >\"$UVM_SANDBOX/out.$k\" 2>\"\
+    $UVM_SANDBOX/err.$k\" ) & done\nwait\no=$(grep -l 'cannot record ownership' \"\
+    $UVM_SANDBOX\"/err.* 2>/dev/null | wc -l | tr -d ' ')\ni=$(grep -l 'installing\
+    \ uv' \"$UVM_SANDBOX\"/err.* 2>/dev/null | wc -l | tr -d ' ')\nb=$(grep -c . \"\
+    $UVM_SANDBOX\"/out.* 2>/dev/null | grep -cv ':1$' || true)\nif [ \"$o\" -ne 0\
+    \ ]; then echo \"FAIL: $o ranks died proving ownership of a lock a rival breaker\
+    \ deleted\" >&2; exit 1; fi\nif [ \"$i\" -gt 1 ]; then echo \"FAIL: $i ranks entered\
+    \ the installer at once -- mutual exclusion lost across the break\" >&2; exit\
+    \ 1; fi\nif [ \"$(readlink \"$A/current\")\" != versions/9.9.9 ]; then echo \"\
+    FAIL: current is $(readlink \"$A/current\" || echo missing)\" >&2; exit 1; fi\n\
+    DRIVE\ndone\nfor c in $(sed -n 's/.*bin\\/uv-manager:\\([0-9]*\\).*/\\1/p' issues/invariant-audit-gaps.md);\
+    \ do\n  if [ \"$c\" -gt \"$(wc -l < bin/uv-manager)\" ]; then echo \"FAIL: seed\
+    \ cites bin/uv-manager:$c, past end of file\" >&2; exit 1; fi\ndone\nif ! grep\
+    \ -q 'bin/uv-manager:558' issues/invariant-audit-gaps.md; then echo \"FAIL: seed\
+    \ does not cite the mv at its branch line\" >&2; exit 1; fi\n"
 review:
   last_reviewed_commit: fadd87eeb09e9fd76f18b3722b614b367f984655
   verdict: changes-requested
@@ -485,6 +534,44 @@ Review cycle 1 reopened this phase. Both findings were in the probe this phase a
   changed the function four of them assert against.
 - **Touches:** `bin/uv-manager`, `.agents/factory/invariants.md`, `AGENTS.md`,
   `etc/uv-manager.conf.example`.
+
+Review cycle 2 reopened this phase a second time. The finding is in the heartbeat this phase added,
+and it is the same error cycle 1 removed from the waiter, one function away.
+
+- [x] **F6** — leash the refresher to a pid *and* a start time. `kill -0 "$$"` answers for a number
+      the kernel reuses, so a holder killed without running its traps leaves a refresher that
+      resumes rewriting `owner` the moment that number is reoccupied. Nothing recovers the lock
+      afterwards: the age net cannot fire because the mtime keeps moving, and the waiter's probe
+      cannot fire because it finds the reoccupying process alive. `uvm_proc_start` reads
+      `ps -o lstart=`, `uvm_acquire_lock` records the holder's own start time beside the host token
+      above the `mkdir` loop, and the refresher forfeits on a mismatch. Both readings must be
+      non-empty to forfeit, so a `ps` that cannot answer degrades to today's bare probe rather than
+      costing a live holder its lock — the same direction §5 already argues for, where a false leave
+      is reclaimed by the stale breaker and a false delete is bounded by nothing.
+- [x] A refresher lifetime ceiling was **not** the fix. `GOAL.md` rejects it outright, and the
+      rejection holds here: a hold that outlives the ceiling silently loses the protection R2 exists
+      to give. The defect is that the leash asks the wrong question, not that it asks it forever.
+- [x] The waiter's own probe is left alone. It has the same blind spot, but cycle 1 made the age test
+      run whatever the probe answers, so a recycled pid there costs only the fast path — provided the
+      age actually grows, which is exactly what this fix restores.
+- [x] Update `invariants.md` §5 and `AGENTS.md` § *Invariants*: both asserted the refresher stops when
+      `kill -0 "$$"` fails, a property the code did not have. §5 gains a bullet for the leash;
+      `AGENTS.md` gains the sentence. `etc/uv-manager.conf.example:75` promises `UVM_LOCK_STALE`
+      covers a holder killed by SIGKILL or job cancellation, which is true again and needs no edit.
+- **Gate addition, and why it costs 100 s.** A fifth drive holds the lock at the shipped
+  `UVM_LOCK_STALE=600`, SIGKILLs the holder, walks the pid space back around to its number and parks
+  a long-lived process there, then samples `owner`'s mtime across a beat. The walk is inherent: a
+  freed pid is not reused promptly, it returns only after a full wrap of roughly 99,999 allocations,
+  measured at 28 s in batches of 200. The beat has to outlast the walk or the refresher stands down
+  for want of a pid rather than for want of its holder, which would pass against the unfixed code —
+  so the drive asserts `burn < 50` against a 60 s beat and fails the construction rather than
+  reporting a green it did not earn.
+- **Observed red, then green.** Red against the committed code at
+  `the refresher outlived its holder and kept the lock fresh` — `owner` advanced 1786849795 →
+  1786849855, exactly one 60 s beat, with the holder dead throughout. Green after at frozen mtime.
+  Both runs walked 28 s to the same construction, so the two differ only in the leash.
+- **Re-run after the fix:** P1, P2, P4, P5, P6 and P7 all green.
+- **Touches (cycle 2):** `bin/uv-manager`, `.agents/factory/invariants.md`, `AGENTS.md`.
 
 ## Phase P4 — Refuse a knob configuration that lets a waiter break a live lock
 **Satisfies:** R3 · **Depends on:** P3
@@ -686,6 +773,43 @@ bounded number of attempts reports a filesystem fault.
   arithmetic's when the bound is reached, and this loop runs under `set -e` in a function whose EXIT
   trap would overwrite the exit status — the same shape that made a bare ordering test exit 0 in P4.
 - **Touches:** `bin/uv-manager`, `.agents/factory/invariants.md`.
+
+## Phase P8 — F7 remediation: break a lock by ownership, not by path
+**Satisfies:** — · **Depends on:** P3
+**Goal:** a waiter that judges a lock forfeit cannot delete the directory a rival breaker has already
+replaced.
+
+Added by review cycle 2. It maps to no R-ID: the break is *meant* to remove a lock it does not own,
+so this is not an R1 gap but a time-of-check-to-time-of-use window between the forfeiture decision at
+`:381` and the `rmdir` at `:390`. Two waiters declaring the same lock forfeit in one tick have the
+loser remove the winner's fresh, still-empty directory, and the winner then dies `ENOENT` proving
+ownership at `:424`. Measured at 4 ranks of 1280 plus three bursts with two concurrent installers.
+The window is the same `mkdir`-to-`owner` interval §5 already names as the only one in which a stale
+release can destroy a live lock — reached here through the break path rather than the release path.
+
+- [ ] **The design is not settled and is a human's call.** Two shapes were costed:
+      - *Re-read `owner` immediately before the `rmdir` and require it to still equal the judged
+        line.* Small, local, mirrors `uvm_unlock`'s discipline exactly. It **narrows** the window
+        without closing it: a loser that re-read before the winner's `rm -f` still proceeds.
+      - *Claim the right to break with a rename* — `mv "${lock}" "${lock}.breaking.<nonce>"`, then
+        remove the renamed tree. `rename(2)` is exclusive, so exactly one breaker wins and a loser
+        touches nothing. It **closes** the window, at the cost of a second name in the architecture
+        directory and litter if a breaker dies mid-sequence.
+      The second is correct and the first is cheap. The second also makes R7's stray-entry
+      construction breakable — a rename succeeds whatever the directory contains — so P6's gate would
+      need retuning to deny the break through the parent directory's permissions instead. R7 itself
+      still holds either way: it is conditional on a break attempt leaving the directory in place.
+- [ ] **F8** — repair `issues/invariant-audit-gaps.md`'s three `bin/uv-manager` citations. They are
+      `main`'s line numbers and already point into unrelated code on the branch that adds the file;
+      the real locations are `:558`, `:688-693` and `:731-736`. The seed's substantive claims verify
+      against `uv 0.12.4` and are unaffected. It rides here because it maps to no R-ID either and is
+      three numbers.
+- **Verify:** ten bursts of 32 ranks against a pre-planted dead-holder lock, asserting no rank
+  carries `cannot record ownership`, no burst puts two ranks in the installer at once, and every
+  burst still reaches `current -> versions/9.9.9`; plus every seed citation resolving inside the
+  file. The gate asserts the post-condition and not the mechanism, so it grades either design.
+- **Touches:** `bin/uv-manager`, `issues/invariant-audit-gaps.md`, and — under the rename design —
+  P6's `verify:`.
 
 ---
 
