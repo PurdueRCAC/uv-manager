@@ -266,14 +266,22 @@ uvm_age() {
 uvm_acquire_lock() {
   local want="$1" force="$2"
   local lock="${uvm_root}/.install.lock"
-  local waited=0 age holder pid broke="" reason absent=0
+  local waited=0 age holder pid broke="" reason absent=0 host
+  # uname -n, not HOSTNAME, which bash leaves at whatever it inherited. A
+  # container image that sets it, or a login-node value carried out by
+  # `sbatch --export=ALL`, gives two nodes one name — and the host token is
+  # what decides whether a recorded pid may be probed locally, so a collision
+  # has a waiter probe a pid that lives on the other node, find it absent,
+  # and break a live holder's lock on its first iteration. One fork, on the
+  # provisioning path only.
+  host="$(uname -n)"
   # Built before the mkdir, from expansions only. Two command substitutions
   # here left the directory standing with no owner file for 3.0 ms rather
   # than 0.10 ms, and that gap is the only interval in which a stale release
   # can destroy a live lock. The nonce is not decoration: pid space wraps in
   # under a minute on a node spawning `uv run` in a loop, well inside a 600s
   # stale window, so host and pid alone can name a live foreign holder.
-  local owner="host=${HOSTNAME} pid=$$ nonce=${RANDOM}${RANDOM}${RANDOM}"
+  local owner="host=${host} pid=$$ nonce=${RANDOM}${RANDOM}${RANDOM}"
 
   # The knobs are read here and nowhere else, so the guard sits against the
   # code it protects. Inside the function is also what keeps `uvm help` and
@@ -333,15 +341,13 @@ uvm_acquire_lock() {
       return 1
     fi
 
-    # Liveness decides before age does. A holder on this node whose pid is
-    # gone loses its lock at once; one that answers keeps it however long the
-    # work takes, which is what lets a rebuild outlast UVM_LOCK_STALE. This
-    # is also what covers kill -0's residual pid-reuse gap on the holder's
-    # own leash.
+    # Liveness is the fast path, not the only evidence. A holder on this node
+    # whose pid is gone loses its lock immediately instead of waiting out the
+    # stale window; everything else is decided by age below.
     holder=""
     read -r holder 2>/dev/null < "${lock}/owner" || true
     pid=""
-    if [[ "${holder%% *}" == "host=${HOSTNAME}" ]]; then
+    if [[ "${holder%% *}" == "host=${host}" ]]; then
       pid="${holder#*pid=}"
       pid="${pid%% *}"
       # A non-numeric pid makes kill -0 fail and would read as a dead holder,
@@ -355,14 +361,19 @@ uvm_acquire_lock() {
     reason=""
     if [[ -n "${pid}" ]] && ! kill -0 "${pid}" 2>/dev/null; then
       reason="breaking provisioning lock abandoned by a dead process"
-    # Age is consulted only where liveness could not decide: a holder on
-    # another node, which cannot be probed, or a lock with no owner file. The
-    # age comes from the file because a directory's mtime tracks its entry
-    # list rather than writes to files inside it, so on the directory the
-    # heartbeat is invisible. The directory remains the fallback for a lock
-    # an older wrapper wrote, or one caught inside the acquire window.
-    elif [[ -z "${pid}" ]] \
-         && { age="$(uvm_age "${lock}/owner")" || age="$(uvm_age "${lock}")"; } \
+    # Age is consulted whatever the probe answered. kill -0 answers for a pid
+    # number, not for the process that recorded it, and the number is reused:
+    # gated behind a negative probe, a lock left by a killed holder becomes
+    # unbreakable for the lifetime of whatever inherits its pid, which is a
+    # leak only a human clears. A live holder is protected by its heartbeat
+    # rather than by this branch never running — ten beats fit inside the
+    # threshold, so a hold stays an order of magnitude short of it however
+    # long the work takes. The age comes from the file because a directory's
+    # mtime tracks its entry list rather than writes to files inside it, so on
+    # the directory the heartbeat is invisible. The directory remains the
+    # fallback for a lock an older wrapper wrote, or one caught inside the
+    # acquire window.
+    elif { age="$(uvm_age "${lock}/owner")" || age="$(uvm_age "${lock}")"; } \
          && (( age > lock_stale )); then
       reason="breaking stale provisioning lock (${age}s old)"
     fi

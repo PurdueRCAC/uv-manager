@@ -164,10 +164,13 @@ A new `exec` site owes the same call.
 `owner` with byte-identical content every `UVM_LOCK_STALE/10` seconds and stops when `kill -0 "$$"`
 fails; `uvm_unlock` reaps it with `kill` then `wait`. Age is therefore read from `${lock}/owner` and
 not from the directory, whose mtime tracks its entry list rather than writes to files inside it. A
-waiter consults liveness first — a holder on this node whose pid is gone loses the lock immediately,
-one that answers keeps it however long the work takes — and falls through to the mtime only for a
-holder it cannot probe. The refresher re-reads `owner` before each write, because stamping our
-identity over a new holder's record would make the lock immortal.
+waiter probes liveness first as a fast path — a holder on this node whose pid is gone loses the lock
+immediately — but the age test runs whatever the probe answered, because `kill -0` answers for a pid
+number rather than for the process that recorded it, and a lock gated behind a recycled pid is
+unbreakable until a human removes it. The heartbeat is what keeps a live holder's lock, not a skipped
+age test. Its host token is `uname -n` and never the inherited `HOSTNAME`, so two nodes cannot
+present one identity and break each other's live locks. The refresher re-reads `owner` before each
+write, because stamping our identity over a new holder's record would make the lock immortal.
 
 **`UVM_LOCK_TIMEOUT` must be less than `UVM_LOCK_STALE`**, and `uvm_acquire_lock` refuses the
 inversion instead of acting on it. The guard tests numeric form before the comparison — on bash 3.2 a

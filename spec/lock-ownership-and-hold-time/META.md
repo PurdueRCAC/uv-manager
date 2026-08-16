@@ -375,3 +375,28 @@
   at all) is the default at every cycle, and `--oneline` is the exception, justified only where the
   subjects are known not to carry phase or finding ids. One sentence replaces the current three.
 - **Confidence:** high · **Effort:** small
+
+## F18 — red-before/green-after cannot tell a gate that measures the wrong mechanism
+`origin=uvm-build:Step 4 severity=high category=missing-guidance target=.claude/skills/uvm-build/SKILL.md`
+- **What happened:** P3's drive 1 asserts that a live holder's lock is not broken as stale. It set
+  `UVM_LOCK_STALE=3` on the waiter and left the holder at the default 600, and the beat is
+  `lock_stale / 10` of each process's *own* value — so the holder refreshed every 60 s against a 3 s
+  threshold. The heartbeat the drive exists to prove was never what made it pass; the pid probe was,
+  by suppressing the age test entirely. The gate was honestly red before P3 (nothing refreshed
+  anything) and honestly green after, satisfying Step 4's protocol in full, while never once
+  exercising its own subject. It only surfaced because review cycle 1's fix removed the probe's veto
+  and the drive went red — a year later, on a cluster, it would have surfaced as a leaked lock.
+- **Skill cause:** Step 4 grades a gate by its *transition* — "confirm it is red before the fix and
+  green after" — and nothing asks **why** it was red or **which** mechanism turned it green. A gate
+  measuring a correlated mechanism passes that test perfectly. The trap is specific and recurring in
+  this repo: a drive that spawns two wrapper processes which must agree on a knob, where setting it
+  on one is invisible until something changes the other's behavior.
+- **Recommended fix:** add one clause to Step 4 — after a gate goes green, name the line of the
+  implementation that made it green, and if the drive spawns more than one wrapper process, state
+  which knobs they must share. Where the two disagree, the gate is measuring something else. Cheap:
+  one sentence of reasoning per gate, no extra drive.
+- **Confidence:** high · **Effort:** small
+
+**What worked well:** reopening the phase whose `satisfies` covered the failing behavior, rather than
+appending a remediation phase, put the fix and its regression drives in the file next to the reasoning
+that produced the defect — where the next reader meets them together.

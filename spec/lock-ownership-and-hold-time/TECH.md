@@ -3,7 +3,7 @@ slug: lock-ownership-and-hold-time
 title: The provisioning lock can be released by a process that does not hold it
 kind: fix
 appetite: big
-status: blocked
+status: in_review
 branch: fix/lock-ownership-and-hold-time
 base: main
 current_phase: done
@@ -90,21 +90,21 @@ phases:
   - P2
   parallel: false
   hammerable: false
-  hill: uphill
+  hill: downhill
   verify: "set -eu\nbash -n bin/uv-manager\n.agents/factory/bin/lint.sh >/dev/null\n\
     .agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'\nset -e\nA=\"$UVM_ROOT/$(uname\
     \ -m)\"; L=\"$A/.install.lock\"\nprintf '%s\\n' 'if [ -n \"${UVM_FIXTURE_SLOW:-}\"\
     \ ]; then sleep \"$UVM_FIXTURE_SLOW\"; fi' >> \"$UVM_FIXTURE_DIR/install.sh\"\n\
-    ( UVM_FIXTURE_SLOW=8 uv --version >/dev/null 2>\"$UVM_SANDBOX/holder.err\" ) &\
-    \ holder=$!\nsleep 1\nfirst=$(sed -n 's/.*\\(pid=[0-9][0-9]*\\).*/\\1/p' \"$L/owner\"\
-    \ 2>/dev/null || true)\nsleep 4\nset +e\nUVM_LOCK_STALE=3 UVM_LOCK_TIMEOUT=2 uv\
-    \ --version >/dev/null 2>\"$UVM_SANDBOX/waiter.err\"\nset -e\nnow=$(sed -n 's/.*\\\
-    (pid=[0-9][0-9]*\\).*/\\1/p' \"$L/owner\" 2>/dev/null || true)\nif grep -q 'breaking\
-    \ stale provisioning lock' \"$UVM_SANDBOX/waiter.err\"; then\n  echo \"FAIL: a\
-    \ live holder's lock was broken as stale\" >&2; exit 1\nfi\nif [ -z \"$first\"\
-    \ ] || [ \"$first\" != \"$now\" ]; then\n  echo \"FAIL: lock was $first, now ${now:-gone}\"\
-    \ >&2; exit 1\nfi\nwait \"$holder\"\nDRIVE\n.agents/factory/bin/temp_root.sh --offline\
-    \ sh -s <<'DRIVE'\nset -e\nA=\"$UVM_ROOT/$(uname -m)\"; L=\"$A/.install.lock\"\
+    ( UVM_LOCK_TIMEOUT=2 UVM_LOCK_STALE=3 UVM_FIXTURE_SLOW=8 uv --version >/dev/null\
+    \ 2>\"$UVM_SANDBOX/holder.err\" ) & holder=$!\nsleep 1\nfirst=$(sed -n 's/.*\\\
+    (pid=[0-9][0-9]*\\).*/\\1/p' \"$L/owner\" 2>/dev/null || true)\nsleep 4\nset +e\n\
+    UVM_LOCK_STALE=3 UVM_LOCK_TIMEOUT=2 uv --version >/dev/null 2>\"$UVM_SANDBOX/waiter.err\"\
+    \nset -e\nnow=$(sed -n 's/.*\\(pid=[0-9][0-9]*\\).*/\\1/p' \"$L/owner\" 2>/dev/null\
+    \ || true)\nif grep -q 'breaking stale provisioning lock' \"$UVM_SANDBOX/waiter.err\"\
+    ; then\n  echo \"FAIL: a live holder's lock was broken as stale\" >&2; exit 1\n\
+    fi\nif [ -z \"$first\" ] || [ \"$first\" != \"$now\" ]; then\n  echo \"FAIL: lock\
+    \ was $first, now ${now:-gone}\" >&2; exit 1\nfi\nwait \"$holder\"\nDRIVE\n.agents/factory/bin/temp_root.sh\
+    \ --offline sh -s <<'DRIVE'\nset -e\nA=\"$UVM_ROOT/$(uname -m)\"; L=\"$A/.install.lock\"\
     \nprintf '%s\\n' 'if [ -n \"${UVM_FIXTURE_SLOW:-}\" ]; then sleep \"$UVM_FIXTURE_SLOW\"\
     ; fi' >> \"$UVM_FIXTURE_DIR/install.sh\"\n( UVM_LOCK_TIMEOUT=2 UVM_LOCK_STALE=10\
     \ UVM_FIXTURE_SLOW=20 uv --version >/dev/null 2>&1 ) & holder=$!\nsleep 2\np=$(sed\
@@ -115,7 +115,30 @@ phases:
     $L/owner\" 2>/dev/null || stat -c %Y \"$L/owner\" 2>/dev/null || true)\nwait \"\
     $holder\" 2>/dev/null || true\nif [ \"$m1\" != \"$m2\" ]; then\n  echo \"FAIL:\
     \ something refreshed the lock after its holder was killed ($m1 -> $m2)\" >&2;\
-    \ exit 1\nfi\nDRIVE"
+    \ exit 1\nfi\nDRIVE\n.agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'\n\
+    set -e\nA=\"$UVM_ROOT/$(uname -m)\"; L=\"$A/.install.lock\"\nmkdir -p \"$A\";\
+    \ mkdir \"$L\"\nsleep 30 & victim=$!\nprintf 'host=%s pid=%s nonce=recycled\\\
+    n' \"$(uname -n)\" \"$victim\" > \"$L/owner\"\ntouch -t 202001010000 \"$L/owner\"\
+    \ \"$L\"\nset +e\nUVM_LOCK_STALE=5 UVM_LOCK_TIMEOUT=4 uv --version >/dev/null\
+    \ 2>\"$UVM_SANDBOX/reuse.err\"\nrc=$?\nset -e\nkill \"$victim\" 2>/dev/null ||\
+    \ true\nwait \"$victim\" 2>/dev/null || true\nif ! grep -q 'breaking stale provisioning\
+    \ lock' \"$UVM_SANDBOX/reuse.err\"; then\n  echo \"FAIL: a lock past UVM_LOCK_STALE\
+    \ went unbroken because its recorded pid was reused\" >&2\n  cat \"$UVM_SANDBOX/reuse.err\"\
+    \ >&2; exit 1\nfi\nif [ \"$rc\" -ne 0 ]; then\n  echo \"FAIL: waiter did not acquire\
+    \ after breaking the stale lock (rc=$rc)\" >&2\n  cat \"$UVM_SANDBOX/reuse.err\"\
+    \ >&2; exit 1\nfi\nt=$(readlink \"$A/current\" 2>/dev/null || true)\nif [ \"$t\"\
+    \ != \"versions/9.9.9\" ]; then echo \"FAIL: current is ${t:-missing}\" >&2; exit\
+    \ 1; fi\nDRIVE\n.agents/factory/bin/temp_root.sh --offline sh -s <<'DRIVE'\nset\
+    \ -e\nA=\"$UVM_ROOT/$(uname -m)\"\nUVM_TEST_CAP=\"$UVM_SANDBOX/owner.captured\"\
+    ; export UVM_TEST_CAP\nUVM_TEST_LOCK=\"$A/.install.lock\"; export UVM_TEST_LOCK\n\
+    printf '%s\\n' 'cp \"$UVM_TEST_LOCK/owner\" \"$UVM_TEST_CAP\" 2>/dev/null || true'\
+    \ >> \"$UVM_FIXTURE_DIR/install.sh\"\nHOSTNAME=spoofed.invalid; export HOSTNAME\n\
+    uv --version >/dev/null\nif [ ! -s \"$UVM_TEST_CAP\" ]; then echo \"FAIL: no owner\
+    \ line captured\" >&2; exit 1; fi\nif grep -q 'host=spoofed.invalid' \"$UVM_TEST_CAP\"\
+    ; then\n  echo \"FAIL: an inherited HOSTNAME reached the lock's owner record\"\
+    \ >&2\n  cat \"$UVM_TEST_CAP\" >&2; exit 1\nfi\nif ! grep -q \"host=$(uname -n)\
+    \ \" \"$UVM_TEST_CAP\"; then\n  echo \"FAIL: the owner line does not record uname\
+    \ -n\" >&2\n  cat \"$UVM_TEST_CAP\" >&2; exit 1\nfi\nDRIVE"
 - id: P4
   name: Refuse a knob configuration that lets a waiter break a live lock
   status: done
@@ -404,8 +427,43 @@ outcome leaves the directory standing.
       at once, same host with a live pid keeps it, anything else falls through to the mtime. A pid
       that is not all digits is treated as unprobeable rather than dead — `kill -0` would fail on it
       and manufacture a break with no evidence behind it.
+      **Reopened and amended by review cycle 1 — see the two items below.**
 - [x] Update `invariants.md` §5 and `AGENTS.md` § *Invariants*: the stale age is now measured from the
       heartbeat, not from acquisition.
+
+Review cycle 1 reopened this phase. Both findings were in the probe this phase added.
+
+- [x] **F1** — stop gating the age test on the probe. The item above shipped
+      `elif [[ -z "${pid}" ]] && … (( age > lock_stale ))`, which makes `UVM_LOCK_STALE` unreachable
+      whenever a recorded pid answers `kill -0`. `kill -0` answers for a pid *number*, and this
+      phase's own reasoning is that pid space wraps in under a minute — so a lock left by a killed
+      holder was unbreakable for the lifetime of whatever inherited its number, where `main`
+      self-heals in one second. The age test now runs whatever the probe answered; the probe is
+      retained as the fast path that skips the stale window for a provably dead holder. What protects
+      a live holder is the heartbeat, not the age test failing to run.
+- [x] **F2** — source the host token from `uname -n`, hoisted above the `mkdir` loop, and compare
+      against it. `${HOSTNAME}` is inherited, and the token decides whether a recorded pid may be
+      probed locally, so two nodes presenting one name had a waiter break a live remote holder's lock
+      on its first iteration. One fork, on the provisioning path only: the warm path never enters
+      `uvm_acquire_lock`, confirmed by trace. This also disposes of the review's F4, since `uname -n`
+      cannot carry the newline an exported `HOSTNAME` could.
+- [x] **F3** — `invariants.md` §5 asserted "the probe covers `kill -0`'s residual pid-reuse gap",
+      which inverted the truth: the probe *is* the gap. Both that bullet and `AGENTS.md`'s parallel
+      paragraph now state that age is consulted whatever the probe answered, and a new bullet records
+      the `uname -n` requirement.
+- **Amendment — the gate was under-specified, and the fix exposed it.** Drive 1 ran the holder at the
+  *default* `UVM_LOCK_STALE=600` and the waiter at `3`. The beat is `lock_stale / 10` derived from
+  each process's own value (`bin/uv-manager:435`), so the holder refreshed every 60 s against a 3 s
+  threshold, and drive 1 passed only because the pid probe suppressed the age test — the very defect
+  F1 names. Both processes now carry `UVM_LOCK_STALE=3`, giving a 1 s beat against a 3 s threshold,
+  which is what R2's "`UVM_LOCK_STALE` set below the hold duration" describes: one site-wide value,
+  below an 8 s hold. R2 is unchanged and still graded by the same assertion. The coupling is now
+  user-visible, so `etc/uv-manager.conf.example` says to set the threshold site-wide and why.
+- **Gate additions:** drive 3 plants an `owner` backdated to 2020 naming a live unrelated pid and
+  asserts the lock is broken and `current -> versions/9.9.9`; drive 4 exports
+  `HOSTNAME=spoofed.invalid` and asserts the captured owner line records `uname -n` instead. Both
+  measured red before the fix (drive 3 at `FAIL: a lock past UVM_LOCK_STALE went unbroken because its
+  recorded pid was reused`) and green after.
 - **Verify:** an 8-second hold against `UVM_LOCK_STALE=3` produces no `breaking stale provisioning
   lock` on the waiter's stderr and leaves `owner` naming the original pid; and a plain drive leaves no
   background job behind. The gate keeps `set +e` around the waiter and does **not** assert `rc=0` —
@@ -422,7 +480,10 @@ outcome leaves the directory standing.
   returned in 0 s with no `uv-manager` process left running, and stderr carried no `Terminated`. An
   owner-less lock still ages out through the directory fallback; a live pid past `UVM_LOCK_STALE` is
   never broken; a dead pid on this host is broken at once inside a 600 s window.
-- **Touches:** `bin/uv-manager`, `.agents/factory/invariants.md`, `AGENTS.md`.
+- **Re-run after the amendment:** the P1, P2, P4, P5, P6 and P7 gates all re-run green, since the fix
+  changed the function four of them assert against.
+- **Touches:** `bin/uv-manager`, `.agents/factory/invariants.md`, `AGENTS.md`,
+  `etc/uv-manager.conf.example`.
 
 ## Phase P4 — Refuse a knob configuration that lets a waiter break a live lock
 **Satisfies:** R3 · **Depends on:** P3

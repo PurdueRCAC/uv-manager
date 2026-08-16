@@ -83,6 +83,10 @@
 # holder's refresh no sooner than one heartbeat plus the attribute-cache
 # lifetime, and the wrapper beats once every tenth of the threshold.
 
+# Set the stale threshold site-wide, not per job. A holder refreshes its lock
+# every tenth of its own value, so a waiter configured lower than the holder
+# reads a lock that is being refreshed on schedule as abandoned and breaks it.
+
 # Override the architecture key. Default is `uname -m`. Set this if login and
 # compute images differ in a way `uname -m` does not capture — glibc version
 # skew, musl, or x86-64 microarchitecture levels. Keep it cheap to compute:

@@ -106,10 +106,19 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
   invisible and a long hold is broken as abandoned. The refresher re-reads `owner` before every
   write: stamping our identity over a new holder's record would stop *that* holder from ever
   releasing, an immortal lock manufactured by the ownership rule above.
-- **Liveness is consulted before age.** A holder on this host whose pid is gone loses its lock at
-  once; one that answers keeps it however long the work takes. Only a holder that cannot be probed —
-  on another node, or a lock with no `owner` file — falls through to the mtime. The probe covers
-  `kill -0`'s residual pid-reuse gap; the leash covers cross-node waiters, who cannot probe.
+- **Liveness is a fast path, never a substitute for age.** A holder on this host whose pid is gone
+  loses its lock at once instead of waiting out the stale window. Every other lock is decided by the
+  mtime, *including one whose recorded pid answers* — `kill -0` answers for a pid number and not for
+  the process that recorded it, and pid space wraps in under a minute on a node spawning `uv run` in
+  a loop. Gate the age test behind a negative probe and a lock left by a killed holder is unbreakable
+  for the lifetime of whatever inherits its pid, which is a leak only a human clears. What keeps a
+  live holder's lock is the heartbeat, which fits ten beats inside the threshold, and not the age
+  test failing to run.
+- **The host token is `uname -n`.** `HOSTNAME` is whatever bash inherited — a container image sets
+  it, `sbatch --export=ALL` carries a login node's copy onto every compute node — and the token
+  decides whether a recorded pid may be probed locally. Two nodes presenting one name has a waiter
+  probe a pid that lives on the other, find it absent, and break a live lock on its first iteration.
+  It resolves once, before the `mkdir`, so the owner line is still assembled from expansions alone.
 - **`UVM_LOCK_TIMEOUT` must be less than `UVM_LOCK_STALE`**, and `uvm_acquire_lock` refuses the
   inversion rather than acting on it — a waiter that outlives the threshold breaks the lock it is
   waiting for. The guard tests numeric form *before* the comparison, because on bash 3.2 a
