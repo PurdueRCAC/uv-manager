@@ -3,7 +3,7 @@ slug: lock-ownership-and-hold-time
 title: The provisioning lock can be released by a process that does not hold it
 kind: fix
 appetite: big
-status: in_review
+status: blocked
 branch: fix/lock-ownership-and-hold-time
 base: main
 current_phase: done
@@ -297,10 +297,11 @@ phases:
     \ named\" >&2; exit 1; fi\nif [ \"$e\" -ge 5 ]; then echo \"FAIL: the fault took\
     \ ${e}s -- the retry is not bounded by a constant\" >&2; exit 1; fi\nDRIVE"
 review:
-  last_reviewed_commit: 34742e9fc7ec43850c66f5769c310f4aa4b0a014
+  last_reviewed_commit: fadd87eeb09e9fd76f18b3722b614b367f984655
   verdict: changes-requested
-  blocked_reason: 'F1: recycled pid makes an abandoned lock unbreakable in uvm_acquire_lock'
-  cycle: 1
+  blocked_reason: 'F6: recycled pid keeps the heartbeat alive, making a dead holder''s
+    lock immortal; F7: the break removes by path'
+  cycle: 2
 ---
 # TECH.md — The provisioning lock can be released by a process that does not hold it
 

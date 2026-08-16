@@ -400,3 +400,48 @@
 **What worked well:** reopening the phase whose `satisfies` covered the failing behavior, rather than
 appending a remediation phase, put the fix and its regression drives in the file next to the reasoning
 that produced the defect — where the next reader meets them together.
+
+## F19 — the debate variant assumes the two reviewers overlap, and says nothing about disjoint results
+`origin=uvm-review:step-3 severity=medium category=missing-guidance status=open target=.agents/factory/review-rubric.md`
+- **What happened:** cycle 2's two reviewers returned two CONFIRMED defects in one function and
+  neither found the other's. The rubric's instruction is to "reconcile" their findings, which
+  presumes the sets overlap and the work is arbitrating severity or disposition — what cycle 1 did,
+  where both stances reached the same F1. With disjoint sets there is nothing to arbitrate, and the
+  orchestrator is left to decide unaided what disjointness *means*. It means coverage is incomplete:
+  two passes over a 273-line function found two defects with no intersection, which is evidence a
+  third exists, and that inference belongs in the record rather than in whether the orchestrator
+  happens to draw it.
+- **Skill cause:** § *Optional debate variant* is two sentences and defines the technique by its
+  input (two opposing stances) rather than by how to read its output. The stance assignment is itself
+  what drives divergence — a reviewer told to argue ship searches for reasons to dissolve, one told
+  to argue block searches for states to construct, and they walk different paths through the code —
+  so disjoint results are a predictable mode of the variant, not a surprise it can leave unhandled.
+- **Recommended fix:** add a sentence to § *Optional debate variant*: overlap between the two
+  reviewers is a confidence signal about the findings; disjointness is a coverage signal about the
+  pass. Record which of the two occurred in `REVIEW.md`'s reconciliation note, and treat a fully
+  disjoint result as grounds to say so explicitly rather than to present the union as complete.
+- **Confidence:** high · **Effort:** small
+
+## F20 — Step 2 says to inline a file that is inside the graded diff
+`origin=uvm-review:step-2 severity=medium category=instruction status=open target=.claude/skills/uvm-review/SKILL.md`
+- **What happened:** Step 2's curated-input list says to give the reviewer "the full text of
+  `invariants.md` and `review-rubric.md`". But `invariants.md` is routinely *part of the diff being
+  graded* — it was on this branch, revised in six of the seven phases — and the rubric says so
+  itself: "an edit to this file sits inside the graded diff, so it revises the standard and is judged
+  on its merits". Pasting a copy into the prompt hands the reviewer a second, orchestrator-mediated
+  version of a file whose current contents are the thing under review, and it doubles a long prompt
+  across two reviewers. I pointed at both paths instead, noting they are outside `spec/` so no
+  blindness is at stake, and told the reviewers `invariants.md` is itself in the diff.
+- **Skill cause:** the inline rule exists to bound what reaches a blind context, and it is correct
+  for `GOAL.md`, which lives under `spec/`. It was extended to two files that do not, where it buys
+  nothing and costs accuracy. Nothing in Step 2 distinguishes "inline because the reviewer must not
+  browse for it" from "inline because it is long".
+- **Recommended fix:** in Step 2, replace the two files in the inline list with an instruction to
+  read them at their paths, stating that both sit outside `spec/` and that `invariants.md` is
+  frequently inside the graded diff, so the working-tree copy is the one to grade. `GOAL.md` stays
+  inline for the reason it always was.
+- **Confidence:** high · **Effort:** small
+
+**What worked well (cycle 2):** offering the scoped-versus-full choice as an explicit question, with
+the reason a scoped pass was the weaker option on this diff, meant the graded surface was a decision
+on the record instead of a default nobody examined.
