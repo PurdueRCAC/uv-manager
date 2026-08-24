@@ -3,11 +3,11 @@ slug: lock-ownership-and-hold-time
 title: The provisioning lock can be released by a process that does not hold it
 kind: fix
 appetite: big
-status: in_review
+status: blocked
 branch: fix/lock-ownership-and-hold-time
 base: main
 current_phase: done
-last_updated: '2026-08-16'
+last_updated: '2026-08-24'
 phases:
 - id: P1
   name: Give the lock an identity, and release only what matches it
@@ -379,11 +379,11 @@ phases:
     \ 'cache-dir' || { echo \"FAIL: :767-772 is not the banner naming --cache-dir\"\
     \ >&2; exit 1; }"
 review:
-  last_reviewed_commit: fadd87eeb09e9fd76f18b3722b614b367f984655
+  last_reviewed_commit: 8eac4b73dfda91e54f1fb97746183234b658e5f3
   verdict: changes-requested
-  blocked_reason: 'F6: recycled pid keeps the heartbeat alive, making a dead holder''s
-    lock immortal; F7: the break removes by path'
-  cycle: 2
+  blocked_reason: 'F9: the fatal owner write kills a rank robbed by the break race;
+    main''s suppressed write let it live'
+  cycle: 3
 ---
 # TECH.md — The provisioning lock can be released by a process that does not hold it
 

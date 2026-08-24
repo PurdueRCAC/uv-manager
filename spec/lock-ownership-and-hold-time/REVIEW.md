@@ -478,3 +478,253 @@ and non-convergence there is an escalation rather than another pass.
 ## Optional completeness sub-pass (separate reviewer; may see TECH.md)
 
 Not run — `/uvm-review` was invoked with `debate`, not `completeness`.
+
+---
+
+# Review cycle 3 — changes-requested (2026-08-24)
+
+- **Reviewed commit:** 8eac4b7  ·  **Base:** main  ·  **Previously reviewed:** fadd87e
+- **Cycle:** 3 of ≤3 — mirrors `review.cycle` in `TECH.md`. **A fourth cycle is outside the bound.**
+- **Mode:** full blind pass over the spec-excluded diff (`main...HEAD`, 11 files, 731 insertions),
+  **`debate` variant** for the third consecutive cycle. A pass scoped to the remediation delta
+  (`fadd87e..HEAD`, 6 files) was offered and declined: the F6 leash landed inside the heartbeat P3
+  built and P8 re-edited the break path, so a reviewer blind to the rest could not see whether either
+  disturbed an earlier phase's post-condition.
+
+Contract note: `GOAL.md` has not moved since cycle 1. Its last commit (`50b8cec`, R8) predates both
+prior reviewed commits, so all three cycles grade the same eight-criterion contract. The two
+post-shaping amendments were surfaced and confirmed by the maintainer before grading.
+
+Findings continue the record's numbering. Cycle 2's **F6** and **F8** are remediated: the refresher's
+leash is now a pid paired with `uvm_proc_start` (`bin/uv-manager:461-464` region, leash at the
+heartbeat), and the `invariant-audit-gaps` citations now land on the code they name. Cycle 2's **F7**
+was deferred on 2026-08-16 and is re-observed here with far better evidence — see its own section.
+
+## Verification run
+
+Both reviewers ran the gates and drove the script only through `.agents/factory/bin/temp_root.sh
+--offline`. Neither opened a file under `spec/`; both excluded it from every repository-wide search.
+Both returned a clean tree, verified again here (`git status --porcelain` empty).
+
+- `bash -n bin/uv-manager` → pass, under bash 3.2.57, the portability floor itself.
+- `.agents/factory/bin/lint.sh` → pass, all six checks.
+- `git grep -n 'exec "\${real_' bin/uv-manager` → four matches, each below a release guard.
+- `git grep -n flock bin/uv-manager` → one match, the rationale comment at `:172`.
+- Concurrency: 3 584 ranks (ship) and 6 400 ranks (block) on this branch, each against a matched
+  `main` control built from `git show main:bin/uv-manager`.
+- **Both reviewers independently built a simultaneity detector** — a marker directory taken at the
+  tail of the sandbox fixture's `install.sh` and held ~50 ms — which is the first time this record
+  can count *concurrent installer entries* rather than infer them from install totals. That is the
+  seed's own R1 obligation, partially discharged by the review rather than by a committed harness.
+
+**Convergence is stronger than cycle 2's.** Both reviewers independently reached the same three
+defects (the break race, the `<none recorded>` degradation, the `0` comment) and produced matching
+per-rank numbers on the same constructions. Cycle 2's two passes had shared nothing.
+
+## Requirement → evidence matrix
+
+Reconciled from two independent matrices. Both graded every R-ID met; every disagreement was about
+disposition, not coverage.
+
+| R-ID | Implemented by | Verified how (both reviewers, independently) | Status |
+|------|----------------|-----------------------------------------------|--------|
+| R1 | `uvm_unlock` (`:234-268`) | Foreign `owner` written mid-hold from inside the fixture → `provisioning lock is no longer ours, leaving it in place`, directory and `owner` both intact, user rc 0. Block also drove empty, absent, truncated and `chmod 000` variants — all leave the directory standing. Ordinary case → lock gone, `current -> versions/9.9.9`. | ✅ |
+| R2 | heartbeat, age from `owner` (`:401`) | 30 s hold against `STALE=10`, waiter launched at t+15 s with the lock already 1.5× stale: **zero** `breaking stale provisioning lock`, owner-file age sampled 0–1 s while the *directory* age read 15 s — the measurement that makes the `uvm_age` file-over-directory choice load-bearing rather than defensive. `SIGKILL` on the holder → `owner` mtime freezes, leash fires, next waiter recovers via the dead-pid path. | ✅ |
+| R3 | guard at `:311-340` | Eleven spellings across the two runs. `0600/500` refused printing the base-10 `600`/`500`; `500/0600` accepted through to `current -> versions/9.9.9`; `600/500`, `500/500`, `abc`, `' '`, `-1` all rc 1; `STALE=0800` contended → zero `value too great for base`. A pre-planted live lock survives the refusal with its `owner` byte-identical. `uvm --version` and `uvm help` answer rc 0 with both knobs garbage. | ✅ |
+| R4 | `uvm_unlock` before `:855` and `:1188` | Census 4 (`:856`, `:1193`, `:1195`, `:1199`), all downstream of a release. A/B on instrumented untracked copies with a lock forced into the dispatch tail: guard present → lock `GONE` after the `exec`; guard removed → `PRESENT` with a live owner line, and the next call has to break it. Hot-path cost graded on the implementation as R4 directs: `[[ -n "${uvm_lock}" ]] \|\| return 0` is the first statement — one builtin test, no fork. | ✅ |
+| R5 | timeout `die` (`:441-449`) | stderr carries the `owner` line verbatim, `A pid recorded there is on that host, not this one.`, and `rm -f '<lock>/owner' && rmdir '<lock>'`. **Caveat F10**: degrades to `<none recorded>` after a denied break. | ✅ |
+| R6 | unchanged `mkdir` discipline | Fixture version on stdout with installer chatter on stderr only, `current -> versions/9.9.9`, no lock left; `flock` only in the `:172` comment. Non-exec paths unchanged: `uv tool` / `uv python` rc propagation confirmed (`UVM_FIXTURE_EXIT=7` → rc 7), `uvx`, `uvm status`, `uvm doctor`, `uv self update --dry-run`. Ship additionally confirmed **pin authority under contention**: a pinned 6.6.6 caller waited out an unpinned holder installing 9.9.9 and still got `uv 6.6.6`. | ✅ |
+| R7 | `[[ -d "${lock}" ]] \|\| continue`, `broke=denied` (`:434-436`) | Both constructions — a stray entry blocking `rmdir`, and a parent `chmod 500` denying `rm -f` too — rc 1 at **exactly** the timeout, **6** stderr lines, exactly **1** break note, **1** timeout message. Against the contract's red state of 825 lines still spinning. Control (aged, removable) still breaks once and provisions. | ✅ |
+| R8 | `absent` counter, literal bound 3 (`:355-359`) | Branch **0 of 1280** (ship: also 0 of 1024) ranks non-zero, zero `check permissions and quota`, exactly one installer per burst. Matched `main` controls: **21/1280 and 21/1024** (ship), **20/1280** (block, with the `absent` retry surgically removed to prove the harness reaches the race). Unwritable arch directory still names the real fault, rc 1, in **0 s** rather than after `UVM_LOCK_TIMEOUT`. | ✅ |
+
+Requirements taken on trust: **`mkdir` atomicity on Lustre, GPFS and NFS**, declared up front in
+`GOAL.md` § *Verification limit*. Newly named by this cycle and **not** previously declared: **NFS
+attribute caching against the break's new `still` re-read** — a stale cached `owner` would make the
+identity test pass when it should fail, which is the one filesystem where the P8 guard could be worse
+than inert; and **whether `ps -o lstart=` answers on non-macOS cluster images**, on which the
+refresher's leash silently degrades to the bare `kill -0` that cycle 2's F6 was raised against. Both
+are consequences of code this cycle shipped, both are unobservable on APFS, and the second is already
+carried as the seed's R5. Recording them is not a downgrade of a criterion — no R-ID asserts either —
+but they belong in front of a human before this reaches a cluster.
+
+## Findings
+
+### [HIGH/CONFIRMED] F9 — the robbed winner's death is new to this diff; on `main` it lived
+
+- **Where:** `bin/uv-manager:461-464`
+- **Failure scenario:** a rank that wins `mkdir` and has its fresh directory removed by a losing
+  breaker (the F7 race) reaches `printf '%s\n' "${owner}" > "${lock}/owner"`, which now opens
+  `ENOENT`. The `die` fires. The user's command exits **1 with empty stdout**, and a raw shell
+  diagnostic naming an internal script line reaches their stderr:
+  `bin/uv: line 461: …/.install.lock/owner: No such file or directory`, then
+  `uv-manager: cannot record ownership of the provisioning lock at …`. On a wrapper that sits under
+  unattended provisioning, `VER=$(uv --version)` comes back empty — the exact shape §5 elsewhere
+  treats as unacceptable.
+- **Evidence:** block measured **4/1280** robbed winners on a dead-holder plant and **3/1280** on an
+  ownerless plant; ship measured **3/640** on its own construction. Both matched against `main` on
+  the identical construction: **`robbed_winner=0` on `main`, both variants.**
+- **The mechanism, verified here directly.** `git show main:bin/uv-manager` line 243 is
+  `> "${lock}/owner" 2>/dev/null || true` — non-fatal, and the diagnostic suppressed. HEAD's
+  `:461-464` is a `die`. A robbed winner on `main` continues and installs; on this branch it dies.
+- **Competing explanation ruled out:** *a pre-existing failure wearing a new message* — `main`'s
+  failures on the same construction all carry `check permissions and quota` (the R8 defect, which
+  this cycle fixes) and **zero** carry `cannot record ownership`. The two counts move independently.
+- **Why it blocks.** The rubric's deferral exception needs **both** that the behavior predate the
+  diff and that a `GOAL.md` criterion be failed by repairing it. The first fails outright. R1 requires
+  ownership to be *recorded*; it does not require that an `ENOENT` from a lost race be *fatal*. The
+  remedy is already specified as the seed's own **R3** — retake the lock rather than die, bounded by
+  a constant in the style of the `absent` retry three lines up the same function — and it preserves
+  what the fatality exists for, which is never holding a lock this process cannot prove.
+- **Region:** `uvm_acquire_lock` — high blast radius.
+
+#### Correction to cycle 2
+
+Cycle 2's **F7** enumerated this death as one of its two outcomes and then characterized the whole
+finding as *"Pre-existing, and the diff changes reachability rather than the mechanism… `main`
+carries the identical unqualified `rm -f owner; rmdir`."* That is true of the **race** and false of
+the **death**. Cycle 2 measured `main` worse in aggregate and did not isolate the robbed-winner
+outcome; cycle 3's matched A/B does, and finds it at zero on `main`. The 2026-08-16 disposition
+deferred F7 whole on the strength of "pre-existing on `main` and measurably worse there" — which no
+longer holds for this half. **Cycle 3's account supersedes cycle 2's on this point only**; cycle 2's
+section stands as written, and its treatment of the race itself is unaffected.
+
+### Cycle 2's F7, re-observed and quantified
+
+The break-instance race is confirmed a second time, now with concurrency counted rather than
+inferred. Block's simultaneity detector, 20 bursts × 64 ranks:
+
+| construction | wrapper | nonzero rc | concurrent installer entries / total |
+|---|---|---|---|
+| dead-holder lock, owner present | HEAD | 4/1280 | **9 / 29** |
+| dead-holder lock, owner present | `main` | 74/1280 | 94 / 114 |
+| ownerless aged lock | HEAD | 3/1280 | **41 / 61** |
+| ownerless aged lock | `main` | 88/1280 | 134 / 154 |
+| **no planted lock** (shipped default path) | HEAD | **0/1280** | **0 / 20** |
+
+Ship's independent run agrees in direction and magnitude (3/640 against `main`'s 35/640; 11 installer
+runs against 82). The cold-burst control gives exactly one marker acquisition per burst and zero
+overlaps, so the detector does not fire on correctly serialized installs.
+
+**The deferral stands.** F7 predates the diff, is ~10× narrower here than on `main`, and both
+reviewers independently re-derived that the obvious repair fails a criterion: `mv -T` does not exist
+at the portability floor (`uvm_point_current` already carries that fallback), and `rmdir`'s refusal of
+a non-empty directory is what makes R7 true for its own gate's construction. It is committed as
+[`issues/lock-break-instance-identity.md`](../../issues/lock-break-instance-identity.md) with a
+`ROADMAP.md` entry sequenced above `purge-tree-repair`. **The shipped default path is clean** — 2 304
+(ship) and 1280 (block) plain cold-start ranks with zero failures and zero overlaps.
+
+### [LOW/CONFIRMED] F10 — a denied break strips `owner`, so the timeout message loses its discriminator
+
+- **Where:** `bin/uv-manager:425-426` (the `rm -f` precedes the `rmdir` that fails) → `:446-447`
+- **Failure scenario:** in exactly the state R7 is about — a lock aged past `UVM_LOCK_STALE` whose
+  removal is denied — `rm -f owner` succeeds and `rmdir` is refused. The lock survives with no
+  `owner`, and the timeout message prints `holder, from the lock's owner file: <none recorded>` two
+  lines below a break note that named `host=… pid=… nonce=…`. Where the parent directory denies the
+  `rmdir`, the tree is left with a permanent ownerless lock whose age clock the unlink reset once.
+- **Evidence:** both reviewers, both R7 constructions, captured stderr showing the break note's owner
+  line and the `<none recorded>` timeout three seconds later.
+- **Not scored as a §5 violation:** the file records nothing by then, so the message is literally
+  accurate, and the break note two lines up carries the line. Already the seed's **R6**.
+
+### [LOW/CONFIRMED] F11 — a comment misattributes which guard rejects `0`
+
+- **Where:** `bin/uv-manager:320-321` — *"The same test catches `' '`, 0 and -1, each of which makes
+  every lock instantly stale."*
+- **Failure scenario:** `^[0-9]+$` matches `0`. `UVM_LOCK_STALE=0` is refused by the **ordering**
+  test, not the form test, and `UVM_LOCK_TIMEOUT=0` is **accepted**. Behavior is correct; the harm is
+  prospective — a maintainer who reorders or drops the ordering guard on the strength of this
+  sentence ships `STALE=0`, which makes every lock instantly stale.
+- **Evidence:** both reviewers drove it. `TIMEOUT=0 STALE=0` → the *ordering* message;
+  `TIMEOUT=0 STALE=600` → provisions, rc 0; `' '` and `-1` → the *form* message. The two guards emit
+  distinguishable text, which is what separates them.
+- Not a §12 voice violation — a factual defect in a comment, in the highest-blast-radius function.
+
+### [LOW/CONFIRMED] F12 — R8's invariant landed in only one of the two files that must move together
+
+- **Where:** `.agents/factory/invariants.md:90` versus `AGENTS.md`
+- **Failure scenario:** the diff adds an `AGENTS.md` § *Invariants* paragraph for each new invariant
+  (ownership, heartbeat, leash, knobs, `exec`, the timeout message) but none for *"Distinguish
+  contention from failure by persistence, not by a second look."* `AGENTS.md` declares the two files
+  kept in lockstep and itself ground truth when they drift, so R8's rule — the one defect in this
+  cycle reachable at shipped defaults — is the only one not binding where the project says the
+  binding text lives.
+- **Evidence:** `grep -in 'persistence\|contention\|second look\|bounded number\|absent' AGENTS.md`
+  returns one line, `:152`, which is the *ownership* rule's "absent, empty, truncated, unreadable".
+  `grep -n 'persistence' .agents/factory/invariants.md` → `:90`. Verified here as well as by block.
+- Scored LOW, not §12/HIGH: nothing reversed is left standing, so the auto-CRITICAL trigger for a
+  section still asserting an overturned decision does not fire.
+
+### [LOW/CONFIRMED] F13 — the new seed understates the residual it defers
+
+- **Where:** `issues/lock-break-instance-identity.md:39-44`
+- **Failure scenario:** the seed localizes the residual as *"vacuous when the judged lock carried no
+  `owner` file at all"*, which reads as though P8's re-read closed the owner-present case. It did not.
+  The window is the TOCTOU between the `still` read (`:423`) and the `rm -f`/`rmdir` (`:425-426`), and
+  it is independent of whether the judged line was empty — passing the identity test is what lets this
+  process delete a *new* winner's `owner` and so clear the way for its own `rmdir`.
+- **Evidence:** the owner-present construction yields **9 of 29** concurrent installer entries and 4
+  robbed winners. The ownerless case is ~4.5× hotter (41 of 61), which is a narrowing, not a closure.
+- **Narrowed from the block reviewer's version.** It argued the seed's draft **R2** would let a future
+  cycle close only the vacuous case with a green gate. R2 reads "SHALL NOT remove whatever occupies
+  that path, **including** when the judged lock carried no `owner` file" — the general prohibition is
+  primary and the ownerless case an explicit inclusion, so a gate written against R2 must cover both.
+  The defect is in the seed's *Problem* prose, not in its criteria.
+
+### Candidates raised and dropped
+
+Killed with constructed state rather than by reading: an async subshell inheriting the EXIT trap and
+having the refresher delete its parent's lock (bash 3.2 resets async-subshell traps; the `trap -` is
+belt-and-braces as its comment claims); the redirection-order and trailing-newline claims in
+`uvm_unlock` (both behave exactly as commented); a hot-path fork from the pre-`exec` release
+(measured at ~0.26 ms, attributable to parse cost from the file growing, and R4 pre-declares timing
+unresolvable here); `SIGINT` returning 0 rather than 130 (**identical on `main`** — pre-existing and
+untouched); the monotonic-`absent` objection (hunted across both reviewers' bursts, found zero times).
+Cycle 1's F5 orphaned `sleep` was re-observed by both and remains bounded, self-reaping, and holding
+no pipe — a cold `VER=$(uv --version)` returned in 250 ms. A §12 prose sweep of the added hunks found
+no banned constructions, no feature-scoped spec ids in `bin/uv-manager` or `README.md`, and no emoji.
+
+## Human-gate triggers
+
+**Triggered, and not cleared.** F9 is CONFIRMED in `uvm_acquire_lock`, and the re-observed F7 sits in
+the same function. `AGENTS.md` and `invariants.md` both name it high-blast-radius.
+
+Per the rubric this gate is cleared by the human and never by the agent's own reading.
+
+- **Cleared by:** — · **Date:** — · **Grounds:** —
+
+Two decisions are the maintainer's and are stated here rather than taken:
+
+1. **F9** — remediate (the seed's R3 already specifies the fix, and it is a bounded retry around one
+   `printf` in the function that already carries one three lines above), or accept the rank death as
+   the price of the fatal owner write and re-defer it with the correction above on record.
+2. **The 2026-08-16 disposition of F7** was reasoned in part on "pre-existing on `main` and measurably
+   worse there". That premise now has a measured exception. Whether it changes the disposition is a
+   call this pass does not make.
+
+## Reconciliation note (debate variant)
+
+The two reviewers converged, which cycle 2's did not. Both graded all eight R-IDs met by executed
+drive, both independently built simultaneity detectors and matched `main` controls, and both reached
+the break race, the `<none recorded>` degradation and the `0` comment. Their numbers agree.
+
+They split on one thing. **Ship** recommended shipping: every metric favors the branch (0 failures
+across 2 304 default-path ranks where `main` loses 42; the constructed race 10× narrower), the
+residual is committed as a seed with a roadmap position, and it read the robbed-winner death as
+"converting a silent double-install into a loud single-rank death" — an improvement in kind. **Block**
+recommended changes-requested on that death alone, having built the A/B that isolates it, and
+explicitly declined to block on the race.
+
+Graded `changes-requested`, on F9 and by a narrow margin. Ship's aggregate case is correct and is not
+in dispute: this branch is a large, measured improvement on `main` and every criterion it was written
+against is met. What decides it is that the rubric's deferral exception is conjunctive and F9 fails
+its first condition — the death is authored here, not inherited — and that both reviewers'
+own evidence shows `main` at zero on the identical construction. F10 through F13 are cheap and belong
+in the same remediation; none of them would block on its own.
+
+**Loop bound.** This is cycle 3 of at most three. **A fourth pass is outside the bound**: if F9's
+remediation does not converge, the rubric requires escalation to a human rather than another
+review↔build cycle.
+
+## Optional completeness sub-pass (separate reviewer; may see TECH.md)
+
+Not run — `/uvm-review` was invoked with `debate`, not `completeness`.

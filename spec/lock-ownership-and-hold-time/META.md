@@ -504,3 +504,45 @@ on the record instead of a default nobody examined.
 open on demand, pinning the count of lock removals in the file was a real assertion rather than a
 drive that would have passed by luck — and the first version of that census failed immediately by
 counting two legitimate removals, which is the gate catching the gate.
+
+## F24 — nothing says what a later cycle does when it undercuts an earlier cycle's *deferral*
+`origin=uvm-review:step-3 severity=medium category=missing-guidance status=open target=.claude/skills/uvm-review/SKILL.md`
+- **What happened:** cycle 3's matched A/B showed that half of cycle 2's F7 — the robbed winner's
+  death — does not predate the diff, which is the premise the maintainer's 2026-08-16 deferral of F7
+  rested on. The skill's only correction machinery is `### Correction to cycle {n}`, scoped to "a
+  finding a later cycle overturned". A *disposition* is not a finding, and a deferral cleared by a
+  human is not the agent's to reopen silently. I invented the handling: split the new half out under
+  its own id, correct the characterization inside cycle 3's section, and put the disposition question
+  to the human rather than answering it.
+- **Skill cause:** Step 3 and the rubric's *Verdict & loop* both treat a deferral as terminal once
+  taken. Neither says whether re-blocking a component of a deferred finding is in bounds or is
+  re-litigating a cleared human decision, so the agent picks — and picking "in bounds" on a cycle-3
+  verdict is what decides whether the branch ships.
+- **Recommended fix:** add one rule to *Verdict & loop*: a later cycle that measures the deferral
+  exception's own conditions false for part of a deferred finding reports that part under a new id,
+  records the correction against the disposition rather than the finding, and routes the
+  keep-or-reopen decision to the human as a gate item. Never re-defer it on the agent's own reading.
+- **Confidence:** high · **Effort:** small
+
+## F25 — the loop bound is ambiguous at exactly the cycle where it binds
+`origin=uvm-review:step-4 severity=medium category=missing-guidance status=open target=.agents/factory/review-rubric.md`
+- **What happened:** this is cycle 3 with a `changes-requested` verdict. "At most two or three
+  review↔build cycles; escalate on non-convergence" does not say whether the escalation is owed
+  *now*, whether a fourth build may proceed unreviewed, or whether a fourth review is the
+  non-convergence it forbids. I wrote "a fourth pass is outside the bound" into `REVIEW.md` as my
+  reading, not as the skill's instruction.
+- **Skill cause:** "two or three" is a range with no tiebreak and no statement of what escalation
+  produces — the bound is stated as a count without a terminal state, so the one cycle where it
+  actually constrains anything is the one it does not describe.
+- **Recommended fix:** make it concrete: cycle 3 is the last that may set `changes-requested`; a
+  verdict that would be cycle 4's stops and hands the maintainer the standing findings, the
+  remediation delta, and an explicit ship/abandon/rescope choice. Say what escalation is, not only
+  that it happens.
+- **Confidence:** high · **Effort:** small
+
+**What worked well (cycle 3):** the debate variant earned its cost for the first time in this cycle.
+Both reviewers independently built a simultaneity detector — a marker held at the tail of the
+fixture's `install.sh` — which is the first time this record counts concurrent installer entries
+instead of inferring them from install totals, and it is the seed's own R1 obligation discharged by
+review rather than by a committed harness. Cycle 2's two passes shared no finding; cycle 3's shared
+three, and disagreed only on disposition, which is the signal the variant exists to produce.
