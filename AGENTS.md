@@ -160,6 +160,15 @@ every `exec` of the real `uv` releases first — the three in the dispatch tail 
 impossible when something does, and on a path holding no lock it costs one builtin test and no fork.
 A new `exec` site owes the same call.
 
+**Contention is told from failure by persistence, not by a second look.** A `mkdir` that failed
+`EEXIST` and a holder that released before the `[[ ! -d ]]` test look identical afterwards, so one
+absence is evidence of nothing — it reported a released lock as an unwritable filesystem for 2–4% of
+ranks in 64-way cold bursts, on GPFS and on APFS alike. The waiter retries, and names the
+permissions, quota or ENOSPC fault only once a literal bound of attempts has each found the lock
+gone. The bound is a constant in the script and never an environment variable, and the count never
+resets: a monotonic count is what stops an alternation of absent-retry and successful break from
+evading the timeout accounting.
+
 **A live holder's lock never ages out.** `uvm_acquire_lock` spawns a detached refresher that rewrites
 `owner` with byte-identical content every `UVM_LOCK_STALE/10` seconds and stops when the holder is
 gone; `uvm_unlock` reaps it with `kill` then `wait`. Age is therefore read from `${lock}/owner` and

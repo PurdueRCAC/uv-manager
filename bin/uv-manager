@@ -317,8 +317,9 @@ uvm_acquire_lock() {
   # Form first. On bash 3.2 a non-numeric value makes the comparison fatal
   # under `set -u`, and the EXIT trap's own status then overrides the error's,
   # so the script exits 0 — a bare ordering test would turn
-  # `VER=$(uv --version)` into empty and true. The same test catches ' ', 0
-  # and -1, each of which makes every lock instantly stale.
+  # `VER=$(uv --version)` into empty and true. It also catches ' ' and -1. A
+  # stale of 0 is digits and reaches the ordering test below instead, which
+  # refuses it whatever the timeout, no timeout being less than zero.
   if [[ ! "${lock_timeout}" =~ ^[0-9]+$ || ! "${lock_stale}" =~ ^[0-9]+$ ]]; then
     die "UVM_LOCK_TIMEOUT and UVM_LOCK_STALE must be whole numbers of seconds.
     UVM_LOCK_TIMEOUT=${lock_timeout}  UVM_LOCK_STALE=${lock_stale}"
