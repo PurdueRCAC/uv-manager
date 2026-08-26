@@ -79,6 +79,19 @@ leaves a `.incoming.` directory nothing collects. Small and independent; the cor
 repairs are harness work and land separately. Sequenced after `purge-tree-repair` because R3 may fold
 into it.
 
+### `.claude` is a symlink, so no agent can create a worktree
+**Seed:** [`issues/claude-dir-shim.md`](issues/claude-dir-shim.md) · `refactor` · appetite small
+
+`.claude` is a committed symlink to `.agents`, and Claude Code refuses to create a worktree under a
+symlinked `.claude` — a committed symlink there could redirect writes outside the repository, and it
+cannot tell this one from a hostile one. An agent asking for worktree isolation dies rather than
+degrading. The fix is to make `.claude/` a real directory of symlinks back into `.agents/`, which
+keeps `.agents/` canonical and turns `.claude/` into the per-tool shim it actually is. The cost is
+that one symlink becomes three and three can drift, so it owes a new `lint.sh` check; the existing
+one covers `bin/{uv,uvx,uvm}` only. Sequenced here because it is cheap and it unblocks worktree
+isolation for every cycle below it, but nothing is blocked on it — copying the tree to `/tmp` works
+and is what the probes that found this did.
+
 ### A curl-installable bootstrap
 **Seed:** [`issues/uvm-bootstrap.md`](issues/uvm-bootstrap.md) · `feature` · appetite medium
 
