@@ -32,6 +32,29 @@ lock. Appetite rounds to **big**. The sequencing stands: the blocking subset the
 needs is narrower — R1 and R3 — but the maintainer chose to take the cycle whole and in order rather
 than split it for earlier repair benchmarks.
 
+### The break still deletes locks it did not judge, and nothing here can measure it yet
+**Seed:** [`issues/lock-break-instance-identity.md`](issues/lock-break-instance-identity.md) · `fix` ·
+appetite big — **R3 splits off as a `small` cycle, taken first**
+
+What `lock-ownership-and-hold-time` narrowed but did not close. A forfeiture decided from an `owner`
+line read a second ago is acted on against a path, and a path is not an instance, so a losing breaker
+deletes a lock a third process just won. The shipped guard re-reads `owner` before acting; that
+narrows the owner-present case and is vacuous for a lock that had none. The exclusive rename is the
+obvious fix and is wrong twice over: `mv -T` does not exist at the portability floor, so `mv` nests
+instead of failing, and `rmdir` refusing a non-empty directory turned out to be the thing protecting
+established locks.
+
+**R3 — the robbed winner's death — comes out and goes first.** Review cycle 3 established that it is
+authored by the shipped cycle rather than inherited, `main` continuing where the branch dies, and
+that it needs none of the measurement debt the rest of this seed blocks on: the ENOENT state is
+constructible in one process, so a candidate is graded pass/fail rather than against noise. Its
+deferral from that cycle is a recorded maintainer override, not a rubric exception.
+
+R1 and R2 stay behind measurement — 320 ranks gave 5 robbed winners against 2, which is noise — so
+the harness comes first and the fix follows it. Carries the lock's unmeasured performance claims and
+its taken-on-trust safety properties. Sequenced above `purge-tree-repair`, which is what makes long
+holds real and this defect common.
+
 ### `uv run` rehydrates a purged tree, gated by `UVM_REPAIR`
 **Seed:** [`issues/purge-tree-repair.md`](issues/purge-tree-repair.md) · `feature` · appetite big
 
@@ -43,21 +66,6 @@ no budget removes, since a deleted distribution and every managed interpreter le
 the criteria must name what is caught and concede the rest. Cost is handled by a verification receipt
 rather than an integrity stamp. The detector it reads shipped in 0.5.0; what remains above it is the
 lock fix.
-
-### The break still deletes locks it did not judge, and nothing here can measure it yet
-**Seed:** [`issues/lock-break-instance-identity.md`](issues/lock-break-instance-identity.md) · `fix` ·
-appetite big
-
-What `lock-ownership-and-hold-time` narrowed but did not close. A forfeiture decided from an `owner`
-line read a second ago is acted on against a path, and a path is not an instance, so a losing breaker
-deletes a lock a third process just won. The shipped guard re-reads `owner` before acting and is
-vacuous for a lock that had none. The exclusive rename is the obvious fix and is wrong twice over:
-`mv -T` does not exist at the portability floor, so `mv` nests instead of failing, and `rmdir`
-refusing a non-empty directory turned out to be the thing protecting established locks. The real
-blocker is measurement — 320 ranks gave 5 robbed winners against 2, which is noise — so the harness
-comes first and the fix follows it. Carries the lock's unmeasured performance claims and its
-taken-on-trust safety properties. Sequenced above `purge-tree-repair`, which is what makes long holds
-real and this defect common.
 
 ### Three small code gaps behind inaccurate invariants
 **Seed:** [`issues/invariant-audit-gaps.md`](issues/invariant-audit-gaps.md) · `fix` · appetite small
@@ -87,8 +95,9 @@ story that cycle starts.
 The two hard parts for a shell script — mocking the network and the filesystem — are already solved by
 `temp_root.sh` and the `file://` installer fixture. What is missing is a runner, a corpus of cases,
 and a coverage measurement. It converts the factory's process guarantees into actual coverage, and it
-now carries two regression cases that shipped cycles owe it: R3a from the `UVM_PLATFORM` trampoline
-fix, and R3b from the state-directory guard. Sequenced below the operational gaps above only because
+now carries four regression cases that shipped cycles owe it: R3a from the `UVM_PLATFORM` trampoline
+fix, R3b from the state-directory guard, R3c from `uvm doctor`'s detection contract, and R3d for the
+lock's ownership and hold-time contract. Sequenced below the operational gaps above only because
 those are live; nothing about its value has changed.
 
 ### An onboarding guide for the factory

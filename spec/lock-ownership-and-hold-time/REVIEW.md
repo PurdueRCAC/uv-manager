@@ -685,21 +685,57 @@ no banned constructions, no feature-scoped spec ids in `bin/uv-manager` or `READ
 
 ## Human-gate triggers
 
-**Triggered, and not cleared.** F9 is CONFIRMED in `uvm_acquire_lock`, and the re-observed F7 sits in
-the same function. `AGENTS.md` and `invariants.md` both name it high-blast-radius.
+**Triggered.** F9 is CONFIRMED in `uvm_acquire_lock`, and the re-observed F7 sits in the same
+function. `AGENTS.md` and `invariants.md` both name it high-blast-radius.
 
 Per the rubric this gate is cleared by the human and never by the agent's own reading.
 
-- **Cleared by:** — · **Date:** — · **Grounds:** —
+- **Cleared by:** Geoffrey Lentner · **Date:** 2026-08-26 · **Grounds:** F9's remedy is a restructure
+  of the acquire loop rather than the local edit this section first supposed — it wraps an outer
+  retry around a body carrying three counters (`absent`, `waited`, `broke`) that reviewers graded
+  separately for exact behavior. Every remediation to `uvm_acquire_lock` on this branch has shipped
+  collateral rather than a failure of its target: P3's heartbeat produced cycle 2's CRITICAL F6, the
+  F6 leash shipped a `ps -o lstart=` dependency this cycle could only flag as unverifiable, and P8
+  shipped with its own author misdescribing it. F6 was caught by a full blind review and would not
+  have been caught by a gate on the targeted path. Against that, a deterministic gate for F9 now
+  exists, so the fix can be taken with a review behind it instead of unreviewed at the end of an
+  exhausted loop. Exposure while it waits is bounded and measured: 0 of 2 304 default-path ranks,
+  reachable only against a pre-planted abandoned lock, and `main` is worse on the identical
+  construction. Clearance given inline; the grounds are transcribed from the recommendation accepted
+  on that date.
 
-Two decisions are the maintainer's and are stated here rather than taken:
+### Disposition (2026-08-26)
 
-1. **F9** — remediate (the seed's R3 already specifies the fix, and it is a bounded retry around one
-   `printf` in the function that already carries one three lines above), or accept the rank death as
-   the price of the fatal owner write and re-defer it with the correction above on record.
-2. **The 2026-08-16 disposition of F7** was reasoned in part on "pre-existing on `main` and measurably
-   worse there". That premise now has a measured exception. Whether it changes the disposition is a
-   call this pass does not make.
+**F9 is deferred, and the deferral is a maintainer override rather than a rubric-conforming
+exception.** The rubric's exception is conjunctive and F9 fails its first condition — the rank death
+is authored on this branch, not inherited. Recording it as an ordinary deferral would misstate that
+to whoever triages the seed. It goes to
+[`issues/lock-break-instance-identity.md`](../../issues/lock-break-instance-identity.md) as its R3,
+which already specifies the remedy, **promoted to a standalone cycle taken next** rather than left
+behind that seed's R1.
+
+That promotion is the substantive half of the override. This cycle established that the seed's
+blocking premise — the repository cannot separate a candidate lock fix from noise — does not reach
+R3. F7 is a *rate* question and needs the burst apparatus R1 is for. F9 is a property of one code
+path given one constructible filesystem state (`mkdir` returned 0 and `${lock}` is absent at the
+owner write), and the wrapper cannot distinguish a constructed instance from a raced one, because its
+only evidence is `$?` from `mkdir` and the result of the redirect. A gate built on that runs in one
+process in about two seconds; it was driven red against `b3f7491` and green against a scratch patch,
+with a companion EACCES construction confirming a genuine filesystem fault stays fatal and keeps its
+errno. The gate is recorded in the seed so it is not rediscovered.
+
+F10 and F7 stay deferred on their own terms, unchanged.
+
+**On item 2 of this section as first written.** The 2026-08-16 disposition of F7 is left standing.
+Cycle 3's correction narrows its stated grounds for the death half only, and that half is now F9 and
+separately dispositioned above.
+
+**On "a fourth pass is outside the bound", asserted in this cycle's Reconciliation note.** That is one
+reading of `review-rubric.md`'s loop bound, and it was stated there as settled. The competing reading
+is that the bound constrains *unsupervised* self-correction and its remedy is escalation to a human —
+which is what occurred — so a human may authorize a scoped pass. Nothing here turns on which reading
+governs: F9 leaves this branch either way, and the cycle that takes it gets an ordinary review with a
+fresh counter. The ambiguity is filed as META F25.
 
 ## Reconciliation note (debate variant)
 

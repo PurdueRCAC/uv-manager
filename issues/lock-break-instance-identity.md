@@ -36,12 +36,21 @@ narrowing — a declined break falls through to the timeout accounting and the n
 re-decides — but it is **not a closure**, and it was shipped on that basis rather than on evidence
 that it works.
 
-**The residual is known and specific.** The identity test compares the re-read line against the
-judged line, so it is *vacuous when the judged lock carried no `owner` file at all*: an absent line
-matches an absent line, and a breaker that judged an owner-less lock will still remove a fresh
-winner's directory inside the 0.10 ms window between its `mkdir` and its `owner` write. Owner-less
-locks are reachable — `invariants.md` §5 keeps the directory-mtime fallback precisely for "a lock an
-older wrapper wrote, or one caught inside the acquire window."
+**The residual is known, and it is wider than the guard's shape suggests.** The identity test is
+*vacuous when the judged lock carried no `owner` file at all*: an absent line matches an absent line,
+and a breaker that judged an owner-less lock will still remove a fresh winner's directory inside the
+0.10 ms window between its `mkdir` and its `owner` write. Owner-less locks are reachable —
+`invariants.md` §5 keeps the directory-mtime fallback precisely for "a lock an older wrapper wrote,
+or one caught inside the acquire window."
+
+**The owner-present case is narrowed, not closed** — which an earlier draft of this section implied
+it was, and which would have let a future cycle close the vacuous case and call the defect done. The
+window is the interval between the re-read at `bin/uv-manager:423` and the `rm -f`/`rmdir` at
+`:425-426`, and passing the identity test is exactly what licenses this process to delete a *new*
+winner's `owner` and so clear the way for its own `rmdir`. Review cycle 3 measured a dead-holder
+plant *carrying* an owner at 9 of 29 concurrent installer entries and 4 robbed winners of 1280 ranks,
+against 41 of 61 for the owner-less plant. The vacuous case is roughly 4.5x hotter; it is not the
+only case, and R2 below is gated on both.
 
 **A rename does not fix this, and the reasons are worth keeping.** An exclusive `rename(2)` was
 designed, approved, and then rejected on evidence:
@@ -85,6 +94,56 @@ enough to accept or reject a candidate fix.** That debt is the first work here, 
   which is the failure mode `spec/lock-ownership-and-hold-time/META.md` F18 already records.
 - **No red state is established for the residual.** The owner-less-lock case above has never been
   constructed, so there is no drive that would fail against today's code and pass against a fix.
+
+### What review cycle 3 discharged, and what it did not
+
+The debt above is real for **R2**, whose question is a rate — how often a losing breaker's `rmdir`
+lands inside the acquire window — and a rate needs the harness, the sizing arithmetic, and a sentinel
+that outlives the sandbox. It does **not** reach **R3**.
+
+R3's question is a property of one code path given one filesystem state: `mkdir` returned 0 and
+`${lock}` is absent at the owner write. The wrapper cannot tell a constructed instance of that state
+from a raced one, because its only evidence is `$?` from `mkdir` and the result of the redirect. The
+state is therefore directly buildable, in one process, with no burst, and a candidate is accepted or
+rejected by pass/fail rather than by a rate against noise. Driven red against `b3f7491` and green
+against a scratch patch, in about two seconds per drive:
+
+```sh
+shim=$(mktemp -d)
+cat > "$shim/mkdir" <<'EOF'
+#!/bin/sh
+if [ $# -eq 1 ]; then case "$1" in *.install.lock)
+  /bin/mkdir "$1" || exit $?
+  [ -e "${UVM_SANDBOX}/fired" ] || { : > "${UVM_SANDBOX}/fired"; /bin/rmdir "$1"; }
+  exit 0 ;; esac; fi
+exec /bin/mkdir "$@"
+EOF
+chmod +x "$shim/mkdir"
+# Drive `uv --version` with "$shim" first on PATH inside temp_root.sh --offline,
+# asserting rc 0 and non-empty stdout. Red today: rc 1, stdout empty.
+```
+
+It is coupled to `mkdir` remaining an external command taking the lock path as its sole argument
+(`bin/uv-manager:345`), which belongs in a comment wherever the gate lands. Its companion `chmod 500`s
+the lock directory instead of removing it and asserts the write stays **fatal** with its errno intact
+— which is what stops a fix for R3 turning a genuine filesystem fault into a silent retry.
+
+**A landmine, measured.** The obvious way to keep the shell's own diagnostic off stderr on a
+successful retake — `err=$( { printf '%s\n' "${owner}" > "${lock}/owner"; } 2>&1 )` — is unsafe under
+this script's `set -euo pipefail` (`bin/uv-manager:19`). A failing command substitution aborts the
+shell before any `die` runs, so the fatal path loses `cannot record ownership` altogether and exits a
+bare 1, which is worse than today. Either guard it explicitly with `|| { … }`, or leave the stray
+line: on a successful retake stdout is clean, and the cold-provisioning path already writes installer
+output to stderr.
+
+**The collateral risk is the real one here, and no gate above covers it.** Every remediation to
+`uvm_acquire_lock` on the shipped cycle produced collateral rather than a failure of its target — the
+heartbeat produced an immortal-lock CRITICAL, its leash shipped an unverifiable `ps -o lstart=`
+dependency, and P8 shipped with its own author misdescribing it. R3's remedy wraps an outer retry
+around a loop body carrying three counters (`absent`, `waited`, `broke`) that reviewers graded
+separately for exact behavior. Whoever takes R3 owes gates that pin all three unchanged: rc 1 at
+exactly `UVM_LOCK_TIMEOUT` against a fresh foreign lock, exactly one break note across a denied
+break, and `absent`'s bound of three intact.
 
 ## Performance claims that are asserted rather than measured
 
@@ -133,6 +192,25 @@ Deferring was the maintainer's decision on 2026-08-16, taken with the human sign
 Taking it inside the cycle that found it would also have meant a third review round against a
 two-or-three-cycle bound, in the highest-blast-radius function in the repository, on evidence that
 could not distinguish a fix from noise.
+
+### R3 splits off and is taken first (2026-08-26)
+
+Review cycle 3 isolated the robbed winner's death from the race that causes it and established that
+the death is **authored by the shipped cycle**, not inherited: `main`'s owner write is
+`> "${lock}/owner" 2>/dev/null || true` and its robbed winners continue, where the branch's is a
+`die`. Matched A/B on the identical construction put `main` at zero robbed winners against the
+branch's 4 of 1280 and 3 of 1280. So R3 fails the review rubric's deferral exception on its first
+condition, and its deferral is a **maintainer override recorded as such**, cleared 2026-08-26 with
+grounds in `spec/lock-ownership-and-hold-time/REVIEW.md` § *Human-gate triggers*.
+
+The override was taken on the strength of two things, not on the defect being acceptable: R3's
+remedy is a restructure of the acquire loop rather than the local edit cycle 2 supposed, and this
+function's failure history is collateral rather than missed targets — so it wants a real review
+behind it more than it wants to be rushed into an exhausted loop. **R3 is therefore promoted to its
+own `small` cycle, taken immediately, ahead of R1 and R2 rather than behind them.** It does not need
+the harness: see § *What review cycle 3 discharged*, which carries its gate.
+
+R1 and R2 stay here, in this order, and still block on measurement.
 
 ## Outcome / vision
 
