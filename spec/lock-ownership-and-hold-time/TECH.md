@@ -3,11 +3,11 @@ slug: lock-ownership-and-hold-time
 title: The provisioning lock can be released by a process that does not hold it
 kind: fix
 appetite: big
-status: blocked
+status: done
 branch: fix/lock-ownership-and-hold-time
 base: main
 current_phase: done
-last_updated: '2026-08-24'
+last_updated: '2026-08-26'
 phases:
 - id: P1
   name: Give the lock an identity, and release only what matches it
