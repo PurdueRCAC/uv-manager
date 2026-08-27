@@ -17,9 +17,26 @@ See `AGENTS.md` for why.
 
 ## Queued
 
+### A rank robbed of its fresh lock dies instead of retaking it
+**Seed:** [`issues/lock-acquire-retake.md`](issues/lock-acquire-retake.md) · `fix` · appetite small
+
+Shipped in 0.6.0 as a known defect, by recorded maintainer override. The owner write became fatal —
+correctly, since a holder that cannot prove ownership leaks its lock for a full stale window — but a
+rank whose fresh lock directory is deleted by a losing stale-breaker hits the same `die` and exits 1
+with empty stdout, where the pre-0.6.0 wrapper continued. Matched A/B: zero robbed winners before,
+4 of 1280 after against a planted abandoned lock, 0 of 2304 on the ordinary cold-start path. The
+remedy is a bounded retake in the style of the existing absent-lock retry, keeping the `die` for a
+genuine filesystem fault.
+
+First because it is the only known rank-killer on a tagged release, and `small` because the gate
+already exists and needs no concurrency harness: the failure is a deterministic property of one code
+path, constructible in one process in about two seconds. Split out of
+`lock-break-instance-identity`, whose R1 and R2 remain blocked on measurement that this does not
+need.
+
 ### The break still deletes locks it did not judge, and nothing here can measure it yet
 **Seed:** [`issues/lock-break-instance-identity.md`](issues/lock-break-instance-identity.md) · `fix` ·
-appetite big — **R3 splits off as a `small` cycle, taken first**
+appetite big — **R3 split out to `lock-acquire-retake`, taken first**
 
 What `lock-ownership-and-hold-time` narrowed but did not close. A forfeiture decided from an `owner`
 line read a second ago is acted on against a path, and a path is not an instance, so a losing breaker
@@ -29,11 +46,8 @@ obvious fix and is wrong twice over: `mv -T` does not exist at the portability f
 instead of failing, and `rmdir` refusing a non-empty directory turned out to be the thing protecting
 established locks.
 
-**R3 — the robbed winner's death — comes out and goes first.** Review cycle 3 established that it is
-authored by the shipped cycle rather than inherited, `main` continuing where the branch dies, and
-that it needs none of the measurement debt the rest of this seed blocks on: the ENOENT state is
-constructible in one process, so a candidate is graded pass/fail rather than against noise. Its
-deferral from that cycle is a recorded maintainer override, not a rubric exception.
+Its R3 — the robbed winner's death — left for `lock-acquire-retake` above, needing none of the
+measurement debt the rest of this seed blocks on.
 
 R1 and R2 stay behind measurement — 320 ranks gave 5 robbed winners against 2, which is noise — so
 the harness comes first and the fix follows it. Carries the lock's unmeasured performance claims and
@@ -51,8 +65,8 @@ no budget removes, since a deleted distribution and every managed interpreter le
 the criteria must name what is caught and concede the rest. Cost is handled by a verification receipt
 rather than an integrity stamp. The detector it reads shipped in 0.5.0, and the lock's ownership and
 hold-time fix landed with it, so the concurrency bug this cycle would otherwise have inherited is
-gone. What remains above it is `lock-break-instance-identity`, whose residual this cycle is what makes
-common.
+gone. What remains above it are the two lock cycles — `lock-acquire-retake` and
+`lock-break-instance-identity` — whose residual this cycle is what makes common.
 
 ### Three small code gaps behind inaccurate invariants
 **Seed:** [`issues/invariant-audit-gaps.md`](issues/invariant-audit-gaps.md) · `fix` · appetite small

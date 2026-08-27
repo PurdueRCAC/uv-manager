@@ -101,49 +101,15 @@ The debt above is real for **R2**, whose question is a rate — how often a losi
 lands inside the acquire window — and a rate needs the harness, the sizing arithmetic, and a sentinel
 that outlives the sandbox. It does **not** reach **R3**.
 
-R3's question is a property of one code path given one filesystem state: `mkdir` returned 0 and
-`${lock}` is absent at the owner write. The wrapper cannot tell a constructed instance of that state
-from a raced one, because its only evidence is `$?` from `mkdir` and the result of the redirect. The
-state is therefore directly buildable, in one process, with no burst, and a candidate is accepted or
-rejected by pass/fail rather than by a rate against noise. Driven red against `b3f7491` and green
-against a scratch patch, in about two seconds per drive:
+R3's question was a property of one code path given one filesystem state — `mkdir` returned 0 and
+`${lock}` is absent at the owner write — which is directly constructible in one process, with no
+burst, so a candidate for it is graded pass/fail rather than against noise. **R3 has therefore left
+this seed**, taking its gate with it. It is
+[`issues/lock-acquire-retake.md`](lock-acquire-retake.md), which carries the working `mkdir` PATH
+shim, its EACCES companion, the `set -euo pipefail` landmine that a stderr cleanup walks into, and
+the counter-preservation gates the remedy owes.
 
-```sh
-shim=$(mktemp -d)
-cat > "$shim/mkdir" <<'EOF'
-#!/bin/sh
-if [ $# -eq 1 ]; then case "$1" in *.install.lock)
-  /bin/mkdir "$1" || exit $?
-  [ -e "${UVM_SANDBOX}/fired" ] || { : > "${UVM_SANDBOX}/fired"; /bin/rmdir "$1"; }
-  exit 0 ;; esac; fi
-exec /bin/mkdir "$@"
-EOF
-chmod +x "$shim/mkdir"
-# Drive `uv --version` with "$shim" first on PATH inside temp_root.sh --offline,
-# asserting rc 0 and non-empty stdout. Red today: rc 1, stdout empty.
-```
-
-It is coupled to `mkdir` remaining an external command taking the lock path as its sole argument
-(`bin/uv-manager:345`), which belongs in a comment wherever the gate lands. Its companion `chmod 500`s
-the lock directory instead of removing it and asserts the write stays **fatal** with its errno intact
-— which is what stops a fix for R3 turning a genuine filesystem fault into a silent retry.
-
-**A landmine, measured.** The obvious way to keep the shell's own diagnostic off stderr on a
-successful retake — `err=$( { printf '%s\n' "${owner}" > "${lock}/owner"; } 2>&1 )` — is unsafe under
-this script's `set -euo pipefail` (`bin/uv-manager:19`). A failing command substitution aborts the
-shell before any `die` runs, so the fatal path loses `cannot record ownership` altogether and exits a
-bare 1, which is worse than today. Either guard it explicitly with `|| { … }`, or leave the stray
-line: on a successful retake stdout is clean, and the cold-provisioning path already writes installer
-output to stderr.
-
-**The collateral risk is the real one here, and no gate above covers it.** Every remediation to
-`uvm_acquire_lock` on the shipped cycle produced collateral rather than a failure of its target — the
-heartbeat produced an immortal-lock CRITICAL, its leash shipped an unverifiable `ps -o lstart=`
-dependency, and P8 shipped with its own author misdescribing it. R3's remedy wraps an outer retry
-around a loop body carrying three counters (`absent`, `waited`, `broke`) that reviewers graded
-separately for exact behavior. Whoever takes R3 owes gates that pin all three unchanged: rc 1 at
-exactly `UVM_LOCK_TIMEOUT` against a fresh foreign lock, exactly one break note across a denied
-break, and `absent`'s bound of three intact.
+What remains here — R1 and R2 — is the rate question, and the debt above is undischarged for it.
 
 ## Performance claims that are asserted rather than measured
 
@@ -206,9 +172,14 @@ grounds in `spec/lock-ownership-and-hold-time/REVIEW.md` § *Human-gate triggers
 The override was taken on the strength of two things, not on the defect being acceptable: R3's
 remedy is a restructure of the acquire loop rather than the local edit cycle 2 supposed, and this
 function's failure history is collateral rather than missed targets — so it wants a real review
-behind it more than it wants to be rushed into an exhausted loop. **R3 is therefore promoted to its
-own `small` cycle, taken immediately, ahead of R1 and R2 rather than behind them.** It does not need
-the harness: see § *What review cycle 3 discharged*, which carries its gate.
+behind it more than it wants to be rushed into an exhausted loop.
+
+**R3 has since been split into its own seed** — [`issues/lock-acquire-retake.md`](lock-acquire-retake.md),
+`small`, taken ahead of R1 and R2 rather than behind them. It left rather than being promoted from
+here because promotion sets `status: adopted:{slug}` on the whole file: R1 and R2 would have read as
+adopted while nobody worked them, `/uvm-feature` would have refused them later as a collision, and
+`/uvm-roadmap` would have had to catch them as a remainder to avoid deleting their evidence. One
+seed, one cycle, one retirement is the arrangement those mechanisms are built for.
 
 R1 and R2 stay here, in this order, and still block on measurement.
 
@@ -230,9 +201,10 @@ Draft R-IDs, to be firmed up at promotion.
 - **R2** — WHEN a waiter's forfeiture decision names an instance that no longer exists, the wrapper
   SHALL NOT remove whatever occupies that path, **including** when the judged lock carried no `owner`
   file.
-- **R3** — WHEN a waiter's own `owner` write fails because the directory it created has been removed,
-  the wrapper SHALL retake the lock rather than die, bounded by a constant in the style of the
-  existing absent-lock retry, and SHALL still report a genuine filesystem fault with its errno.
+- **R3** — *Moved out* to [`issues/lock-acquire-retake.md`](lock-acquire-retake.md) on 2026-08-26,
+  where it is that seed's R1. The number is left vacant rather than closed up: `REVIEW.md`, the
+  `ROADMAP.md` entry and the 0.6.0 human-gate clearance all cite "the seed's R3", and renumbering
+  R4–R7 would falsify every one of them.
 - **R4** — The two-installer signal SHALL be attributed: either to this defect, or to the early-out
   at `bin/uv-manager:547`, with a drive that distinguishes them.
 - **R5** — IF `ps -o lstart=` cannot answer on the running platform, THEN the wrapper SHALL say so
