@@ -93,6 +93,25 @@ one covers `bin/{uv,uvx,uvm}` only. Sequenced here because it is cheap and it un
 isolation for every cycle below it, but nothing is blocked on it — copying the tree to `/tmp` works
 and is what the probes that found this did.
 
+### The static gate's own checks are never required to be observed failing
+**Seed:** [`issues/lint-checks-never-observed-failing.md`](issues/lint-checks-never-observed-failing.md) ·
+`fix` · appetite small · **applied by `/uvm-harness`**, not by a lifecycle cycle
+
+The factory requires a `verify:` gate to be watched going red before it is trusted, and applies the
+same rule to the offline fixture's invariant assertions. It does not apply it to `lint.sh`'s own
+checks, which are asked only to be run — a bar a check that can never fire clears perfectly. That
+matters because `lint.sh` is the gate the other gates lean on, and in a repository with no test suite
+it is the only standing static signal.
+
+Confirmed present here on 2026-08-27: `uvm-harness` Step 6 asks only that `lint.sh` be run. No live
+instances — no check enumerates, and none uses a GNU-only escape — but the `.agents/` script list is
+hardcoded in two places, so a fourth script would be silently unchecked with the gate green. The one
+confirmation step not yet run is the one that matters: break the tree once per check and watch each
+go red. That is the cycle's own first task and its red state.
+
+Originally a portable seed from porting the factory into `rcac-docs-mcp`, where two of nine rewritten
+checks turned out unfireable. The `{prefix}`-placeholder form is preserved at `3229b64`.
+
 ### A curl-installable bootstrap
 **Seed:** [`issues/uvm-bootstrap.md`](issues/uvm-bootstrap.md) · `feature` · appetite medium
 
