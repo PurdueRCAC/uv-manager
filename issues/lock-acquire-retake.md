@@ -1,5 +1,5 @@
 ---
-status: unshaped
+status: adopted:lock-acquire-retake
 kind: fix
 appetite: small
 lane: public
@@ -113,7 +113,7 @@ chmod +x "$shim/mkdir"
 ```
 
 It is coupled to `mkdir` remaining an external command taking the lock path as its sole argument
-(`bin/uv-manager:345` at 0.6.0), which belongs in a comment beside the gate. Its **companion**
+(`bin/uv-manager:346` at 0.6.0), which belongs in a comment beside the gate. Its **companion**
 `chmod 500`s the lock directory instead of removing it, and asserts the write stays fatal with its
 errno intact — that is what stops a fix here turning a genuine filesystem fault into a silent retry,
 and it is half the gate rather than an extra.

@@ -18,21 +18,26 @@ See `AGENTS.md` for why.
 ## Queued
 
 ### A rank robbed of its fresh lock dies instead of retaking it
-**Seed:** [`issues/lock-acquire-retake.md`](issues/lock-acquire-retake.md) · `fix` · appetite small
+**Seed:** [`issues/lock-acquire-retake.md`](issues/lock-acquire-retake.md) · `fix` · appetite small ·
+**adopted** as [`spec/lock-acquire-retake/`](spec/lock-acquire-retake/GOAL.md)
 
-Shipped in 0.6.0 as a known defect, by recorded maintainer override. The owner write became fatal —
-correctly, since a holder that cannot prove ownership leaks its lock for a full stale window — but a
-rank whose fresh lock directory is deleted by a losing stale-breaker hits the same `die` and exits 1
-with empty stdout, where the pre-0.6.0 wrapper continued. Matched A/B: zero robbed winners before,
-4 of 1280 after against a planted abandoned lock, 0 of 2304 on the ordinary cold-start path. The
-remedy is a bounded retake in the style of the existing absent-lock retry, keeping the `die` for a
-genuine filesystem fault.
+In flight. Shipped in 0.6.0 as a known defect by recorded maintainer override: the owner write became
+fatal — correctly — but a rank whose fresh lock directory is deleted by a losing stale-breaker hits
+the same `die` and exits 1 with empty stdout, where the pre-0.6.0 wrapper continued. Matched A/B: zero
+robbed winners before, 4 of 1280 after against a planted abandoned lock, 0 of 2304 on the ordinary
+cold-start path.
 
-First because it is the only known rank-killer on a tagged release, and `small` because the gate
-already exists and needs no concurrency harness: the failure is a deterministic property of one code
-path, constructible in one process in about two seconds. Split out of
-`lock-break-instance-identity`, whose R1 and R2 remain blocked on measurement that this does not
-need.
+Shaping settled six criteria and two open questions. Appetite stays **small** — it governs research
+depth, not care, and the shape is already settled with a deterministic red gate in hand; the
+collateral risk that sank the last three remediations to this function is answered instead by making
+counter-preservation a graded criterion (R4) rather than plan-level detail. A successful retake is
+**silent** (R5), matching the existing absent-lock retry, accepting knowingly that a site then gets no
+signal the underlying race is firing. Whether the retake shares the `absent` counter is left to
+`/uvm-plan`; R3 constrains only the observable bound and the timeout accounting.
+
+Not merged with `lock-break-instance-identity`: closing the race would make this cycle's gate
+unreachable. The committed regression test is deferred to `test-harness` R3e, landed there at
+shaping.
 
 ### The break still deletes locks it did not judge, and nothing here can measure it yet
 **Seed:** [`issues/lock-break-instance-identity.md`](issues/lock-break-instance-identity.md) · `fix` ·

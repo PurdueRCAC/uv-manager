@@ -71,6 +71,15 @@ were never executed.
   the same terms as R3a through R3c, and the sharpest of the four — R3 above already names a stale
   lock and a lock timeout, but those are single-process cases, and every defect here needs two
   processes racing on one tree.
+- **R3e** — The suite SHALL cover the acquire-time retake: a wrapper that has won `mkdir` and whose
+  `owner` write then fails because the directory was removed underneath it SHALL reacquire and exit
+  0, while the same write failing `EACCES` SHALL still exit non-zero carrying its errno. Owed by
+  `lock-acquire-retake`, whose `GOAL.md` § *Non-goals* defers the committed test here. Unlike R3d
+  this needs **one** process: the state is constructible with a `mkdir` shim first on `PATH` inside
+  `temp_root.sh --offline`, which makes it the cheapest of the five and a reasonable one to land
+  first. It is also the counterexample to R3d's premise that every defect in this area needs two
+  processes racing on one tree — the *reachability* of this one does, its *handling* does not, and
+  the handling is what a regression test pins.
 - **R4** — The suite SHALL assert post-conditions on the state tree, not merely exit status.
 - **R5** — The suite SHALL run on bash 3.2 and on bash 5, and SHALL run in CI on both Linux and macOS.
 - **R6** — The suite SHALL report a coverage measurement over `bin/uv-manager`.
