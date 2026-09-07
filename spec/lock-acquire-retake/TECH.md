@@ -3,7 +3,7 @@ slug: lock-acquire-retake
 title: A rank robbed of its fresh lock retakes it
 kind: fix
 appetite: small
-status: in_review
+status: done
 branch: fix/lock-acquire-retake
 base: main
 current_phase: done
