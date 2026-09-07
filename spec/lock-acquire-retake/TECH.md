@@ -230,10 +230,10 @@ phases:
     test -f spec/lock-acquire-retake/research/04-collateral-measurements.md || { echo
     "FAIL: the collateral measurements were not recorded" >&2; exit 1; }'
 review:
-  last_reviewed_commit: ''
-  verdict: none
+  last_reviewed_commit: d4ef8236d9559b427b3adab264e3cc463f698193
+  verdict: approved
   blocked_reason: ''
-  cycle: 0
+  cycle: 1
 ---
 # TECH.md — A rank robbed of its fresh lock retakes it
 

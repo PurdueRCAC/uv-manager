@@ -59,6 +59,27 @@ the harness comes first and the fix follows it. Carries the lock's unmeasured pe
 its taken-on-trust safety properties. Sequenced above `purge-tree-repair`, which is what makes long
 holds real and this defect common.
 
+### The owner write is classified by the directory a moment later, not by the errno
+**Seed:** [`issues/lock-owner-write-errno.md`](issues/lock-owner-write-errno.md) · `fix` ·
+appetite small — **blocked on measurement**
+
+What `lock-acquire-retake` narrowed but did not close. The retake decides between a lost race and a
+filesystem fault by testing whether the lock directory is still standing, because a failed redirect
+leaves the shell no errno a branch can read. The write fails at one instant and the test runs at the
+next, so a rank that wins `mkdir` at that path in between turns a robbed winner back into a fatal
+fault. Recorded PLAUSIBLE by that cycle's review, not CONFIRMED: the mechanism is real by reading and
+by an out-of-contract construction, but 5760 ranks of 64-way contention found none of it, with
+instrumentation catching three real robberies and three retakes. The same harness failed `main` at 1
+in 768, so the construction reaches the race.
+
+Sequenced below `lock-break-instance-identity` and for the same reason — a residual rate this low is
+not observable from a single-process construction, so `test-harness` R3d comes first or promotion
+grades the mechanism by reading. The two also interact: closing that seed's R2 removes the robbery
+this rides on and makes the residue unreachable, so whichever lands first changes the case for the
+other. Carries the fatal path's unqualified `rmdir` as a second defect on the same branch, pre-existing
+and strictly rarer than on `main`, because whatever fixes the classifier has to decide what that
+branch does.
+
 ### `uv run` rehydrates a purged tree, gated by `UVM_REPAIR`
 **Seed:** [`issues/purge-tree-repair.md`](issues/purge-tree-repair.md) · `feature` · appetite big
 

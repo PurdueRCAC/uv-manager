@@ -54,6 +54,22 @@ Harness self-improvement notes for this cycle. Records only; `/uvm-harness` appl
   the phase as a whole is still falsifiable.
 - **Confidence:** high · **Effort:** small
 
+## F4 — the debate variant gives both reviewers one scratchpad, and their fixtures collide
+`origin=uvm-review:step-2 severity=high category=instruction status=open target=.claude/skills/uvm-review/SKILL.md`
+- **What happened:** the two reviewers were launched with the same scratchpad path and both built a
+  `mkdir` PATH shim there. One reported that the other's shim overwrote its own mid-pass and re-ran
+  its whole set in an isolated subtree; the other reported HEAD failure rates its instrumented
+  re-measurement could not reproduce, in a burst whose fixtures lived in that shared directory.
+- **Skill cause:** Step 2 tells the orchestrator to launch two independent reviewers but says nothing
+  about isolating their working state, and the harness hands every subagent the same scratchpad. The
+  variant's whole claim is two independent measurements; sharing mutable fixtures between them makes
+  the measurements dependent in a way neither reviewer can see from inside.
+- **Recommended fix:** Step 2 must give each debate reviewer a distinct subdirectory
+  (`.../scratchpad/{ship,block}/`) in its prompt, and say why — a shim, a staged baseline binary or a
+  planted lock written to a shared path silently invalidates the other's drives. This weakens the
+  executed-evidence spine, which is why it is `high`.
+- **Confidence:** high · **Effort:** small
+
 **What worked well:** the rule that a non-goal deferring work by naming another file is only real in
 that file. Following it turned up that `issues/test-harness.md` R3d does not cover this cycle's
 defect — its stated premise is that every defect in this area needs two processes racing, which this
@@ -64,3 +80,8 @@ pointed at an obligation that did not exist.
 prove a gate can go green. Applied to the whole design rather than one gate, it turned the plan's
 central question — whether `[[ -d ]]` can tell a lost race from a filesystem fault — from an argument
 into six measurements before a line of the real diff was written.
+
+**What worked well:** the debate variant earned its cost. Two reviewers returned opposite verdicts on
+the same diff, which forced the orchestrator to measure the disputed claim itself rather than adopt
+either account — and the measurement that settled it (a control run proving the construction reaches
+the race before reading anything into a clean result) is one neither reviewer performed.
