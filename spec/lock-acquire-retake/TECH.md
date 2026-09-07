@@ -7,7 +7,7 @@ status: in_review
 branch: fix/lock-acquire-retake
 base: main
 current_phase: done
-last_updated: '2026-09-06'
+last_updated: '2026-09-07'
 phases:
 - id: P1
   name: Bounded retake in uvm_acquire_lock, with the invariant text narrowed
@@ -230,7 +230,7 @@ phases:
     test -f spec/lock-acquire-retake/research/04-collateral-measurements.md || { echo
     "FAIL: the collateral measurements were not recorded" >&2; exit 1; }'
 review:
-  last_reviewed_commit: d4ef8236d9559b427b3adab264e3cc463f698193
+  last_reviewed_commit: 2c567ba1d30ca74b4ef4fb12a32b69fd05037738
   verdict: approved
   blocked_reason: ''
   cycle: 1
