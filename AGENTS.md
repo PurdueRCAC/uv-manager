@@ -152,7 +152,10 @@ was broken as stale deletes the breaker's lock instead, leaving two processes pr
 with no mutual exclusion between them. Every other reading — absent, empty, truncated, unreadable,
 foreign — leaves the directory standing: a false leave is reclaimed by the stale breaker, a false
 delete is bounded by nothing. The owner write is fatal, because a holder that cannot prove ownership
-leaks its own lock for a full stale window.
+leaks its own lock for a full stale window — except where the directory this process just created
+is already gone, which is a lost race rather than a fault and is retaken under a literal bound that
+never resets. A directory still standing means the write itself was refused, and that still dies,
+carrying the errno the shell's own diagnostic names.
 
 **No lock survives an `exec`.** `exec` replaces the process image and the EXIT trap never runs, so
 every `exec` of the real `uv` releases first — the three in the dispatch tail and the one in

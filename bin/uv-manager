@@ -286,7 +286,7 @@ uvm_age() {
 uvm_acquire_lock() {
   local want="$1" force="$2"
   local lock="${uvm_root}/.install.lock"
-  local waited=0 age holder pid broke="" reason absent=0 host started still
+  local waited=0 age holder pid broke="" reason absent=0 robbed=0 host started still
   # uname -n, not HOSTNAME, which bash leaves at whatever it inherited. A
   # container image that sets it, or a login-node value carried out by
   # `sbatch --export=ALL`, gives two nodes one name — and the host token is
@@ -343,7 +343,40 @@ uvm_acquire_lock() {
   (umask 077; mkdir -p "${uvm_root}") \
     || die "cannot create ${uvm_root} — is ${uvm_base} writable?"
 
-  while ! mkdir "${lock}" 2>/dev/null; do
+  while :; do
+    if mkdir "${lock}" 2>/dev/null; then
+      # Ownership is certain the instant mkdir returns. Recording it has to
+      # precede setting uvm_lock: set that first and die, and the EXIT trap
+      # reads an absent owner, declines ownership, and leaks the lock anyway.
+      if printf '%s\n' "${owner}" > "${lock}/owner"; then
+        break
+      fi
+      # A failed redirect hands the shell no errno, so the directory is the
+      # only evidence of which failure this was. Still standing means the
+      # write itself was refused — a mode, a quota, a full filesystem — and
+      # that is fatal: a holder unable to prove ownership can never release
+      # its own lock and leaks it for a full stale window. The shell's own
+      # diagnostic carries the errno that names the fault, which is why the
+      # redirect keeps its order; 2>/dev/null in front of it would suppress
+      # that message on the fatal path as well as on this one.
+      if [[ -d "${lock}" ]]; then
+        rmdir "${lock}" 2>/dev/null || true
+        die "cannot record ownership of the provisioning lock at ${lock}/owner"
+      fi
+      # Gone means we won the lock and a losing stale-breaker removed it
+      # underneath us before we could claim it. That rank has done nothing
+      # wrong, and dying leaves VER=$(uv --version) empty and true on a cold
+      # node, so take the lock again. The bound is a literal for the same
+      # reason the absent count below is one, and it never resets: three
+      # robberies add three fast iterations to the wait rather than letting
+      # an alternation of robbery and retry escape the timeout accounting.
+      robbed=$(( robbed + 1 ))
+      (( robbed >= 3 )) || continue
+      die "cannot hold the provisioning lock at ${lock}
+    won it ${robbed} times and each time the directory was removed before
+    ownership could be recorded. Something is breaking locks it does not own —
+    look for a clock skew across nodes making live locks read as stale."
+    fi
     # Why mkdir failed cannot be settled by looking again: it can fail EEXIST
     # and the holder release before this test runs, and then a lock that was
     # merely released reads as an unwritable filesystem and the rank dies one
@@ -452,17 +485,6 @@ uvm_acquire_lock() {
     sleep 1
   done
 
-  # Fatal, not best-effort: a holder that cannot prove ownership can never
-  # release its own lock and leaks it for a full stale window. Ownership is
-  # certain the instant mkdir returns, so the directory is safe to remove
-  # here and nowhere later. The shell's own diagnostic is left unsuppressed
-  # because it carries the errno, which is what names the real fault. This
-  # must precede setting uvm_lock: set it first and die, and the EXIT trap
-  # reads an absent owner, declines ownership, and leaks the lock anyway.
-  printf '%s\n' "${owner}" > "${lock}/owner" || {
-    rmdir "${lock}" 2>/dev/null || true
-    die "cannot record ownership of the provisioning lock at ${lock}/owner"
-  }
   uvm_lock="${lock}"
   uvm_lock_owner="${owner}"
   # Ten beats inside a stale window, scaled to whatever the site configured

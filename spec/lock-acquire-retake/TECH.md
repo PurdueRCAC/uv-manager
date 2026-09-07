@@ -1,120 +1,240 @@
 ---
 slug: lock-acquire-retake
-title: "A rank robbed of its fresh lock retakes it"
+title: A rank robbed of its fresh lock retakes it
 kind: fix
 appetite: small
-status: planned
+status: in_progress
 branch: fix/lock-acquire-retake
 base: main
-current_phase: P1
-last_updated: "2026-09-06"
+current_phase: P2
+last_updated: '2026-09-06'
 phases:
-  - id: P1
-    name: "Bounded retake in uvm_acquire_lock, with the invariant text narrowed"
-    status: pending
-    satisfies: [R1, R2, R3, R5]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: |
-      set -eu
-      bash -n bin/uv-manager
-      .agents/factory/bin/lint.sh >/dev/null
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'R1DRIVE'
-      set -eu
-      S="$UVM_SANDBOX/shim"; mkdir -p "$S"
-      printf '%s\n' '#!/bin/sh' 'case "${1:-}" in *.install.lock) /bin/mkdir "$1" || exit $?; [ -e "$UVM_SANDBOX/fired" ] || { : > "$UVM_SANDBOX/fired"; /bin/rmdir "$1"; }; exit 0;; esac; exec /bin/mkdir "$@"' > "$S/mkdir"
-      chmod +x "$S/mkdir"; PATH="$S:$PATH"; export PATH
-      err="$UVM_SANDBOX/err"
-      out=$(uv --version 2>"$err") || { echo "FAIL R1: robbed winner exited non-zero instead of retaking the lock" >&2; cat "$err" >&2; exit 1; }
-      [ "$out" = "uv 9.9.9 (fixture)" ] || { echo "FAIL R5: stdout was [$out], not the fixture version alone" >&2; exit 1; }
-      if grep -q 'cannot record ownership' "$err"; then echo "FAIL R1: retake still reported the fatal owner-write error" >&2; exit 1; fi
-      if grep -qiE 'retak|reacquir' "$err"; then echo "FAIL R5: the retake announced itself on stderr" >&2; exit 1; fi
-      R1DRIVE
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'R2DRIVE'
-      set -eu
-      S="$UVM_SANDBOX/shim"; mkdir -p "$S"
-      printf '%s\n' '#!/bin/sh' 'case "${1:-}" in *.install.lock) /bin/mkdir "$1" || exit $?; [ -e "$UVM_SANDBOX/fired" ] || { : > "$UVM_SANDBOX/fired"; /bin/chmod 500 "$1"; }; exit 0;; esac; exec /bin/mkdir "$@"' > "$S/mkdir"
-      chmod +x "$S/mkdir"; PATH="$S:$PATH"; export PATH
-      err="$UVM_SANDBOX/err"
-      if UVM_LOCK_TIMEOUT=5 UVM_LOCK_STALE=60 uv --version >/dev/null 2>"$err"; then echo "FAIL R2: an EACCES owner write was silently retried into success" >&2; exit 1; fi
-      grep -q 'Permission denied' "$err" || { echo "FAIL R2: the errno did not reach stderr" >&2; cat "$err" >&2; exit 1; }
-      grep -q 'cannot record ownership' "$err" || { echo "FAIL R2: the wrapper's own fatal message is gone" >&2; exit 1; }
-      R2DRIVE
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'R3DRIVE'
-      set -eu
-      S="$UVM_SANDBOX/shim"; mkdir -p "$S"
-      printf '%s\n' '#!/bin/sh' 'case "${1:-}" in *.install.lock) /bin/mkdir "$1" || exit $?; /bin/rmdir "$1"; exit 0;; esac; exec /bin/mkdir "$@"' > "$S/mkdir"
-      chmod +x "$S/mkdir"; PATH="$S:$PATH"; export PATH
-      err="$UVM_SANDBOX/err"; s=$(date +%s)
-      if UVM_LOCK_TIMEOUT=5 UVM_LOCK_STALE=60 uv --version >/dev/null 2>"$err"; then echo "FAIL R3: an endlessly robbed rank reported success" >&2; exit 1; fi
-      e=$(date +%s); [ $((e-s)) -lt 5 ] || { echo "FAIL R3: repeated robbery consumed UVM_LOCK_TIMEOUT ($((e-s))s) instead of a literal bound" >&2; exit 1; }
-      R3DRIVE
-      git grep -qi retak -- AGENTS.md || { echo "FAIL: AGENTS.md still asserts the owner write is fatal without the retake exception" >&2; exit 1; }
-      git grep -qi retak -- .agents/factory/invariants.md || { echo "FAIL: invariants.md 5 still asserts the owner write is fatal without the retake exception" >&2; exit 1; }
-  - id: P2
-    name: "Collateral proof: the three counters and the single-download hold are untouched"
-    status: pending
-    satisfies: [R4, R6]
-    depends_on: [P1]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: |
-      set -eu
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'R4ADRIVE'
-      set -eu
-      A="$UVM_ROOT/$(uname -m)"; L="$A/.install.lock"; mkdir -p "$L"
-      printf 'host=foreign-node pid=99999 nonce=123\n' > "$L/owner"
-      err="$UVM_SANDBOX/err"; s=$(date +%s)
-      if UVM_LOCK_TIMEOUT=5 UVM_LOCK_STALE=60 uv --version >/dev/null 2>"$err"; then echo "FAIL R4a: a foreign lock did not block the caller" >&2; exit 1; fi
-      e=$(date +%s)
-      grep -q 'timed out after 5s waiting for provisioning lock' "$err" || { echo "FAIL R4a: the timeout message changed" >&2; cat "$err" >&2; exit 1; }
-      grep -q 'host=foreign-node pid=99999' "$err" || { echo "FAIL R4a: the timeout no longer names the holder" >&2; exit 1; }
-      [ $((e-s)) -ge 4 ] && [ $((e-s)) -le 8 ] || { echo "FAIL R4a: waited $((e-s))s against a 5s timeout" >&2; exit 1; }
-      R4ADRIVE
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'R4BDRIVE'
-      set -eu
-      A="$UVM_ROOT/$(uname -m)"; L="$A/.install.lock"; mkdir -p "$L"
-      printf 'host=foreign-node pid=88888 nonce=987\n' > "$L/owner"
-      sleep 5
-      chmod 555 "$A"
-      err="$UVM_SANDBOX/err"
-      UVM_LOCK_TIMEOUT=3 UVM_LOCK_STALE=4 uv --version >/dev/null 2>"$err" || true
-      chmod 755 "$A"
-      n=$(grep -c 'breaking stale provisioning lock' "$err" || true)
-      [ "$n" = "1" ] || { echo "FAIL R4b: expected exactly one break note across the wait, got $n" >&2; cat "$err" >&2; exit 1; }
-      R4BDRIVE
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'R4CDRIVE'
-      set -eu
-      S="$UVM_SANDBOX/shim"; mkdir -p "$S"
-      printf '%s\n' '#!/bin/sh' 'case "${1:-}" in *.install.lock) n=0; [ -e "$UVM_SANDBOX/n" ] && n=$(cat "$UVM_SANDBOX/n"); echo $((n+1)) > "$UVM_SANDBOX/n"; exit 1;; esac; exec /bin/mkdir "$@"' > "$S/mkdir"
-      chmod +x "$S/mkdir"; PATH="$S:$PATH"; export PATH
-      err="$UVM_SANDBOX/err"
-      if UVM_LOCK_TIMEOUT=5 UVM_LOCK_STALE=60 uv --version >/dev/null 2>"$err"; then echo "FAIL R4c: an uncreatable lock reported success" >&2; exit 1; fi
-      grep -q 'cannot create provisioning lock' "$err" || { echo "FAIL R4c: the absent-lock message changed" >&2; cat "$err" >&2; exit 1; }
-      n=$(cat "$UVM_SANDBOX/n")
-      [ "$n" = "3" ] || { echo "FAIL R4c: absent bound fired after $n mkdir attempts, not 3" >&2; exit 1; }
-      R4CDRIVE
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'R6DRIVE'
-      set -eu
-      out=$(uv --version)
-      [ "$out" = "uv 9.9.9 (fixture)" ] || { echo "FAIL R6: stdout was [$out]" >&2; exit 1; }
-      A="$UVM_ROOT/$(uname -m)"; t=$(readlink "$A/current")
-      [ "$t" = "versions/9.9.9" ] || { echo "FAIL R6: current points at [$t], not a relative versions/ target" >&2; exit 1; }
-      [ ! -e "$A/.install.lock" ] || { echo "FAIL R6: a lock was left behind after a clean install" >&2; exit 1; }
-      R6DRIVE
-      n=$(git grep -c flock -- bin/uv-manager | cut -d: -f2)
-      [ "$n" = "1" ] || { echo "FAIL R6: flock appears $n times in bin/uv-manager, not once as a rationale comment" >&2; exit 1; }
-      test -f spec/lock-acquire-retake/research/04-collateral-measurements.md || { echo "FAIL: the collateral measurements were not recorded" >&2; exit 1; }
+- id: P1
+  name: Bounded retake in uvm_acquire_lock, with the invariant text narrowed
+  status: done
+  satisfies:
+  - R1
+  - R2
+  - R3
+  - R5
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: 'set -eu
+
+    bash -n bin/uv-manager
+
+    .agents/factory/bin/lint.sh >/dev/null
+
+    .agents/factory/bin/temp_root.sh --offline sh -s <<''R1DRIVE''
+
+    set -eu
+
+    S="$UVM_SANDBOX/shim"; mkdir -p "$S"
+
+    printf ''%s\n'' ''#!/bin/sh'' ''case "${1:-}" in *.install.lock) /bin/mkdir "$1"
+    || exit $?; [ -e "$UVM_SANDBOX/fired" ] || { : > "$UVM_SANDBOX/fired"; /bin/rmdir
+    "$1"; }; exit 0;; esac; exec /bin/mkdir "$@"'' > "$S/mkdir"
+
+    chmod +x "$S/mkdir"; PATH="$S:$PATH"; export PATH
+
+    err="$UVM_SANDBOX/err"
+
+    out=$(uv --version 2>"$err") || { echo "FAIL R1: robbed winner exited non-zero
+    instead of retaking the lock" >&2; cat "$err" >&2; exit 1; }
+
+    [ "$out" = "uv 9.9.9 (fixture)" ] || { echo "FAIL R5: stdout was [$out], not the
+    fixture version alone" >&2; exit 1; }
+
+    if grep -q ''cannot record ownership'' "$err"; then echo "FAIL R1: retake still
+    reported the fatal owner-write error" >&2; exit 1; fi
+
+    if grep -qiE ''retak|reacquir'' "$err"; then echo "FAIL R5: the retake announced
+    itself on stderr" >&2; exit 1; fi
+
+    R1DRIVE
+
+    .agents/factory/bin/temp_root.sh --offline sh -s <<''R2DRIVE''
+
+    set -eu
+
+    S="$UVM_SANDBOX/shim"; mkdir -p "$S"
+
+    printf ''%s\n'' ''#!/bin/sh'' ''case "${1:-}" in *.install.lock) /bin/mkdir "$1"
+    || exit $?; [ -e "$UVM_SANDBOX/fired" ] || { : > "$UVM_SANDBOX/fired"; /bin/chmod
+    500 "$1"; }; exit 0;; esac; exec /bin/mkdir "$@"'' > "$S/mkdir"
+
+    chmod +x "$S/mkdir"; PATH="$S:$PATH"; export PATH
+
+    err="$UVM_SANDBOX/err"
+
+    if UVM_LOCK_TIMEOUT=5 UVM_LOCK_STALE=60 uv --version >/dev/null 2>"$err"; then
+    echo "FAIL R2: an EACCES owner write was silently retried into success" >&2; exit
+    1; fi
+
+    grep -q ''Permission denied'' "$err" || { echo "FAIL R2: the errno did not reach
+    stderr" >&2; cat "$err" >&2; exit 1; }
+
+    grep -q ''cannot record ownership'' "$err" || { echo "FAIL R2: the wrapper''s
+    own fatal message is gone" >&2; exit 1; }
+
+    R2DRIVE
+
+    .agents/factory/bin/temp_root.sh --offline sh -s <<''R3DRIVE''
+
+    set -eu
+
+    S="$UVM_SANDBOX/shim"; mkdir -p "$S"
+
+    printf ''%s\n'' ''#!/bin/sh'' ''case "${1:-}" in *.install.lock) /bin/mkdir "$1"
+    || exit $?; /bin/rmdir "$1"; exit 0;; esac; exec /bin/mkdir "$@"'' > "$S/mkdir"
+
+    chmod +x "$S/mkdir"; PATH="$S:$PATH"; export PATH
+
+    err="$UVM_SANDBOX/err"; s=$(date +%s)
+
+    if UVM_LOCK_TIMEOUT=5 UVM_LOCK_STALE=60 uv --version >/dev/null 2>"$err"; then
+    echo "FAIL R3: an endlessly robbed rank reported success" >&2; exit 1; fi
+
+    e=$(date +%s); [ $((e-s)) -lt 5 ] || { echo "FAIL R3: repeated robbery consumed
+    UVM_LOCK_TIMEOUT ($((e-s))s) instead of a literal bound" >&2; exit 1; }
+
+    R3DRIVE
+
+    git grep -qi retak -- AGENTS.md || { echo "FAIL: AGENTS.md still asserts the owner
+    write is fatal without the retake exception" >&2; exit 1; }
+
+    git grep -qi retak -- .agents/factory/invariants.md || { echo "FAIL: invariants.md
+    5 still asserts the owner write is fatal without the retake exception" >&2; exit
+    1; }
+
+    '
+- id: P2
+  name: 'Collateral proof: the three counters and the single-download hold are untouched'
+  status: pending
+  satisfies:
+  - R4
+  - R6
+  depends_on:
+  - P1
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: 'set -eu
+
+    .agents/factory/bin/temp_root.sh --offline sh -s <<''R4ADRIVE''
+
+    set -eu
+
+    A="$UVM_ROOT/$(uname -m)"; L="$A/.install.lock"; mkdir -p "$L"
+
+    printf ''host=foreign-node pid=99999 nonce=123\n'' > "$L/owner"
+
+    err="$UVM_SANDBOX/err"; s=$(date +%s)
+
+    if UVM_LOCK_TIMEOUT=5 UVM_LOCK_STALE=60 uv --version >/dev/null 2>"$err"; then
+    echo "FAIL R4a: a foreign lock did not block the caller" >&2; exit 1; fi
+
+    e=$(date +%s)
+
+    grep -q ''timed out after 5s waiting for provisioning lock'' "$err" || { echo
+    "FAIL R4a: the timeout message changed" >&2; cat "$err" >&2; exit 1; }
+
+    grep -q ''host=foreign-node pid=99999'' "$err" || { echo "FAIL R4a: the timeout
+    no longer names the holder" >&2; exit 1; }
+
+    [ $((e-s)) -ge 4 ] && [ $((e-s)) -le 8 ] || { echo "FAIL R4a: waited $((e-s))s
+    against a 5s timeout" >&2; exit 1; }
+
+    R4ADRIVE
+
+    .agents/factory/bin/temp_root.sh --offline sh -s <<''R4BDRIVE''
+
+    set -eu
+
+    A="$UVM_ROOT/$(uname -m)"; L="$A/.install.lock"; mkdir -p "$L"
+
+    printf ''host=foreign-node pid=88888 nonce=987\n'' > "$L/owner"
+
+    sleep 5
+
+    chmod 555 "$A"
+
+    err="$UVM_SANDBOX/err"
+
+    UVM_LOCK_TIMEOUT=3 UVM_LOCK_STALE=4 uv --version >/dev/null 2>"$err" || true
+
+    chmod 755 "$A"
+
+    n=$(grep -c ''breaking stale provisioning lock'' "$err" || true)
+
+    [ "$n" = "1" ] || { echo "FAIL R4b: expected exactly one break note across the
+    wait, got $n" >&2; cat "$err" >&2; exit 1; }
+
+    R4BDRIVE
+
+    .agents/factory/bin/temp_root.sh --offline sh -s <<''R4CDRIVE''
+
+    set -eu
+
+    S="$UVM_SANDBOX/shim"; mkdir -p "$S"
+
+    printf ''%s\n'' ''#!/bin/sh'' ''case "${1:-}" in *.install.lock) n=0; [ -e "$UVM_SANDBOX/n"
+    ] && n=$(cat "$UVM_SANDBOX/n"); echo $((n+1)) > "$UVM_SANDBOX/n"; exit 1;; esac;
+    exec /bin/mkdir "$@"'' > "$S/mkdir"
+
+    chmod +x "$S/mkdir"; PATH="$S:$PATH"; export PATH
+
+    err="$UVM_SANDBOX/err"
+
+    if UVM_LOCK_TIMEOUT=5 UVM_LOCK_STALE=60 uv --version >/dev/null 2>"$err"; then
+    echo "FAIL R4c: an uncreatable lock reported success" >&2; exit 1; fi
+
+    grep -q ''cannot create provisioning lock'' "$err" || { echo "FAIL R4c: the absent-lock
+    message changed" >&2; cat "$err" >&2; exit 1; }
+
+    n=$(cat "$UVM_SANDBOX/n")
+
+    [ "$n" = "3" ] || { echo "FAIL R4c: absent bound fired after $n mkdir attempts,
+    not 3" >&2; exit 1; }
+
+    R4CDRIVE
+
+    .agents/factory/bin/temp_root.sh --offline sh -s <<''R6DRIVE''
+
+    set -eu
+
+    out=$(uv --version)
+
+    [ "$out" = "uv 9.9.9 (fixture)" ] || { echo "FAIL R6: stdout was [$out]" >&2;
+    exit 1; }
+
+    A="$UVM_ROOT/$(uname -m)"; t=$(readlink "$A/current")
+
+    [ "$t" = "versions/9.9.9" ] || { echo "FAIL R6: current points at [$t], not a
+    relative versions/ target" >&2; exit 1; }
+
+    [ ! -e "$A/.install.lock" ] || { echo "FAIL R6: a lock was left behind after a
+    clean install" >&2; exit 1; }
+
+    R6DRIVE
+
+    n=$(git grep -c flock -- bin/uv-manager | cut -d: -f2)
+
+    [ "$n" = "1" ] || { echo "FAIL R6: flock appears $n times in bin/uv-manager, not
+    once as a rationale comment" >&2; exit 1; }
+
+    test -f spec/lock-acquire-retake/research/04-collateral-measurements.md || { echo
+    "FAIL: the collateral measurements were not recorded" >&2; exit 1; }
+
+    '
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — A rank robbed of its fresh lock retakes it
 
 The **context engine and finite-state machine** for building this fix. The YAML frontmatter above is
@@ -152,28 +272,28 @@ changing the call shape owes these gates an update.
 **Goal:** a rank that wins `mkdir` and then finds its lock directory gone retakes the lock and
 carries on; one that hits a real filesystem fault still dies with its errno.
 
-- [ ] Add `robbed=0` to the existing `local` line at `bin/uv-manager:289`, beside `waited`, `absent`
+- [x] Add `robbed=0` to the existing `local` line at `bin/uv-manager:289`, beside `waited`, `absent`
       and `broke`. Do not declare it inside the loop — that resets it every pass and makes the retake
       unbounded.
-- [ ] Change `:346` from `while ! mkdir "${lock}" 2>/dev/null; do` to `while :; do`, and make the
+- [x] Change `:346` from `while ! mkdir "${lock}" 2>/dev/null; do` to `while :; do`, and make the
       `mkdir` the first statement of the body inside `if mkdir "${lock}" 2>/dev/null; then`. Leave the
       existing wait-loop body at its current indentation and do not edit it — the diff should show
       the body as unchanged context.
-- [ ] Inside that `if`: attempt the owner write as an `if` condition, `break` on success. On failure,
+- [x] Inside that `if`: attempt the owner write as an `if` condition, `break` on success. On failure,
       `[[ -d "${lock}" ]]` means a fault — `rmdir` and `die` with today's message, unchanged. Absence
       means a lost race — increment `robbed`, `continue` while it is under the literal 3, and `die`
       with a distinct message naming the condition once it reaches it.
-- [ ] Keep the write's redirection order (`> "${lock}/owner"`, no `2>/dev/null` before it) so the
+- [x] Keep the write's redirection order (`> "${lock}/owner"`, no `2>/dev/null` before it) so the
       shell's diagnostic still carries the errno R2 depends on.
-- [ ] Delete the post-loop `# Fatal, not best-effort:` comment and its
+- [x] Delete the post-loop `# Fatal, not best-effort:` comment and its
       `printf … || { rmdir; die; }` block. Carry forward, beside the new write, the two claims that
       still hold: ownership is certain the instant `mkdir` returns, and the write must precede
       `uvm_lock` or the EXIT trap declines ownership and leaks the lock.
-- [ ] Write the new comments in the repository's voice — the *why*, not the what. Four of them earn
+- [x] Write the new comments in the repository's voice — the *why*, not the what. Four of them earn
       their place: the directory is the only evidence a failed redirect leaves the shell; absence is a
       lost race and presence is a fault; the bound is a literal that never resets, for the same reason
       `absent`'s is; the diagnostic stays unsuppressed because it carries the errno.
-- [ ] Narrow `AGENTS.md:154` and `.agents/factory/invariants.md:81` so neither asserts the owner
+- [x] Narrow `AGENTS.md:154` and `.agents/factory/invariants.md:81` so neither asserts the owner
       write is fatal without qualification. Same commit as the code — a section still asserting the
       reversed decision turns correct code into an auto-CRITICAL finding at review. Nothing else in
       either file changes.

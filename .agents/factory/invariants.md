@@ -80,7 +80,11 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
   is exactly what a holder broken as stale does when release matches on the path alone. The owner
   write is fatal (a holder that cannot prove ownership leaks its own lock for a full stale window)
   and the line is built from shell expansions with no forks, which narrows the `mkdir`-to-`owner`
-  window from 3.0 ms to 0.10 ms.
+  window from 3.0 ms to 0.10 ms. The one exception is a directory already gone when the write runs:
+  that winner was robbed by a losing stale-breaker rather than refused by the filesystem, and it
+  retakes the lock under a literal bound that never resets instead of dying with empty stdout. A
+  directory still standing is a genuine fault and stays fatal — a failed redirect leaves the shell
+  no errno a branch can read, so the directory's presence is the only evidence separating the two.
 - **No lock survives an `exec`.** `exec` replaces the process image, so the EXIT trap never runs;
   every `exec` of the real `uv` releases first. Nothing acquires the lock that late in the dispatch
   path today, which is what makes the guard cheap — on a path holding none it is one builtin test and
