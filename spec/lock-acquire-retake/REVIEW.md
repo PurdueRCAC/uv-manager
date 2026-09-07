@@ -186,8 +186,21 @@ There are no CONFIRMED findings, so it is **not triggered** and no sign-off is r
 
 Recorded anyway, because the rubric's trigger condition is not the same as the maintainer's interest:
 F1 and F2 are both PLAUSIBLE findings sitting in `uvm_acquire_lock`, and the debate variant produced a
-genuine split on this function. Their disposition — accept as measured, or seed F1 into
-`issues/` for a later cycle — is surfaced for triage rather than decided here.
+genuine split on this function.
+
+**Disposition, decided by the maintainer on 2026-09-07:** both are deferred to
+[`issues/lock-owner-write-errno.md`](../../issues/lock-owner-write-errno.md), with a `ROADMAP.md`
+entry sequenced below `lock-break-instance-identity` — a residual rate this low is not observable from
+a single-process construction, so `test-harness` R3d comes first. The seed carries the measured bound,
+the dangling-symlink construction and its out-of-contract caveat, the `2>"$errfile"` sketch that avoids
+the `set -euo pipefail` landmine, and the note that `AGENTS.md:157` and `invariants.md:83-87` move with
+any fix. F2 travels in the same seed because whatever fixes the classifier decides what that branch
+does.
+
+The seed and its `ROADMAP.md` entry are committed **with** these artifacts, and
+`review.last_reviewed_commit` is pinned to that commit rather than to the build head — both files live
+outside `spec/`, so an approval pinned to `d4ef823` would make `uvm-publish`'s staleness gate read the
+deferral as post-review drift and stop.
 
 ## Optional completeness sub-pass (separate reviewer; may see TECH.md)
 
