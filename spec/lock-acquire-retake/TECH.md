@@ -3,10 +3,10 @@ slug: lock-acquire-retake
 title: A rank robbed of its fresh lock retakes it
 kind: fix
 appetite: small
-status: in_progress
+status: in_review
 branch: fix/lock-acquire-retake
 base: main
-current_phase: P2
+current_phase: done
 last_updated: '2026-09-06'
 phases:
 - id: P1
@@ -112,7 +112,7 @@ phases:
     '
 - id: P2
   name: 'Collateral proof: the three counters and the single-download hold are untouched'
-  status: pending
+  status: done
   satisfies:
   - R4
   - R6
@@ -154,6 +154,8 @@ phases:
     set -eu
 
     A="$UVM_ROOT/$(uname -m)"; L="$A/.install.lock"; mkdir -p "$L"
+
+    trap ''chmod 755 "$A" 2>/dev/null || true'' EXIT
 
     printf ''host=foreign-node pid=88888 nonce=987\n'' > "$L/owner"
 
@@ -226,9 +228,7 @@ phases:
     once as a rationale comment" >&2; exit 1; }
 
     test -f spec/lock-acquire-retake/research/04-collateral-measurements.md || { echo
-    "FAIL: the collateral measurements were not recorded" >&2; exit 1; }
-
-    '
+    "FAIL: the collateral measurements were not recorded" >&2; exit 1; }'
 review:
   last_reviewed_commit: ''
   verdict: none
@@ -322,12 +322,12 @@ change as well as after** — R4 and R6 ask for no change, so a green gate here 
 broke nothing, not evidence that work was done. The one post-condition that is red today is the
 measurements record, which is this phase's deliverable.
 
-- [ ] Run the four drives in the `verify:` against the built tree.
-- [ ] Record the measurements in `spec/lock-acquire-retake/research/04-collateral-measurements.md`:
+- [x] Run the four drives in the `verify:` against the built tree.
+- [x] Record the measurements in `spec/lock-acquire-retake/research/04-collateral-measurements.md`:
       per drive, the command, the observed rc, and the counted post-condition, set beside the
       pre-change figures in [`research/02-gate-baselines.md`](research/02-gate-baselines.md). Note
       any divergence explicitly rather than only the agreements.
-- [ ] If any drive is red, the collateral is real: stop, fix it in `bin/uv-manager`, and record what
+- [x] If any drive is red, the collateral is real: stop, fix it in `bin/uv-manager`, and record what
       moved. Do not adjust the gate to accommodate the code.
 - **Verify:** four sandbox drives plus two repository checks. Post-conditions: a fresh foreign lock
   times out with the holder named, within a **4-8s** window against `UVM_LOCK_TIMEOUT=5` (a window,
