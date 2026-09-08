@@ -5,7 +5,7 @@ appetite: small
 lane: public
 ---
 
-# Three small code gaps behind inaccurate invariants
+# Four small code gaps behind inaccurate invariants
 
 > **Candidate, not a contract.** Deferred work recorded so a future session does not re-derive it.
 > Not graded by `uvm-review`; never copy into a `GOAL.md` verbatim.
@@ -13,7 +13,8 @@ lane: public
 ## Problem
 
 An audit of `.agents/factory/invariants.md` against `bin/uv-manager`, run during
-`lock-ownership-and-hold-time` planning, found three bullets asserting things the code does not do.
+`lock-ownership-and-hold-time` planning, found bullets asserting things the code does not do. A
+fourth arrived the same way, from `lock-break-instance-identity` shaping.
 The **text** repairs are harness work (`spec/lock-ownership-and-hold-time/META.md` F5–F7, for
 `/uvm-harness`). Behind two of them, and beside a third, sit small **code** gaps that change wrapper
 behavior and therefore need a cycle with a deviation table. Each was measured, not read.
@@ -47,9 +48,21 @@ it dies under
 `set -e` with a bare `mv: ... Permission denied` and leaves `versions/.incoming.XXXXXXXX` behind,
 which nothing collects.
 
+**The heartbeat's leash degrades silently.** `invariants.md` §5 says the refresher's "own leash is a
+pid paired with the start time `uvm_proc_start` reads, never `kill -0` alone". The comparison at
+`bin/uv-manager:218` forfeits only when both the recorded and the live reading are non-empty, so on
+any platform whose `ps` cannot answer `-o lstart=` the leash *is* `kill -0` alone, and with it the
+immortal-lock defect the pairing exists to prevent: a refresher that inherits its dead holder's pid
+number keeps rewriting `owner` forever, the age net never fires because the file keeps moving, and
+the waiter's probe never fires because it finds the reoccupying process alive. Only a human clears
+it. Permitting an unanswerable `ps` is correct — forfeiting on silence would break every live holder
+on such a platform — so the gap is that nothing says so: not the invariant, and not the wrapper. No
+drive establishes which platforms answer, which is the first thing a cycle here owes.
+
 ## Why it was deferred
 
-All three are **pre-existing on `main`** and unrelated to the provisioning lock. The cycle that found
+All three of the original findings are **pre-existing on `main`** and unrelated to the provisioning
+lock. The cycle that found
 them was mid-flight on a high-blast-radius region with an accepted six-criterion contract, and two of
 the three change dispatch-tail behavior. Landing them in that diff would have mixed unrelated risk
 into a change already forcing a human sign-off gate, and editing `invariants.md` inside a graded diff
@@ -57,7 +70,7 @@ reads as revising the standard being graded against.
 
 ## Outcome / vision
 
-The three bullets and the code agree, in whichever direction is right for each: the parser knows the
+The bullets and the code agree, in whichever direction is right for each: the parser knows the
 options `uv` actually accepts before a subcommand, the trampoline writer destroys nothing a user
 wrote, and no failure path leaves uncollected litter in `versions/`.
 
@@ -70,6 +83,15 @@ wrote, and no failure path leaves uncollected litter in `versions/`.
   wrapper SHALL leave it alone whatever its mode, and say so.
 - **R3** — IF the rename into `versions/<ver>` fails, THEN the wrapper SHALL remove the staging
   directory and die with a message naming the cause.
+- **R4** — IF `ps -o lstart=` cannot answer on the running platform, THEN the degradation SHALL be
+  visible: `invariants.md` §5 SHALL concede that the leash falls back to `kill -0` alone, and an
+  operator SHALL be able to find out that it has, rather than discovering it from a lock only a
+  human can clear. Which surface carries it — a `note` on the provisioning path, `uvm doctor`, or
+  `uvm status` — is the shaping decision, and the standing bias against a new surface applies. Owed
+  by [`spec/lock-break-instance-identity/GOAL.md`](../spec/lock-break-instance-identity/GOAL.md)
+  § *Non-goals*, which measures the lock's break path and declines this because it is a different
+  function and a new output surface. A cycle here owes first a drive establishing which platforms
+  answer at all, since the fallback may be unreachable on everything a site runs.
 
 R3 may instead belong in `issues/purge-tree-repair.md`, which already inventories tree damage; whoever
 promotes this should decide rather than land it twice.
@@ -77,9 +99,12 @@ promotes this should decide rather than land it twice.
 ## Notes
 
 - Related: `spec/lock-ownership-and-hold-time/META.md` F4–F7 (the text repairs and the standing rule),
-  `issues/purge-tree-repair.md` (R3's alternative home).
+  `issues/purge-tree-repair.md` (R3's alternative home),
+  [`spec/lock-break-instance-identity/GOAL.md`](../spec/lock-break-instance-identity/GOAL.md) (R4's
+  origin).
 - Found by: an adversarially-verified audit of `invariants.md` §1–§12 against the code, run during
   `lock-ownership-and-hold-time` planning. Four sections, ~126 claims checked, seven findings filed,
   three refuted. The §5 finding it also produced was taken into that cycle as R7.
-- `/uvm-feature` may well split this into three; the criteria share an origin and a verification
-  substrate, not a mechanism.
+- `/uvm-feature` may well split this up; the criteria share an origin and a verification substrate,
+  not a mechanism. R4 is the loosest of the four — it is the only one that may need a new output
+  surface, and the only one whose first task is a measurement rather than an edit.

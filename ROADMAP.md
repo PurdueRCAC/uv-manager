@@ -19,7 +19,7 @@ See `AGENTS.md` for why.
 
 ### The break still deletes locks it did not judge, and nothing here can measure it yet
 **Seed:** [`issues/lock-break-instance-identity.md`](issues/lock-break-instance-identity.md) · `fix` ·
-appetite big — **R3 split out to `lock-acquire-retake`, which has since shipped**
+appetite big · **adopted** as [`spec/lock-break-instance-identity/`](spec/lock-break-instance-identity/GOAL.md)
 
 What `lock-ownership-and-hold-time` narrowed but did not close. A forfeiture decided from an `owner`
 line read a second ago is acted on against a path, and a path is not an instance, so a losing breaker
@@ -27,16 +27,17 @@ deletes a lock a third process just won. The shipped guard re-reads `owner` befo
 narrows the owner-present case and is vacuous for a lock that had none. The exclusive rename is the
 obvious fix and is wrong twice over: `mv -T` does not exist at the portability floor, so `mv` nests
 instead of failing, and `rmdir` refusing a non-empty directory turned out to be the thing protecting
-established locks.
+established locks. Do not re-propose it without reading the seed.
 
-Its R3 — the robbed winner's death — went to `lock-acquire-retake`, which needed none of the
-measurement debt the rest of this seed blocks on and landed on `main`. What that cycle narrowed but
-did not close is the entry below.
+**In flight.** Shaping settled the one question the seed left open: the measurement and the fix are
+one cycle, not two. The drive lands at `tests/` — where `test-harness` had already decided the suite
+belongs — scoped to a lock race and explicitly not the runner, sized by the arithmetic
+`lock-ownership-and-hold-time` established and never applied, with separate assertions for a robbed
+lock and for two installers so a red gate can name what it caught. The seed's R4 and R6 came along;
+its R5 went to `invariant-audit-gaps` and its performance debt to `test-harness`, since this file's
+entry and its seed are both deleted when the cycle lands.
 
-R1 and R2 stay behind measurement — 320 ranks gave 5 robbed winners against 2, which is noise — so
-the harness comes first and the fix follows it. Carries the lock's unmeasured performance claims and
-its taken-on-trust safety properties. Sequenced above `purge-tree-repair`, which is what makes long
-holds real and this defect common.
+Sequenced above `purge-tree-repair`, which is what makes long holds real and this defect common.
 
 ### The owner write is classified by the directory a moment later, not by the errno
 **Seed:** [`issues/lock-owner-write-errno.md`](issues/lock-owner-write-errno.md) · `fix` ·
@@ -51,13 +52,12 @@ by an out-of-contract construction, but 5760 ranks of 64-way contention found no
 instrumentation catching three real robberies and three retakes. The same harness failed `main` at 1
 in 768, so the construction reaches the race.
 
-Sequenced below `lock-break-instance-identity` and for the same reason — a residual rate this low is
-not observable from a single-process construction, so `test-harness` R3d comes first or promotion
-grades the mechanism by reading. The two also interact: closing that seed's R2 removes the robbery
-this rides on and makes the residue unreachable, so whichever lands first changes the case for the
-other. Carries the fatal path's unqualified `rmdir` as a second defect on the same branch, pre-existing
-and strictly rarer than on `main`, because whatever fixes the classifier has to decide what that
-branch does.
+Sequenced below `lock-break-instance-identity`, which went first and is now in flight — so the drive
+this seed needs arrives with that cycle rather than with `test-harness`, and the question to settle
+before promoting is whether the robbery this rides on is still reachable once that cycle lands. If it
+is not, this becomes a terminal record and the second defect on the same branch is the only live half:
+the fatal path's unqualified `rmdir`, pre-existing and strictly rarer than on `main`, which whatever
+fixes the classifier has to decide what to do about.
 
 ### `uv run` rehydrates a purged tree, gated by `UVM_REPAIR`
 **Seed:** [`issues/purge-tree-repair.md`](issues/purge-tree-repair.md) · `feature` · appetite big
@@ -73,7 +73,7 @@ hold-time fix landed with it, so the concurrency bug this cycle would otherwise 
 gone. What remains above it are the two lock cycles — `lock-break-instance-identity` and
 `lock-owner-write-errno` — whose residual this cycle is what makes common.
 
-### Three small code gaps behind inaccurate invariants
+### Four small code gaps behind inaccurate invariants
 **Seed:** [`issues/invariant-audit-gaps.md`](issues/invariant-audit-gaps.md) · `fix` · appetite small
 
 Fallout from auditing `invariants.md` against the code during `lock-ownership-and-hold-time` planning.
@@ -81,9 +81,12 @@ Fallout from auditing `invariants.md` against the code during `lock-ownership-an
 accepts before a subcommand with a separate value — measured, and `--cache-dir` is the only way left to
 redirect a cache the wrapper otherwise exports. The trampoline overwrite guard tests `-x`, so an
 unmarked 0644 file somebody wrote is silently replaced. The rename in `uvm_install` is unguarded and
-leaves a `.incoming.` directory nothing collects. Small and independent; the corresponding text
-repairs are harness work and land separately. Sequenced after `purge-tree-repair` because R3 may fold
-into it.
+leaves a `.incoming.` directory nothing collects. A fourth arrived from `lock-break-instance-identity`
+shaping: the heartbeat's leash silently becomes bare `kill -0` wherever `ps -o lstart=` cannot answer,
+which is the immortal-lock defect returning, and nothing — invariant or wrapper — concedes it. Small
+and independent; the corresponding text repairs are harness work and land separately. Sequenced after
+`purge-tree-repair` because R3 may fold into it. R4 is the loosest of the four and the only one that
+may want a new output surface.
 
 ### `.claude` is a symlink, so no agent can create a worktree
 **Seed:** [`issues/claude-dir-shim.md`](issues/claude-dir-shim.md) · `refactor` · appetite small
@@ -133,10 +136,14 @@ story that cycle starts.
 The two hard parts for a shell script — mocking the network and the filesystem — are already solved by
 `temp_root.sh` and the `file://` installer fixture. What is missing is a runner, a corpus of cases,
 and a coverage measurement. It converts the factory's process guarantees into actual coverage, and it
-now carries four regression cases that shipped cycles owe it: R3a from the `UVM_PLATFORM` trampoline
-fix, R3b from the state-directory guard, R3c from `uvm doctor`'s detection contract, and R3d for the
-lock's ownership and hold-time contract. Sequenced below the operational gaps above only because
-those are live; nothing about its value has changed.
+now carries six regression cases that shipped or in-flight cycles owe it: R3a from the `UVM_PLATFORM`
+trampoline fix, R3b from the state-directory guard, R3c from `uvm doctor`'s detection contract, R3d
+for the lock's ownership and hold-time contract, R3e for the acquire-time retake, and R3f for the
+break path's instance identity. It also inherits the provisioning lock's unmeasured performance
+claims as R7. `tests/` and its first drive arrive ahead of this cycle, from
+`lock-break-instance-identity`, so the runner has an inhabitant to be shaped around rather than a
+blank directory. Sequenced below the operational gaps above only because those are live; nothing
+about its value has changed.
 
 ### An onboarding guide for the factory
 **Seed:** [`issues/factory-onboarding-guide.md`](issues/factory-onboarding-guide.md) · `feature` ·

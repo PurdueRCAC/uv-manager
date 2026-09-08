@@ -122,13 +122,21 @@ Draft R-IDs, to be firmed up at promotion.
   different call shape makes the gate stop constructing the state it exists to construct, and the
   failure mode is that it passes. Same caveat `spec/lock-acquire-retake/GOAL.md` § *Verification
   limit* declares.
-- **Measuring the residual needs the harness.** A rate this low is not observable from a
-  single-process construction; `issues/test-harness.md` R3d describes the two-process concurrency
-  runner that could bound it. Sequence this after that, or accept that promotion grades the mechanism
-  by reading rather than by a red gate.
+- **Measuring the residual needs the harness, and it is arriving earlier than this bullet assumed.**
+  A rate this low is not observable from a single-process construction; `issues/test-harness.md` R3d
+  describes the two-process concurrency runner that could bound it. As of 2026-09-08 the drive itself
+  no longer waits for that cycle: `lock-break-instance-identity` was promoted with its R1 landing a
+  committed concurrency drive at `tests/`, sized by stated arithmetic and with separate assertions
+  per defect. Grade this seed's mechanism against that drive rather than by reading, and check first
+  whether it still measures anything here.
 - Related: [`issues/lock-break-instance-identity.md`](lock-break-instance-identity.md) — its R2 is the
   race that *creates* the robbery. Closing that would make this residue unreachable, so whichever
-  lands first changes the case for the other. [`issues/test-harness.md`](test-harness.md) R3e owns the
+  lands first changes the case for the other. **It went first**, adopted 2026-09-08 as
+  [`spec/lock-break-instance-identity/`](../spec/lock-break-instance-identity/GOAL.md), where the
+  same requirement is R3. So the question to settle before promoting this is whether the robbery is
+  still reachable at all; if that cycle lands, this may be a terminal record rather than a cycle, and
+  the fatal path's unqualified `rmdir` — the second defect on the same branch — is then the only
+  live half. [`issues/test-harness.md`](test-harness.md) R3e owns the
   regression test for the retake this builds on.
 - Found by: `lock-acquire-retake` review cycle 1 (`debate` variant), F1 and F2 —
   [`spec/lock-acquire-retake/REVIEW.md`](../spec/lock-acquire-retake/REVIEW.md).

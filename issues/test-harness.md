@@ -80,9 +80,28 @@ were never executed.
   first. It is also the counterexample to R3d's premise that every defect in this area needs two
   processes racing on one tree — the *reachability* of this one does, its *handling* does not, and
   the handling is what a regression test pins.
+- **R3f** — The suite SHALL cover the break path's instance identity: a break decided against a lock
+  instance that no longer exists SHALL leave whatever occupies that path standing, including when the
+  judged instance recorded no `owner` file, and a break that is then denied SHALL leave the `owner`
+  file it found. `lock-break-instance-identity` lands the concurrency drive this case needs at
+  `tests/`, so unlike R3a through R3e this one arrives with its apparatus already committed — what is
+  owed here is folding it into the runner rather than writing it.
 - **R4** — The suite SHALL assert post-conditions on the state tree, not merely exit status.
 - **R5** — The suite SHALL run on bash 3.2 and on bash 5, and SHALL run in CI on both Linux and macOS.
 - **R6** — The suite SHALL report a coverage measurement over `bin/uv-manager`.
+- **R7** — The suite SHALL settle the provisioning lock's performance claims with numbers rather than
+  arguments: the wrapper's ~5 ms hot-path budget, which no timing drive on a shared machine currently
+  resolves and which `spec/lock-ownership-and-hold-time/GOAL.md` R4 delegates to a reviewer reading
+  the implementation; the one `ps` fork `uvm_proc_start` adds per heartbeat beat; and the one `sleep`
+  each acquisition orphans for up to a beat, because `uvm_unlock` kills the refresher subshell and not
+  the `sleep` it is blocked in. A location-controlled A/B measured ~0.6 ms of drift between the
+  pre-0.6.0 wrapper and the branch, ~0.2 ms of it parse cost from the file growing 37,184 → 49,376
+  bytes, mostly comments — a real number nobody can currently act on. The fork counts are reachable
+  with the counting-stub trick R3b uses; the `pids.max` interaction that makes the orphan matter is
+  **not** reachable here, and this criterion concedes it rather than pretending otherwise. Owed by
+  [`spec/lock-break-instance-identity/GOAL.md`](../spec/lock-break-instance-identity/GOAL.md)
+  § *Non-goals*, which declines it on the grounds that a timing A/B is a different instrument from a
+  race detector.
 
 ## Notes
 
@@ -102,7 +121,10 @@ Open questions for shaping, each with a real trade-off:
   run against a fixture installer that sleeps, kill it, assert the lock directory is gone.
 - **Relationship to the factory.** The suite should become the `verify:` command that phases use, and
   `lint.sh` should probably grow a `--with-tests` mode or be joined by a sibling. Decide whether the
-  suite lives under `.agents/factory/` (harness) or at `tests/` (product). It is product.
+  suite lives under `.agents/factory/` (harness) or at `tests/` (product). It is product — and
+  `lock-break-instance-identity` acts on that answer ahead of this cycle, landing the first drive at
+  `tests/`. So `tests/` and one case in it exist before this cycle starts, and the runner has a
+  first inhabitant to be shaped around instead of a blank directory.
 - **R3a is inherited debt, not a new idea.** `spec/trampoline-ignores-platform-override/GOAL.md`
   § *Non-goals* made "no committed regression test" conditional on this suite covering the case. That
   condition was written down in one place — the roadmap entry the shipped fix then retired — so it is
