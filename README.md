@@ -529,18 +529,9 @@ inside it records the host, pid and nonce of the process holding it — the time
 line. A recorded pid belongs to the host recorded beside it, so probing it from the node you are on
 proves nothing. The wrapper breaks the lock itself when that pid is dead on this node, or when nothing
 has refreshed it for `UVM_LOCK_STALE` seconds; a live holder keeps it for as long as the work takes.
-Removing one by hand takes its contents with it, because `rmdir` on its own reports
-`Directory not empty`:
-
-```bash
-L=$UVM_ROOT/<arch>/.install.lock
-rm -f "$L/owner" "$L/mark" && rmdir "$L"
-```
-
-The timeout message prints the same two commands with the real paths already filled in. A `mark`
-file exists only while another process is breaking the lock, and `rm -f` does not mind its absence.
-If `rmdir` still reports `Directory not empty` after that, something other than the wrapper put a
-file in there; `ls -a` on the lock will show it.
+Removing one by hand takes the `owner` file with it —
+`rm -f $UVM_ROOT/<arch>/.install.lock/owner && rmdir $UVM_ROOT/<arch>/.install.lock`, because `rmdir`
+on its own reports `Directory not empty`.
 
 **A tool prints "is not installed for architecture 'aarch64'".** That is the trampoline working as
 intended. The quoted name is the platform key, which a site may have overridden; install the tool
