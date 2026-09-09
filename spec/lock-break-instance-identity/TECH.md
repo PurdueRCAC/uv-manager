@@ -3,10 +3,10 @@ slug: lock-break-instance-identity
 title: A losing breaker deletes the lock a third rank just won
 kind: fix
 appetite: big
-status: in_progress
+status: in_review
 branch: fix/lock-break-instance-identity
 base: main
-current_phase: P4
+current_phase: done
 last_updated: '2026-09-08'
 phases:
 - id: P1
@@ -140,7 +140,7 @@ phases:
     \ judged on persistence\" >&2; exit 1; }"
 - id: P4
   name: 'Collateral: the counters, the retake, and the single-download hold are untouched'
-  status: pending
+  status: done
   satisfies:
   - R5
   - R6
@@ -148,7 +148,7 @@ phases:
   - P3
   parallel: false
   hammerable: false
-  hill: uphill
+  hill: downhill
   verify: "set -eu\nbash -n bin/uv-manager\n.agents/factory/bin/lint.sh >/dev/null\n\
     .agents/factory/bin/temp_root.sh --offline sh -s <<'HOLDDRIVE'\nset -u\nout=$(uv\
     \ --version 2>/dev/null) || { echo \"FAIL R6: the offline drive did not provision\"\
@@ -410,20 +410,30 @@ forfeit is never broken at all.
 **Goal:** prove this cycle changed only what it aimed at. Every previous remediation to this function
 shipped collateral rather than failing at its target, and P3's gate cannot see collateral.
 
-- [ ] Re-run the gates of the two prior cycles rather than trusting this one's: `lock-acquire-retake`
+- [x] Re-run the gates of the two prior cycles rather than trusting this one's: `lock-acquire-retake`
       R1 (the `mkdir` shim's robbed winner still retakes, rc 0, fixture version on stdout) and R2 (an
       EACCES owner write still dies carrying `Permission denied` and `cannot record ownership`).
-- [ ] Assert the wait-loop counters are unmoved: a fresh foreign lock still times out at
+- [x] Assert the wait-loop counters are unmoved: a fresh foreign lock still times out at
       `UVM_LOCK_TIMEOUT` and is never declared forfeit.
-- [ ] The single-download hold: `uv 9.9.9 (fixture)` on stdout, `current -> versions/9.9.9`, no lock
+- [x] The single-download hold: `uv 9.9.9 (fixture)` on stdout, `current -> versions/9.9.9`, no lock
       left, and exactly one `flock` mention in the script.
-- [ ] The confirmation run the sizing brief asks for before a human signs off: `--plant owner` at
+- [x] The confirmation run the sizing brief asks for before a human signs off: `--plant owner` at
       **70** bursts, which takes the owner plant's false green from 3.5e-4 to 1.2e-3 at a
       2x-pessimistic floor. Adds ~126 s.
 - **Verify:** all of the above. The regression gates are green before and after **by construction** —
   that is what makes them regression gates — and the 70-burst run is this phase's post-condition that
   is red today, since the drive does not exist yet.
-- **Touches:** nothing by default. A red gate here is a finding, not a task.
+- **Touches:** nothing. Every clause passed on the first run, so this phase found no collateral.
+- **Observed, 2026-09-08.** Gate green in 2 m 20 s. `lock-acquire-retake` R1 — the `mkdir` shim's
+  robbed winner still retakes, rc 0, `uv 9.9.9 (fixture)` alone on stdout. Its R2 — an `EACCES` owner
+  write still exits non-zero carrying both `Permission denied` and `cannot record ownership`. The
+  counter drive — a fresh foreign lock still times out at `UVM_LOCK_TIMEOUT` with **zero** break
+  notes, so a live holder is never declared forfeit. The single-download hold — fixture version on
+  stdout, `current -> versions/9.9.9`, no lock left, exactly one `flock` mention in the script.
+- **The confirmation run the sizing brief asked for:** `--plant owner` at **70** bursts, 4480 ranks —
+  `stolen_holds=0/4480`, `robbed_winners=0/4480`, `concurrent_installers=0/4480`, 70 installer
+  entries for 70 bursts, `locks_left_standing=0/70`, `progress=ok`, 132 s. That takes the owner
+  plant's false green from 3.5e-4 to 1.2e-3 at a 2x-pessimistic per-rank floor.
 
 ---
 
