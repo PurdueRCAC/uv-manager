@@ -3,7 +3,7 @@ slug: lock-break-instance-identity
 title: A losing breaker deletes the lock a third rank just won
 kind: fix
 appetite: big
-status: blocked
+status: done
 branch: fix/lock-break-instance-identity
 base: main
 current_phase: done
@@ -41,10 +41,9 @@ phases:
     \ 1; }\n[ -z \"$out\" ] || { echo \"FAIL R1: the late-write run put a count on\
     \ stdout: $out\" >&2; exit 1; }"
 - id: P2
-  name: A denied break destroys no evidence (R4 sequences before R3)
+  name: 'SUPERSEDED 2026-09-09 (reverted): a denied break destroys no evidence'
   status: done
-  satisfies:
-  - R4
+  satisfies: []
   depends_on:
   - P1
   parallel: false
@@ -86,10 +85,9 @@ phases:
     \  || { echo \"FAIL: README.md still documents a recovery command that leaves\
     \ the mark file behind\" >&2; exit 1; }"
 - id: P3
-  name: 'Age, pin, verify, remove: a break removes only the instance it judged'
+  name: 'SUPERSEDED 2026-09-09 (reverted): age, pin, verify, remove'
   status: done
-  satisfies:
-  - R3
+  satisfies: []
   depends_on:
   - P2
   parallel: false
@@ -194,11 +192,10 @@ phases:
     \ is absent -- P1 has not landed\" >&2; exit 1; }\ntests/lock-race.sh --plant\
     \ owner --ranks 64 --bursts 70 --quiet\n"
 review:
-  last_reviewed_commit: b2be530
-  verdict: changes-requested
-  blocked_reason: 'R3 unmet: husk branch has no age floor; abandoned lock/mark wedges
-    provisioning'
-  cycle: 1
+  last_reviewed_commit: c8493a4
+  verdict: approved
+  blocked_reason: ''
+  cycle: 2
 ---
 # TECH.md — A losing breaker deletes the lock a third rank just won
 

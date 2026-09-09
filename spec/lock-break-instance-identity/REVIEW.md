@@ -254,3 +254,81 @@ Its one aside — that `uvm_lock_mark` is assigned after the `uvm_have` early-ou
 registered only for callers reaching the wait loop — was deliberately withheld from the correctness
 reviewers, since it came from an agent that had read the plan. Neither blind reviewer reached it
 independently. It is recorded here as an untriaged observation, not a finding.
+
+---
+
+## Review cycle 2 — approved (2026-09-09)
+
+- **Reviewed commit:** c8493a4  ·  **Base:** main  ·  **Mode:** scoped to the remediation delta,
+  `7202dfa..c8493a4`, at the maintainer's direction.
+- **Graded surface:** 11 files, 599 insertions. `bin/uv-manager` and `README.md` are **byte-identical
+  to `main`** — `git diff main -- bin/uv-manager` is empty. The delta is one shell drive
+  (`tests/lock-race.sh`, reviewed at depth in cycle 1 by two independent reviewers), its companion,
+  the `lint.sh` wiring, two prose hunks in `AGENTS.md`, one in `invariants.md`, `ROADMAP.md`, and six
+  `issues/` seeds. No executable wrapper code, so the high-blast-radius condition is not met by the
+  landed diff.
+- **No blind subagent pass was run for this cycle,** and that is a deliberate scope call rather than
+  an omission: the graded surface contains no wrapper code, and the one executable file in it was
+  already graded by both cycle-1 reviewers against R1 and R2. Recorded here so a later reader does not
+  mistake cycle 2 for a second full adversarial pass.
+
+### Rescope — the contract moved, by maintainer decision
+
+`GOAL.md` is locked and R3/R4 are **not met**. They are superseded rather than failed. On 2026-09-09
+the maintainer decided that the wrapper will not break locks at all: distinguishing a slow holder from
+a dead one is failure detection, no asynchronous system settles it, and a network filesystem adds
+stale attribute caches, skewed clocks and recycled pids. A lock that is never broken has no break for
+R3 to constrain and no denied break for R4 to preserve evidence through.
+
+The wrapper was therefore reverted to `main` and only the measurement half kept. The replacement
+design is seeded at [`issues/lock-simplification.md`](../../issues/lock-simplification.md) and
+sequenced first in `ROADMAP.md`.
+
+| R-ID | Cycle 1 | Cycle 2 disposition |
+|------|---------|---------------------|
+| R1 | ✅ with F5, F7 | ✅ **lands.** `tests/lock-race.sh` is committed and is the instrument the decision rested on. |
+| R2 | ✅ | ✅ **lands.** Control run green at 0/320 with `break_notes=0`. |
+| R3 | ❌ F1, F2 | **Superseded.** No break exists to constrain. |
+| R4 | ✅ | **Superseded.** No denied break exists. |
+| R5 | ✅ | ✅ **trivially.** The wrapper is byte-identical to `main`. |
+| R6 | ✅ | ✅ **trivially.** Same. |
+
+### Disposition of cycle 1's findings
+
+All seven CONFIRMED findings were against code that no longer exists on this branch. They are
+**moot by removal, not by repair** — none was fixed, and none should be read as having been. This is
+not a `Correction to cycle 1`: cycle 1's measurements stand exactly as written, and the reverted code
+would still exhibit every one of them.
+
+The substance that outlives the revert is carried forward rather than dropped: F5's finding that the
+gate was sized against the pre-fix rate, and F7's arithmetic error, both belong to
+`tests/lock-race.sh`, which **lands with them unrepaired**. `lock-simplification` § *The instrument
+changes meaning* is where they are addressed, together with the larger problem that three of the
+drive's four counters become structurally unreachable under the new design. F6 (the `README.md`
+omission) disappeared with the revert, since the husk trigger it failed to document no longer exists.
+
+### Verification run (cycle 2)
+
+- `git diff main -- bin/uv-manager` → empty. `git diff main -- README.md` → empty. Script length 1224,
+  identical to `main`.
+- `bash -n bin/uv-manager` → OK. `.agents/factory/bin/lint.sh` → all checks passed, version
+  single-source 0.6.1, shellcheck clean over both new drives.
+- `tests/lock-race.sh --plant control --ranks 64 --bursts 5` → rc 0; `stolen_holds=0/320`,
+  `robbed_winners=0/320`, `concurrent_installers=0/320`, `break_notes=0`, `installer_entries=5` for 5
+  bursts, `progress=ok`.
+- `tests/lock-race.sh --plant none --ranks 64 --bursts 4` → rc 1; `concurrent_installers=10/256
+  via_break=10`, `stolen_holds=10/256`, `progress=ok`. Red against the reverted wrapper, which is the
+  honest landed state: the drive documents the defect `lock-simplification` removes, and R1 specified
+  exactly this red-against-`main` behavior.
+
+### Human-gate triggers (cycle 2)
+
+**Discharged by removal.** Cycle 1's gate fired on four CONFIRMED findings in
+`uvm_acquire_lock`/`uvm_unlock`. The landed diff contains no change to either function, or to any
+other line of `bin/uv-manager`, so no CONFIRMED finding survives in the graded surface and the
+condition no longer holds.
+
+- Cleared by: the maintainer, 2026-09-09, inline.
+- Grounds: the reverting of the entire wrapper change, directed by the maintainer, together with the
+  decision to remove lock-breaking rather than harden it. The clearance is of the *cycle*, not of the
+  findings — which were never repaired and are recorded above as moot by removal.
