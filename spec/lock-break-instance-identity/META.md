@@ -174,3 +174,44 @@
   grades, and name which clause you expect to fire. It is cheaper than an out-of-tree copy and it
   answers a question the copy cannot.
 - **Confidence:** med · **Effort:** small
+
+## F10 — On cycle 1 the reviewer's commit log leaks the plan's phase structure
+`origin=uvm-review:step-2 severity=high category=instruction status=open target=.claude/skills/uvm-review/SKILL.md`
+- **What happened:** Step 2 drops the log's *subjects* only on `review.cycle` >= 1, and only because
+  they name a prior cycle's findings. On cycle 1 it prescribes `git log --oneline`. This branch's
+  build subjects read `[fix] Build lock-break-instance-identity P3: age, pin, verify, remove` — the
+  phase ids and phase names straight out of `TECH.md`. I withheld the subjects on my own judgement;
+  the skill as written would have handed the blind reviewers the plan's decomposition.
+- **Skill cause:** The rule is scoped to the wrong leak. It treats prior-cycle findings as the thing
+  subjects disclose, when the standing convention `AGENTS.md` sets for build commits puts `TECH.md`
+  phase ids and names in every subject on every cycle, cycle 1 included.
+- **Recommended fix:** Make `--format=%h` the default for all cycles, not a cycle-2+ measure, and say
+  why: build subjects in this repo carry phase ids by convention. Keep "omitting the log is equally
+  correct."
+- **Confidence:** high · **Effort:** small
+
+## F11 — Step 2 says to paste `GOAL.md` inline, with no sanctioned way to hand over a byte-exact copy
+`origin=uvm-review:step-2 severity=medium category=instruction status=open target=.claude/skills/uvm-review/SKILL.md`
+- **What happened:** `GOAL.md` here is 239 lines / 18 KB, and Step 2 requires it "inline" so the
+  reviewer never browses `spec/`. Retyping it into two prompts risks silently corrupting the contract
+  the pass grades against. I staged a byte-exact `cp` into each reviewer's scratchpad instead.
+- **Skill cause:** The instruction fixes on a mechanism (paste) rather than the property it wants
+  (the contract reaches the reviewer intact; `spec/` stays unbrowsed). A scratchpad copy satisfies
+  both and the skill does not mention it, so each run re-derives the workaround or transcribes.
+- **Recommended fix:** Sanction staging a copy of `GOAL.md` into the reviewer's scratchpad as the
+  preferred hand-off, with pasting as the fallback. Note it is the only `spec/` file that may be
+  copied out.
+- **Confidence:** high · **Effort:** small
+
+## F12 — Nothing says what to do with a correctness observation from the completeness sub-pass
+`origin=uvm-review:step-5 severity=medium category=missing-guidance status=open target=.claude/skills/uvm-review/SKILL.md`
+- **What happened:** The completeness agent, which has read `PLAN.md` and `TECH.md`, returned an
+  unprompted correctness aside about `uvm_lock_mark`'s assignment point. Step 5 says only to append
+  its notes to `REVIEW.md`. Promoting the aside would launder plan-informed suspicion into a blind
+  verdict; dropping it discards a real observation. I quarantined it as untriaged and said so.
+- **Skill cause:** Step 5 defines the sub-pass's remit but not the disposal rule for output beyond it,
+  and the isolation it is built on is exactly what makes that output unusable as a finding.
+- **Recommended fix:** Tell the sub-pass to mark anything outside its remit explicitly, and tell the
+  orchestrator to record such items in `REVIEW.md` as untriaged observations — never as findings, and
+  never fed back to a correctness reviewer in this or a later cycle.
+- **Confidence:** med · **Effort:** small
