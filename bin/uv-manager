@@ -175,6 +175,7 @@ install_base_url="${UVM_INSTALL_URL:-https://astral.sh/uv}"
 uvm_lock=""
 uvm_lock_owner=""
 uvm_lock_beat_pid=""
+uvm_lock_mark=""
 
 # Absolute start time of a pid, or empty when it cannot be determined. A pid
 # is a number the kernel reuses, not an identity; pairing it with a start time
@@ -232,6 +233,15 @@ uvm_lock_heartbeat() {
 # there if release matches on the path alone — mutual exclusion gone while
 # both processes are still running.
 uvm_unlock() {
+  # The breaker's freshness reference outlives the wait when the wait ends in a
+  # die or a signal, and a waiter that never held the lock returns below. One
+  # file per contending pid, in the user's own tree, forever. Cleared first for
+  # that reason; on the hot path the variable is empty and this is one builtin
+  # test and no fork.
+  if [[ -n "${uvm_lock_mark}" ]]; then
+    rm -f "${uvm_lock_mark}" 2>/dev/null || true
+    uvm_lock_mark=""
+  fi
   [[ -n "${uvm_lock}" ]] || return 0
   local lock="${uvm_lock}" mine="${uvm_lock_owner}" beat="${uvm_lock_beat_pid}" recorded=""
   # Clear before deciding. The EXIT trap runs after the INT handler's
@@ -312,11 +322,66 @@ uvm_lock_removable() {
   return 0
 }
 
+# Whether the forfeiture decided a moment ago still holds, re-tested against the
+# filesystem immediately before the removals. It re-verifies whichever branch
+# decided it, because the two carry different evidence and the wrong test on
+# either is a regression rather than a narrowing.
+uvm_lock_still_forfeit() {
+  local lock="$1" mark="$2" pid="$3" husk="$4"
+  # A dead holder stays dead, and its lock may legitimately be young — the fast
+  # path exists so a killed holder does not cost the next rank a full stale
+  # window. Re-probing the pid is what re-verifies that branch. The age test
+  # below would gate it behind the very threshold the branch exists to skip.
+  if [[ -n "${pid}" ]] && ! kill -0 "${pid}" 2>/dev/null; then
+    return 0
+  fi
+  # Otherwise age decided it, and age is the one thing a fresh winner cannot
+  # present. A directory created since `mark` is not older than it, so a rank
+  # that won `mkdir` at this path while we were deciding is declined. That is
+  # the whole of the case where the identity test above proves nothing: an
+  # absent owner line matches an absent owner line, and an owner-less lock is
+  # not a legacy tail — `mkdir` on NFSv3 is documented not to tell its winner it
+  # won, so a rank told EEXIST after a retransmission leaves exactly one behind.
+  #
+  # `-d` precedes the comparisons and is not decoration: bash reports
+  # `[[ missing -ot existing ]]` as true, so a bare comparison passes precisely
+  # when the instance is already gone.
+  [[ -d "${lock}" ]] || return 1
+  # The owner file's mtime, for the reason `uvm_age` gives one line up: a
+  # directory's mtime tracks its entry list, so every breaker's own pin and
+  # unpin refreshes it and the lock then reads as fresh to all of them. Measured
+  # as a livelock — 64 ranks timing out against a plant nobody would break,
+  # 34 of them having decided to. Nothing writes `owner` but its own holder's
+  # heartbeat, which is exactly the signal wanted here: a live holder keeps it
+  # moving and is declined, a dead one leaves it where it stopped.
+  if [[ -e "${lock}/owner" ]]; then
+    [[ "${lock}/owner" -ot "${mark}" ]] || return 1
+    return 0
+  fi
+  # No owner file to read, and the directory's own mtime cannot stand in for
+  # one. Every removal and every pin inside the lock refreshes it, so a break
+  # that got as far as unlinking `owner` and was then refused its `rmdir` leaves
+  # a husk that reads as fresh for a full UVM_LOCK_STALE — longer than
+  # UVM_LOCK_TIMEOUT, which is how every rank times out against a lock nobody
+  # holds. Measured, and it is the same trap that made the age come off the file
+  # rather than the directory in the first place.
+  #
+  # Persistence is the evidence that survives our own writes. A winner records
+  # `owner` within a fraction of a millisecond of its `mkdir`, so a lock
+  # observed owner-less on two consecutive passes a second apart is a husk and
+  # not a winner mid-claim. Same discipline as the absent-lock retry, same
+  # literal bound rather than a knob, and the caller resets the count whenever
+  # an `owner` appears — a count that ignored that would eventually declare a
+  # live winner caught mid-claim forfeit, which is the defect this guard exists
+  # to prevent.
+  (( husk >= 2 ))
+}
+
 uvm_acquire_lock() {
   local want="$1" force="$2"
   local lock="${uvm_root}/.install.lock"
   local waited=0 age holder pid broke="" reason absent=0 robbed=0 host started still
-  local last_holder=""
+  local last_holder="" mark="${uvm_root}/.install.mark.$$" pin ppid post husk=0
   # uname -n, not HOSTNAME, which bash leaves at whatever it inherited. A
   # container image that sets it, or a login-node value carried out by
   # `sbatch --export=ALL`, gives two nodes one name — and the host token is
@@ -372,6 +437,7 @@ uvm_acquire_lock() {
 
   (umask 077; mkdir -p "${uvm_root}") \
     || die "cannot create ${uvm_root} — is ${uvm_base} writable?"
+  uvm_lock_mark="${mark}"
 
   while :; do
     if mkdir "${lock}" 2>/dev/null; then
@@ -440,6 +506,14 @@ uvm_acquire_lock() {
     # whose holder this loop already named is a diagnostic that contradicts
     # itself two lines apart.
     [[ -z "${holder}" ]] || last_holder="${holder}"
+    # Consecutive passes on which this path held a lock with no readable owner.
+    # Reset the moment one appears: the count is evidence about a husk, and a
+    # winner that has just claimed the lock must not inherit it.
+    if [[ -e "${lock}/owner" ]]; then
+      husk=0
+    else
+      husk=$(( husk + 1 ))
+    fi
     pid=""
     if [[ "${holder%% *}" == "host=${host}" ]]; then
       pid="${holder#*pid=}"
@@ -467,6 +541,13 @@ uvm_acquire_lock() {
     # the directory the heartbeat is invisible. The directory remains the
     # fallback for a lock an older wrapper wrote, or one caught inside the
     # acquire window.
+    # A husk — no owner file, seen twice — is forfeit on persistence rather than
+    # on age, because the age of an owner-less directory is whatever the last
+    # write inside it left behind and every breaker's own removal moves it.
+    # Decided here as well as re-tested below: a lock this branch cannot name
+    # forfeit is never broken at all, which is the timeout every rank pays.
+    elif (( husk >= 2 )); then
+      reason="provisioning lock is forfeit and will be broken, no owner recorded"
     elif { age="$(uvm_age "${lock}/owner")" || age="$(uvm_age "${lock}")"; } \
          && (( age > lock_stale )); then
       reason="provisioning lock is forfeit and will be broken (${age}s old)"
@@ -497,9 +578,58 @@ uvm_acquire_lock() {
       # denial: it wedges a lock the stale breaker would otherwise reclaim.
       still=""
       read -r still 2>/dev/null < "${lock}/owner" || true
-      if [[ "${still}" == "${holder}" ]] && uvm_lock_removable "${lock}"; then
-        rm -f "${lock}/owner" 2>/dev/null || true
-        rmdir "${lock}" 2>/dev/null || true
+      # The freshness reference, written only on an iteration that decided a
+      # break. A failed write leaves no file, and `[[ dir -ot missing ]]` is
+      # false, so an unwritable root declines the break rather than proceeding
+      # on evidence it does not have.
+      : > "${mark}" 2>/dev/null || true
+      if [[ "${still}" == "${holder}" ]] \
+         && uvm_lock_still_forfeit "${lock}" "${mark}" "${pid}" "${husk}"; then
+        # Sweep a pin no process stands behind. A breaker killed between its pin
+        # and its cleanup leaves an entry no trap sweeps, and `rmdir` then
+        # refuses for everyone — the lock becomes unbreakable until a human
+        # clears it. Swept the way the lock itself is, by probing the pid the
+        # entry records, so this needs no new bound and recovers at once rather
+        # than a stale window later. A pin from another node is left standing
+        # and the timeout message names it.
+        pin=""
+        read -r pin 2>/dev/null < "${lock}/mark" || true
+        if [[ -n "${pin}" && "${pin%% *}" == "host=${host}" ]]; then
+          ppid="${pin#*pid=}"
+          ppid="${ppid%% *}"
+          if [[ -n "${ppid}" && -z "${ppid//[0-9]/}" ]] \
+             && ! kill -0 "${ppid}" 2>/dev/null; then
+            rm -f "${lock}/mark" 2>/dev/null || true
+          fi
+        fi
+        # Give the instance an identity this process wrote, because it has none
+        # a shell can read. Every readable token lies somewhere: an inode is
+        # recycled deterministically on ext4, and a held descriptor compares
+        # equal on Linux and unequal on macOS. `set -C` makes the redirect
+        # O_EXCL, so it fails when the instance is already gone and when another
+        # breaker owns this break — decline on both.
+        #
+        # What the entry buys is not evidence but occupancy: while it stands no
+        # other rank's `rmdir` can succeed and no `mkdir` can put a new instance
+        # at this path, so the directory removed below is the one judged above.
+        # A predicate cannot do this, because the exposure is the two forks
+        # *after* the predicate. 2>/dev/null precedes the output redirect for
+        # the reason the owner write documents; without it a lock already held
+        # by another breaker prints one raw diagnostic per second.
+        set -C
+        if printf '%s\n' "${owner}" 2>/dev/null > "${lock}/mark"; then
+          set +C
+          post=""
+          read -r post 2>/dev/null < "${lock}/owner" || true
+          if [[ "${post}" == "${still}" ]] && uvm_lock_removable "${lock}"; then
+            rm -f "${lock}/owner" "${lock}/mark" 2>/dev/null || true
+            rmdir "${lock}" 2>/dev/null || true
+          else
+            rm -f "${lock}/mark" 2>/dev/null || true
+          fi
+        else
+          set +C
+        fi
       fi
       # Re-enter mkdir at once only where the directory is actually gone. A
       # removal denied by an entry we did not write, or by a read-only
@@ -530,6 +660,8 @@ uvm_acquire_lock() {
     sleep 1
   done
 
+  rm -f "${mark}" 2>/dev/null || true
+  uvm_lock_mark=""
   uvm_lock="${lock}"
   uvm_lock_owner="${owner}"
   # Ten beats inside a stale window, scaled to whatever the site configured

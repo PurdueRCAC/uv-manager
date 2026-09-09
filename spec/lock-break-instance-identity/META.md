@@ -140,3 +140,37 @@
 - **Recommended fix:** Print the gate as a real multi-line block before the `+` line, or escape
   nothing and let it wrap. Either makes a genuinely collapsed gate visibly different.
 - **Confidence:** high · **Effort:** small
+
+## F8 — Nothing tells a build phase to re-measure a researched mechanism before adopting it wholesale
+`origin=uvm-build:P3 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-build/SKILL.md`
+- **What happened:** P3's design came from a research brief that had measured it green over 3648
+  ranks. Implemented as specified it wedged 1 burst in 40 — 64 ranks timing out against a lock nobody
+  held — and took two rounds of diagnosis plus out-of-tree instrumentation to correct. Step 3 says to
+  execute the checklist and to check a *new shell primitive* against `invariants.md` §10, and Step 4
+  says to run the phase's gate. Neither asks whether the researched mechanism still measures as it
+  did once it is sitting in the real function next to the other guards.
+- **Skill cause:** The skill treats `research/` as settled input and the gate as the check. That is
+  right for a deterministic gate and wrong for a statistical one: a brief reporting zero over N ranks
+  has a confidence interval, and a rate of 1 in 40 bursts is invisible to a run that did 40. The gate
+  caught it here only because P1 had landed a progress assertion the brief itself had needed after
+  its own false green — which is the same lesson arriving twice.
+- **Recommended fix:** Where a phase adopts a mechanism whose evidence is a rate rather than a
+  post-condition, say to re-run that measurement at the researched size *before* checking the box, and
+  to treat a disagreement with the brief as a finding about the brief. One sentence in Step 3, beside
+  the existing primitive check.
+- **Confidence:** high · **Effort:** small
+
+## F9 — Step 4's "prove it red" has no answer for a gate whose red state is a live filesystem race
+`origin=uvm-build:P3 severity=low category=missing-guidance status=open target=.agents/skills/uvm-build/SKILL.md`
+- **What happened:** P3's gate had to be shown red before the fix. The fix spans `bin/uv-manager` plus
+  two documentation files whose text the same gate also asserts, so reverting everything makes the
+  gate fail on prose rather than on the race. I stashed **only** `bin/uv-manager`, which isolates the
+  behavioral half and leaves the prose assertions satisfied — the gate then went red on the drive, for
+  the right reason, and green again on `stash pop`.
+- **Skill cause:** Step 4 describes proving a gate red by copying the repo out of tree and applying
+  the change. For a mixed gate that is the wrong granularity: reverting the whole phase conflates a
+  behavioral assertion with a prose one, and the reader cannot tell which fired.
+- **Recommended fix:** Add the partial-revert idiom — revert only the file the behavioral assertion
+  grades, and name which clause you expect to fire. It is cheaper than an out-of-tree copy and it
+  answers a question the copy cannot.
+- **Confidence:** med · **Effort:** small

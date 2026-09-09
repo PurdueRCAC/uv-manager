@@ -6,7 +6,7 @@ appetite: big
 status: in_progress
 branch: fix/lock-break-instance-identity
 base: main
-current_phase: P3
+current_phase: P4
 last_updated: '2026-09-08'
 phases:
 - id: P1
@@ -87,14 +87,14 @@ phases:
     \ the mark file behind\" >&2; exit 1; }"
 - id: P3
   name: 'Age, pin, verify, remove: a break removes only the instance it judged'
-  status: pending
+  status: done
   satisfies:
   - R3
   depends_on:
   - P2
   parallel: false
   hammerable: false
-  hill: uphill
+  hill: downhill
   verify: "set -eu\nbash -n bin/uv-manager\n.agents/factory/bin/lint.sh >/dev/null\n\
     test -x tests/lock-race.sh || { echo \"FAIL R3: tests/lock-race.sh is absent --\
     \ P1 has not landed\" >&2; exit 1; }\ntests/lock-race.sh --plant control --ranks\
@@ -117,7 +117,27 @@ phases:
     \ pin this phase adds\" >&2; exit 1; }\nif git grep -q '0.10 ms' -- AGENTS.md\
     \ .agents/factory/invariants.md; then\n  echo \"FAIL: both files still quote the\
     \ 0.10 ms window, which measures only the redirect; the measured end-to-end window\
-    \ is 0.265 ms\" >&2\n  exit 1\nfi\n"
+    \ is 0.265 ms\" >&2\n  exit 1\nfi\n.agents/factory/bin/temp_root.sh --offline\
+    \ --arch probe sh -s <<'FASTPATH'\nset -u\nL=\"$UVM_ROOT/probe/.install.lock\"\
+    ; mkdir -p \"$L\"\nsh -c 'exit 0' & dead=$!; wait \"$dead\" 2>/dev/null || true\n\
+    printf 'host=%s pid=%s nonce=youngdead\\n' \"$(uname -n)\" \"$dead\" > \"$L/owner\"\
+    \ns=$(date +%s)\nUVM_LOCK_STALE=600 UVM_LOCK_TIMEOUT=20 uv --version >/dev/null\
+    \ 2>&1 \\\n  || { echo \"FAIL R3: a young lock whose holder is gone was not broken\"\
+    \ >&2; exit 1; }\ne=$(date +%s)\n[ $((e-s)) -le 2 ] || { echo \"FAIL R3: the dead-holder\
+    \ fast path took $((e-s))s; it must not wait out the stale window\" >&2; exit\
+    \ 1; }\nFASTPATH\n.agents/factory/bin/temp_root.sh --offline --arch probe sh -s\
+    \ <<'HUSK'\nset -u\nL=\"$UVM_ROOT/probe/.install.lock\"; mkdir -p \"$L\"; touch\
+    \ -t 202001010000 \"$L\"\ns=$(date +%s)\nUVM_LOCK_STALE=600 UVM_LOCK_TIMEOUT=20\
+    \ uv --version >/dev/null 2>&1 \\\n  || { echo \"FAIL R3: an owner-less husk was\
+    \ never broken -- the directory mtime is not usable evidence\" >&2; exit 1; }\n\
+    e=$(date +%s)\n[ $((e-s)) -le 5 ] || { echo \"FAIL R3: the husk took $((e-s))s\
+    \ to clear, so it is waiting on age rather than persistence\" >&2; exit 1; }\n\
+    [ -d \"$L\" ] && { echo \"FAIL R3: the husk was left standing\" >&2; exit 1; }\n\
+    exit 0\nHUSK\ngit grep -q -i 'persistence' -- .agents/factory/invariants.md \\\
+    \n  || { echo \"FAIL: invariants.md 5 does not record that an owner-less lock\
+    \ is judged on persistence\" >&2; exit 1; }\ngit grep -q -i 'persistence' -- AGENTS.md\
+    \ \\\n  || { echo \"FAIL: AGENTS.md does not record that an owner-less lock is\
+    \ judged on persistence\" >&2; exit 1; }"
 - id: P4
   name: 'Collateral: the counters, the retake, and the single-download hold are untouched'
   status: pending
@@ -309,28 +329,28 @@ included — so the timeout message still names the holder and the next rank sti
 **Goal:** a break removes only the instance whose forfeiture it decided, including when that instance
 recorded no `owner`.
 
-- [ ] **Measure C1b first.** Re-running `uvm_age "${lock}"` in place of the `-ot` comparison would
+- [x] **Measure C1b first.** Re-running `uvm_age "${lock}"` in place of the `-ot` comparison would
       delete the reference file, its cleanup and its litter class for one fork on the provisioning
       path. [`research/01`](research/01-directory-identity.md) F4 predicts equivalence and
       [`research/07`](research/07-candidate-remedies.md) left it **unmeasured**. Run both against
       `--plant none --bursts 12`; prefer C1b if it holds, because it deletes a mechanism.
-- [ ] Implement the break path in the order **age → sweep → pin → verify → remove**
+- [x] Implement the break path in the order **age → sweep → pin → verify → remove**
       ([`PLAN.md`](PLAN.md) § 2.2). The ordering is load-bearing and non-obvious: creating an entry
       bumps the directory's mtime, so a pin placed before the age comparison makes that comparison
       unsatisfiable forever — measured as a total deadlock, 768/768 ranks timed out.
-- [ ] `-d` precedes `-ot`. Bash reports `[[ MISSING -ot existing ]]` **true**, so a bare `-ot` passes
+- [x] `-d` precedes `-ot`. Bash reports `[[ MISSING -ot existing ]]` **true**, so a bare `-ot` passes
       exactly when the instance is already gone.
-- [ ] `2>/dev/null` precedes the pin's output redirect, the ordering already documented at the `owner`
+- [x] `2>/dev/null` precedes the pin's output redirect, the ordering already documented at the `owner`
       write. Without it the EEXIST case emits a raw shell diagnostic once per iteration — ~180 lines
       at the shipped default timeout.
-- [ ] The mark carries `${owner}`, not nothing. A pin recording no identity cannot be swept and wedges
+- [x] The mark carries `${owner}`, not nothing. A pin recording no identity cannot be swept and wedges
       the lock exactly as an unswept one does.
-- [ ] Sweep an abandoned pin by probing the pid it records — same host and gone means remove. No new
+- [x] Sweep an abandoned pin by probing the pid it records — same host and gone means remove. No new
       environment variable and no new bound; it reuses the liveness rule already applied to `owner`.
-- [ ] Declare `local` for every new variable. The prototype leaked three globals.
-- [ ] Clean up the age reference on the wait loop's exits and from the EXIT trap. Left behind it
+- [x] Declare `local` for every new variable. The prototype leaked three globals.
+- [x] Clean up the age reference on the wait loop's exits and from the EXIT trap. Left behind it
       accumulates one file per contending pid in the user's own tree forever. (Moot if C1b wins.)
-- [ ] Update `invariants.md` §5 and `AGENTS.md`: the pin and its sweep are new mechanism, and the
+- [x] Update `invariants.md` §5 and `AGENTS.md`: the pin and its sweep are new mechanism, and the
       `mkdir`-to-`owner` window is **0.265 ms** measured end to end, not the 0.10 ms both files quote,
       which measures only the parent's redirect.
 - **Verify:** the drive green on all three plants at the sized burst counts, `progress=ok`, no age
@@ -342,6 +362,48 @@ recorded no `owner`.
 - **Cost:** the gate is ~103 s. That is the price of a statistical assertion and it was sized, not
   guessed.
 - **Touches:** `bin/uv-manager`, `AGENTS.md`, `.agents/factory/invariants.md`.
+
+### Amendments (2026-09-08) — the freshness evidence changed twice under measurement
+
+**C1b was rejected on soundness, not on equivalence.** The checklist asked whether re-running
+`uvm_age` matched the `-ot` comparison. It does not, and the difference is a regression: `uvm_age`
+re-tests `age > lock_stale`, a threshold the *dead-holder* branch never established. A young lock
+whose holder is gone breaks in **0 s** on `main`, and C1b would have made it wait out the whole stale
+window — the opposite of what `invariants.md` §5 promises. So the re-check re-verifies **whichever
+branch decided the forfeiture**: a dead holder is re-probed with `kill -0`, everything else by age.
+`uvm_lock_still_forfeit` exists for that, and the reference file stays with its cleanup.
+
+**The directory's mtime turned out to be unusable as freshness evidence, and the drive is what said
+so.** The researched form (`[[ -d "${lock}" && "${lock}" -ot "${mark}" ]]`) passed the control and
+owner-less plants and then wedged **1 burst in 40** on the owner plant: 64 ranks timed out, nothing
+installed, a lock left standing, and the drive exited 4 on the progress assertion P1 landed for
+exactly this. Two rounds of diagnosis:
+
+1. First correction — read the age off `${lock}/owner` rather than the directory, the same reasoning
+   `uvm_age` already carries. Still 1 in 40.
+2. Instrumenting the real script out of tree gave the mechanism:
+   `NOREASON holder=[] age=[0] ownerexists=n`. A breaker unlinks `owner`, a rival pins the emptied
+   directory in the gap before the `rmdir`, so the `rmdir` fails — and what is left is an owner-less
+   directory whose mtime *the unlink just bumped*. It then needs a full `UVM_LOCK_STALE` to read as
+   stale again, which is longer than `UVM_LOCK_TIMEOUT`, so no branch ever names it forfeit and every
+   rank pays the timeout. At the shipped defaults that is 600 s against 180 s.
+
+**The fix is persistence, in the idiom §5 already mandates for `mkdir` failures.** A winner records
+`owner` within a fraction of a millisecond of its `mkdir`, so a lock seen owner-less on two
+consecutive passes a second apart is a husk rather than a winner mid-claim. The count is a literal
+bound, not a knob, and it **resets** when an `owner` appears — carried over, it would eventually
+condemn a live winner caught inside its acquire window, which is the defect the guard exists to
+prevent. It is decided in the same chain as the other two branches, because a lock no branch can name
+forfeit is never broken at all.
+
+- **Measured after the fix:** `owner` plant 40 × 64 = 2560 ranks — 0 stolen, 0 robbed, 0 concurrent,
+  40 installer entries for 40 bursts, no lock left standing, `progress=ok`. `none` plant 12 × 64 and
+  `control` 5 × 64 likewise zero. The whole gate is red against `main`'s wrapper and green against
+  the fix, checked by stashing only `bin/uv-manager`.
+- **Behaviour deltas, measured and accepted:** the dead-holder fast path is unchanged at **0 s**; an
+  abandoned owner-less husk now clears in **1 s** instead of immediately, which is the cost of not
+  deleting a live winner's lock; a live holder is still never broken (rc 1, zero break notes, lock
+  present). The first two are pinned by new gate clauses, both observed failing against `main`.
 
 ## Phase P4 — Collateral
 **Satisfies:** R5, R6 · **Depends on:** P3

@@ -87,7 +87,9 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
   is exactly what a holder broken as stale does when release matches on the path alone. The owner
   write is fatal (a holder that cannot prove ownership leaks its own lock for a full stale window)
   and the line is built from shell expansions with no forks, which narrows the `mkdir`-to-`owner`
-  window from 3.0 ms to 0.10 ms. The one exception is a directory already gone when the write runs:
+  window from 3.0 ms to a measured 0.265 ms end to end. The narrower figure once recorded here timed
+  the parent's redirect alone and omitted the interval between `mkdir(2)` returning in the forked
+  child and the parent regaining control, which is the larger half. The one exception is a directory already gone when the write runs:
   that winner was robbed by a losing stale-breaker rather than refused by the filesystem, and it
   retakes the lock under a literal bound that never resets instead of dying with empty stdout. A
   directory still standing is a genuine fault and stays fatal — a failed redirect leaves the shell
@@ -163,6 +165,53 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
   file since — reporting `<none recorded>` two lines under a note that named the holder is a
   contradiction the reader has to resolve before they can act. Every break note carries the same
   owner line, since a successful break takes the answer with it.
+- **A break removes only the instance it judged, and the mechanism is an entry it writes.** A
+  directory has no identity a shell can read: an inode is recycled deterministically on ext4 (measured
+  200 of 200 at one path) and a held descriptor compares equal on Linux and unequal on macOS, so every
+  readable token is sound on the machine the drive runs on and false where the wrapper runs. So the
+  breaker creates `${lock}/mark` under `set -C`, which is `O_EXCL`: ENOENT means the instance is
+  already gone, EEXIST means another breaker owns this break, and both decline. What the entry buys is
+  **occupancy, not evidence** — while it stands no other rank's `rmdir` succeeds and no `mkdir` can
+  place a new instance at that path, so what is removed is what was judged. A predicate cannot achieve
+  this: the exposure is the two forks *after* the predicate, measured at 2.97 ms against a winner's own
+  0.265 ms acquire gap, and a fork-free re-check alone was measured narrowing the owner-less case only
+  from 4.2% to 1.7% of ranks.
+- **The order is age, then pin, then verify, then remove, and it is load-bearing.** Creating an entry
+  bumps the directory's mtime, so a pin placed *before* the age comparison makes that comparison
+  unsatisfiable forever — measured as a total deadlock, every rank timing out and every lock left
+  standing. Dropping the age test instead lets the pin land inside a *live* hold, whose own `rmdir` is
+  then refused, leaving an empty directory with a fresh mtime that nothing reads as stale and no rank
+  can break.
+- **An owner-less lock is forfeit on persistence, never on the directory's age.** A directory's mtime
+  is whatever the last write inside it left, and every breaker's own `rm -f` and pin moves it — so a
+  break that unlinked `owner` and was then refused its `rmdir` leaves a husk reading as fresh for a
+  full `UVM_LOCK_STALE`, which is longer than `UVM_LOCK_TIMEOUT`. Measured: every rank in the burst
+  timing out against a lock nobody held. A winner records `owner` within a fraction of a millisecond
+  of its `mkdir`, so a lock seen owner-less on **two consecutive passes a second apart** is a husk and
+  not a winner mid-claim. The bound is a literal, as the absent-lock retry's is, and the count
+  **resets** the moment an `owner` appears: a count that carried over would eventually declare a live
+  winner caught inside its acquire window forfeit, which is the whole defect the guard exists to
+  prevent. It is decided in the same chain as the other two branches and re-tested in
+  `uvm_lock_still_forfeit`, because a lock no branch can name forfeit is never broken at all. The
+  cost is one extra second before an abandoned husk is cleared; the dead-holder fast path is
+  untouched at zero.
+- **`uvm_lock_still_forfeit` re-verifies whichever branch decided the forfeiture**, because the two
+  carry different evidence. A dead holder is re-probed with `kill -0`, since its lock may legitimately
+  be young and the fast path exists precisely so a killed holder does not cost the next rank a full
+  stale window; re-testing *age* there would gate the branch behind the threshold it exists to skip.
+  A lock that records an `owner` is re-tested by that file's mtime against a per-pid reference whose
+  mtime is now — the file, not the directory, because only the holder's own heartbeat writes it, and
+  that is exactly the signal wanted: a live holder keeps it moving and is declined, a dead one leaves
+  it where it stopped. An owner-less lock is re-tested by the persistence count above. `-d` precedes `-ot` because bash reports
+  `[[ missing -ot existing ]]` as **true**, so a bare comparison passes exactly when the instance is
+  already gone. A reference the wrapper could not write leaves no file, and the comparison is then
+  false, so an unwritable root declines the break.
+- **A pin no process stands behind is swept, not waited out.** A breaker killed between its pin and
+  its cleanup leaves an entry no trap sweeps, and `rmdir` then refuses for everyone until a human
+  clears it. The entry therefore records the same `host`/`pid`/nonce line as `owner` and is swept by
+  probing that pid — no new bound, and recovery is immediate rather than a stale window away. An
+  empty pin cannot be swept at all, which is why it carries the line rather than being a bare
+  `: >`. A pin from another node is left standing and named in the timeout message.
 - **A break announces an intention, not an accomplishment**, and any guard between the note and the
   removals may decline it. `uvm_lock_removable` is one, and it joins the identity test rather than
   following it: learning that `rmdir` will be refused by attempting it means learning it once `owner`

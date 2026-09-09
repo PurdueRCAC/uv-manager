@@ -50,11 +50,21 @@ across eleven states ([`research/07`](research/07-candidate-remedies.md)); costs
 
 The order is the design, and each step exists because a simpler arrangement was measured failing:
 
-1. **Age.** `[[ "${still}" == "${holder}" && -d "${lock}" && "${lock}" -ot "${mark}" ]]`, where
-   `${mark}` is a per-pid reference file `${uvm_root}/.install.mark.$$` re-created (`: > "${mark}"`)
-   at the top of each wait iteration. `-d` precedes `-ot` because bash reports
+1. **Age.** `[[ "${still}" == "${holder}" ]]` plus `uvm_lock_still_forfeit`, which re-verifies
+   whichever branch decided the forfeiture. `-d` precedes any `-ot` because bash reports
    `[[ MISSING -ot existing ]]` **true**, so a bare `-ot` passes exactly when the instance is already
-   gone. Per-pid, because a shared reference another rank bumps forward reopens the hole it closes.
+   gone. The reference `${mark}` is per-pid (`${uvm_root}/.install.mark.$$`), because a shared one
+   another rank bumps forward reopens the hole it closes.
+
+   **Amended during P3, on measurement — see [`TECH.md`](TECH.md) § *Amendments*.** This step as
+   drafted tested the *lock directory's* mtime, and that wedged 1 burst in 40: a breaker's own unlink
+   of `owner` bumps the directory's mtime, so a husk left by a failed `rmdir` reads as fresh for a
+   full `UVM_LOCK_STALE` and no branch names it forfeit before the timeout fires. What shipped reads
+   the age off `${lock}/owner` when it exists — only the holder's heartbeat writes that file — and
+   judges an owner-less lock on **persistence** instead: owner-less on two consecutive passes a
+   second apart is a husk, since a winner records `owner` within a fraction of a millisecond of its
+   `mkdir`. A dead holder is re-probed with `kill -0` rather than re-aged, which is what keeps the
+   0-second fast path §5 promises.
 2. **Sweep an abandoned pin.** On finding a `mark`, read it and probe the pid it records; same host
    and gone means remove it. Reuses the liveness rule the function already applies to `owner`, so it
    adds no bound and recovers immediately rather than a stale window later.
@@ -195,7 +205,7 @@ Walked before research and again against this design.
 |-----------|-----------|--------------------------------------|
 | A second file (`mark`) inside the lock directory, in a repository whose bias is to delete rather than add | It is the only mechanism measured to close the race. A predicate cannot: the exposure is *after* the predicate, and C1 alone moved the owner-less plant only 4.2% → 1.7% | An inode token — measured **100% false-match on ext4**, sound only on APFS where the drive runs ([`research/01`](research/01-directory-identity.md) F3). A held-fd `-ef` test — correct on Linux, broken on macOS. `find -inum -delete` — **BSD returns rc 0 silently** with the directory standing. Rename — the GOAL's non-goal, re-measured nesting. Compose-and-restore — measured refreshing a dead lock into permanence |
 | A sweep rule for an abandoned pin | Without it a breaker killed between pin and cleanup wedges the lock for everyone, `rmdir` refusing forever | Leaving it unswept was measured: permanent wedge. An empty `: >` mark cannot be swept at all, so identity in the mark is not optional |
-| `${uvm_root}/.install.mark.$$`, a per-pid file outside the lock | The `-ot` comparison needs a reference whose mtime is *now*, and a shared one another rank bumps forward reopens the hole | Re-running `uvm_age` instead (**C1b**) would delete this file, its cleanup and its litter class for one fork. [`research/01`](research/01-directory-identity.md) F4 predicts equivalence and it was **left unmeasured**; P3 measures it and prefers it if it holds |
+| `${uvm_root}/.install.mark.$$`, a per-pid file outside the lock | The `-ot` comparison needs a reference whose mtime is *now*, and a shared one another rank bumps forward reopens the hole | **Measured in P3 and rejected on soundness.** Re-running `uvm_age` re-tests `age > lock_stale`, which the dead-holder branch never established, so it would gate the 0-second fast path behind the full stale window |
 | +~30 lines in `uvm_acquire_lock` | Three of the four steps were each measured necessary, and the fourth is the ordering between them | Every smaller composition was measured: C1 alone narrows only; C1+C3 leaves 9/768 and 6/2560; C2+C3 without C1 wedges 1/40 bursts; pin-before-age deadlocks completely |
 
 ## 4. Rabbit holes (resolved)

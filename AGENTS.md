@@ -208,6 +208,34 @@ own error is what tells the reader so. The line comes from the acquire loop's ow
 `last_holder` record and is phrased in the past tense, since a break may have removed the file since.
 Break notes carry the same owner line: a successful break takes the answer with it.
 
+**A break removes only the instance it judged, and it does so by writing an entry.** A directory has
+no identity a shell can read — an inode recycles deterministically on ext4, and a held descriptor
+compares equal on Linux and unequal on macOS, so every readable token is sound where this project's
+drives run and false where the wrapper runs. The breaker creates `${lock}/mark` under `set -C`, which
+is `O_EXCL`: gone means ENOENT, another breaker means EEXIST, and both decline. The entry is
+occupancy rather than evidence — while it stands nothing else can remove the directory and nothing
+can create a new instance at that path, so what is removed is what was judged. No predicate can do
+this, because the exposure is the two forks after the predicate.
+
+**Age, then pin, then verify, then remove.** Creating an entry bumps the directory's mtime, so a pin
+before the age test makes that test unsatisfiable forever — measured as a total deadlock. Dropping
+the age test lets the pin land inside a live hold and leaves a fresh empty directory nothing will
+break. `uvm_lock_still_forfeit` re-verifies whichever branch decided the forfeiture: a dead holder is
+re-probed, because its lock may be young and the fast path exists so a killed holder costs the next
+rank nothing; everything else is re-tested by age against a per-pid reference whose mtime is now.
+A pin nobody stands behind is swept by probing the pid it records, so an abandoned one does not wedge
+the lock, and it carries that line rather than being empty for exactly that reason.
+
+**An owner-less lock is forfeit on persistence, not on the directory's age.** A directory's mtime is
+whatever the last write inside it left, and a breaker's own `rm -f` moves it — so a break that
+unlinked `owner` and was then refused its `rmdir` leaves a husk reading as fresh for a full
+`UVM_LOCK_STALE`, which outlasts `UVM_LOCK_TIMEOUT` and times out every rank against a lock nobody
+holds. A winner writes `owner` within a fraction of a millisecond of its `mkdir`, so a lock seen
+owner-less twice in a row, a second apart, is a husk. The bound is a literal and the count resets
+whenever an `owner` appears — carrying it over would eventually condemn a live winner caught
+mid-claim. A lock that does record an owner is judged by **that file's** mtime, never the directory's,
+since only the holder's heartbeat writes it.
+
 **A break announces an intention, and a guard may still decline it.** `uvm_lock_removable` gates both
 removals from inside the identity test, not after it. Discovering that `rmdir` will be refused by
 attempting it means discovering it once `owner` is already unlinked, and that residue is worse than
