@@ -3,210 +3,182 @@ slug: lock-break-instance-identity
 title: A losing breaker deletes the lock a third rank just won
 kind: fix
 appetite: big
-status: planned
+status: in_progress
 branch: fix/lock-break-instance-identity
 base: main
-current_phase: P1
-last_updated: "2026-09-08"
+current_phase: P2
+last_updated: '2026-09-08'
 phases:
-  - id: P1
-    name: "The instrument: a committed lock-race drive at tests/"
-    status: pending
-    satisfies: [R1, R2]
-    depends_on: []
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: |
-      set -eu
-      .agents/factory/bin/lint.sh >/dev/null
-      test -x tests/lock-race.sh || { echo "FAIL R1: tests/lock-race.sh is missing or not executable" >&2; exit 1; }
-      test -x tests/lock-race-burst.sh || { echo "FAIL R1: tests/lock-race-burst.sh is missing or not executable" >&2; exit 1; }
-      for f in tests/lock-race.sh tests/lock-race-burst.sh; do
-        n=$(grep -c -F "$f" .agents/factory/bin/lint.sh || true)
-        [ "$n" -ge 2 ] || { echo "FAIL: $f appears $n time(s) in lint.sh; it owes the sh -n loop AND the shellcheck list" >&2; exit 1; }
-      done
-      tests/lock-race.sh --plant control --ranks 64 --bursts 2 --quiet \
-        || { echo "FAIL R2: the control run reported a race where none is reachable" >&2; exit 1; }
-      tests/lock-race.sh --plant control --ranks 64 --bursts 1 --quiet | grep -q 'break_notes=0' \
-        || { echo "FAIL R2: the control run emitted break notes, so its zero means nothing" >&2; exit 1; }
-      tests/lock-race.sh --plant control --ranks 64 --bursts 1 --quiet | grep -q 'stolen_holds=0' \
-        || { echo "FAIL R2: stolen holds are not reported as their own counter" >&2; exit 1; }
-      tests/lock-race.sh --plant control --ranks 64 --bursts 1 --quiet | grep -q 'robbed_winners=0' \
-        || { echo "FAIL R2: robbed winners are not reported as their own counter" >&2; exit 1; }
-      tests/lock-race.sh --plant control --ranks 64 --bursts 1 --quiet | grep -q 'concurrent_installers=0' \
-        || { echo "FAIL R2: concurrent installers are not reported as their own counter" >&2; exit 1; }
-      if out=$(tests/lock-race.sh --plant control --ranks 8 --bursts 2 --straggler --deadline 3 --quiet); then rc=0; else rc=$?; fi
-      [ "$rc" -eq 3 ] || { echo "FAIL R1: the straggler injection gave rc $rc, not 3" >&2; exit 1; }
-      [ -z "$out" ] || { echo "FAIL R1: the straggler run put a count on stdout: $out" >&2; exit 1; }
-      if out=$(tests/lock-race.sh --plant control --ranks 8 --bursts 4 --late 3 --quiet); then rc=0; else rc=$?; fi
-      [ "$rc" -eq 3 ] || { echo "FAIL R1: the late-write injection gave rc $rc, not 3" >&2; exit 1; }
-      [ -z "$out" ] || { echo "FAIL R1: the late-write run put a count on stdout: $out" >&2; exit 1; }
-  - id: P2
-    name: "A denied break destroys no evidence (R4 sequences before R3)"
-    status: pending
-    satisfies: [R4]
-    depends_on: [P1]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: |
-      set -eu
-      bash -n bin/uv-manager
-      .agents/factory/bin/lint.sh >/dev/null
-      for c in stray dotstray parent500 lock500; do
-        .agents/factory/bin/temp_root.sh --offline --arch probe sh -s "$c" <<'R4DRIVE'
-      set -u
-      c="$1"
-      L="$UVM_ROOT/probe/.install.lock"
-      mkdir -p "$L"
-      printf 'host=othernode pid=99999 nonce=r4gate\n' > "$L/owner"
-      case "$c" in
-        stray)    : > "$L/stray" ;;
-        dotstray) : > "$L/.stray" ;;
-      esac
-      touch -t 202001010000 "$L/owner" "$L"
-      [ "$c" = parent500 ] && chmod 500 "$UVM_ROOT/probe"
-      [ "$c" = lock500 ] && chmod 500 "$L"
-      err="$UVM_SANDBOX/err"
-      UVM_LOCK_STALE=5 UVM_LOCK_TIMEOUT=2 uv --version >/dev/null 2>"$err" || true
-      chmod 700 "$UVM_ROOT/probe" 2>/dev/null || true
-      chmod 700 "$L" 2>/dev/null || true
-      [ -f "$L/owner" ] || { echo "FAIL R4 [$c]: a denied break removed the owner file" >&2; cat "$err" >&2; exit 1; }
-      if grep -q '<none recorded>' "$err"; then
-        echo "FAIL R4 [$c]: the timeout message lost the holder" >&2; cat "$err" >&2; exit 1; fi
-      grep -q 'nonce=r4gate' "$err" \
-        || { echo "FAIL R4 [$c]: no message named the recorded holder" >&2; cat "$err" >&2; exit 1; }
-      grep -q "rmdir '$L'" "$err" \
-        || { echo "FAIL R4 [$c]: the timeout message printed no recovery command" >&2; cat "$err" >&2; exit 1; }
-      grep -q "mark' && rmdir" "$err" \
-        || { echo "FAIL R4 [$c]: the recovery command does not account for the mark file" >&2; cat "$err" >&2; exit 1; }
-      n=$(grep -c 'provisioning lock is forfeit' "$err" || true)
-      [ "$n" = 1 ] || { echo "FAIL R7 [$c]: $n break notes in one wait, want exactly 1" >&2; cat "$err" >&2; exit 1; }
-      t=$(grep -c 'timed out after' "$err" || true)
-      [ "$t" = 1 ] || { echo "FAIL R4 [$c]: $t timeout messages, want exactly 1" >&2; exit 1; }
-      R4DRIVE
-      done
-      .agents/factory/bin/temp_root.sh --offline --arch probe sh -s <<'STALEDRIVE'
-      set -u
-      L="$UVM_ROOT/probe/.install.lock"
-      mkdir -p "$L"
-      printf 'host=othernode pid=99999 nonce=stalegate\n' > "$L/owner"
-      : > "$L/stray"
-      touch -t 202001010000 "$L/owner" "$L"
-      UVM_LOCK_STALE=5 UVM_LOCK_TIMEOUT=2 uv --version >/dev/null 2>"$UVM_SANDBOX/e1" || true
-      UVM_LOCK_STALE=5 UVM_LOCK_TIMEOUT=2 uv --version >/dev/null 2>"$UVM_SANDBOX/e2" || true
-      n=$(grep -c 'provisioning lock is forfeit' "$UVM_SANDBOX/e2" || true)
-      [ "$n" = 1 ] || { echo "FAIL R4: a denied break left the lock unbreakable -- the second rank emitted $n break notes, want 1. The first break bumped the directory mtime and uvm_age fell back to it." >&2; cat "$UVM_SANDBOX/e2" >&2; exit 1; }
-      STALEDRIVE
-      git grep -q "mark' && rmdir" -- README.md \
-        || { echo "FAIL: README.md still documents a recovery command that leaves the mark file behind" >&2; exit 1; }
-  - id: P3
-    name: "Age, pin, verify, remove: a break removes only the instance it judged"
-    status: pending
-    satisfies: [R3]
-    depends_on: [P2]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: |
-      set -eu
-      bash -n bin/uv-manager
-      .agents/factory/bin/lint.sh >/dev/null
-      test -x tests/lock-race.sh || { echo "FAIL R3: tests/lock-race.sh is absent -- P1 has not landed" >&2; exit 1; }
-      tests/lock-race.sh --plant control --ranks 64 --bursts 5  --quiet
-      tests/lock-race.sh --plant none    --ranks 64 --bursts 12 --quiet
-      tests/lock-race.sh --plant owner   --ranks 64 --bursts 40 --quiet
-      tests/lock-race.sh --plant none --ranks 64 --bursts 2 --quiet | grep -q 'progress=ok' \
-        || { echo "FAIL R3: the drive reported no progress, so its zeros are a deadlock rather than a fix" >&2; exit 1; }
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'LITTERDRIVE'
-      set -u
-      uv --version >/dev/null 2>&1 || { echo "FAIL R3: an ordinary offline drive did not provision" >&2; exit 1; }
-      a=$(uname -m)
-      for f in "$UVM_ROOT/$a"/.install.mark*; do
-        [ -e "$f" ] || continue
-        echo "FAIL R3: the age reference was left behind in the user's tree: ${f##*/}" >&2
-        exit 1
-      done
-      [ -d "$UVM_ROOT/$a/.install.lock" ] && { echo "FAIL R3: a lock was left behind" >&2; exit 1; }
-      exit 0
-      LITTERDRIVE
-      git grep -q 'forfeit' -- .agents/factory/invariants.md \
-        || { echo "FAIL: invariants.md 5 does not carry the reworded break note" >&2; exit 1; }
-      git grep -q 'mark' -- .agents/factory/invariants.md \
-        || { echo "FAIL: invariants.md 5 does not describe the pin this phase adds" >&2; exit 1; }
-      git grep -q 'mark' -- AGENTS.md \
-        || { echo "FAIL: AGENTS.md Invariants does not describe the pin this phase adds" >&2; exit 1; }
-      if git grep -q '0.10 ms' -- AGENTS.md .agents/factory/invariants.md; then
-        echo "FAIL: both files still quote the 0.10 ms window, which measures only the redirect; the measured end-to-end window is 0.265 ms" >&2
-        exit 1
-      fi
-  - id: P4
-    name: "Collateral: the counters, the retake, and the single-download hold are untouched"
-    status: pending
-    satisfies: [R5, R6]
-    depends_on: [P3]
-    parallel: false
-    hammerable: false
-    hill: uphill
-    verify: |
-      set -eu
-      bash -n bin/uv-manager
-      .agents/factory/bin/lint.sh >/dev/null
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'HOLDDRIVE'
-      set -u
-      out=$(uv --version 2>/dev/null) || { echo "FAIL R6: the offline drive did not provision" >&2; exit 1; }
-      [ "$out" = "uv 9.9.9 (fixture)" ] || { echo "FAIL R6: stdout was [$out], not the fixture version alone" >&2; exit 1; }
-      a=$(uname -m)
-      t=$(readlink "$UVM_ROOT/$a/current" 2>/dev/null || true)
-      [ "$t" = versions/9.9.9 ] || { echo "FAIL R6: current points at [$t], not versions/9.9.9" >&2; exit 1; }
-      [ -d "$UVM_ROOT/$a/.install.lock" ] && { echo "FAIL R6: a lock was left behind" >&2; exit 1; }
-      exit 0
-      HOLDDRIVE
-      n=$(grep -c flock bin/uv-manager || true)
-      [ "$n" = 1 ] || { echo "FAIL R6: $n flock mentions in the script, want exactly the one rationale comment" >&2; exit 1; }
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'RETAKEDRIVE'
-      set -u
-      S="$UVM_SANDBOX/shim"; mkdir -p "$S"
-      printf '%s\n' '#!/bin/sh' 'case "${1:-}" in *.install.lock) /bin/mkdir "$1" || exit $?; [ -e "$UVM_SANDBOX/fired" ] || { : > "$UVM_SANDBOX/fired"; /bin/rmdir "$1"; }; exit 0;; esac; exec /bin/mkdir "$@"' > "$S/mkdir"
-      chmod +x "$S/mkdir"; PATH="$S:$PATH"; export PATH
-      out=$(uv --version 2>"$UVM_SANDBOX/err") || { echo "FAIL R5: the robbed winner stopped retaking the lock" >&2; cat "$UVM_SANDBOX/err" >&2; exit 1; }
-      [ "$out" = "uv 9.9.9 (fixture)" ] || { echo "FAIL R5: stdout was [$out] after a retake" >&2; exit 1; }
-      RETAKEDRIVE
-      .agents/factory/bin/temp_root.sh --offline sh -s <<'EACCESDRIVE'
-      set -u
-      S="$UVM_SANDBOX/shim"; mkdir -p "$S"
-      printf '%s\n' '#!/bin/sh' 'case "${1:-}" in *.install.lock) /bin/mkdir "$1" || exit $?; [ -e "$UVM_SANDBOX/fired" ] || { : > "$UVM_SANDBOX/fired"; /bin/chmod 500 "$1"; }; exit 0;; esac; exec /bin/mkdir "$@"' > "$S/mkdir"
-      chmod +x "$S/mkdir"; PATH="$S:$PATH"; export PATH
-      if UVM_LOCK_TIMEOUT=5 UVM_LOCK_STALE=60 uv --version >/dev/null 2>"$UVM_SANDBOX/err"; then
-        echo "FAIL R5: an EACCES owner write was retried into success" >&2; exit 1; fi
-      grep -q 'Permission denied' "$UVM_SANDBOX/err" || { echo "FAIL R5: the errno no longer reaches stderr" >&2; cat "$UVM_SANDBOX/err" >&2; exit 1; }
-      grep -q 'cannot record ownership' "$UVM_SANDBOX/err" || { echo "FAIL R5: the fatal message is gone" >&2; exit 1; }
-      EACCESDRIVE
-      .agents/factory/bin/temp_root.sh --offline --arch probe sh -s <<'COUNTERDRIVE'
-      set -u
-      L="$UVM_ROOT/probe/.install.lock"; mkdir -p "$L"
-      # Our own pid: alive, and owned by us. A pid we do not own reads as dead,
-      # because kill -0 cannot distinguish EPERM from ESRCH.
-      printf 'host=%s pid=%s nonce=fresh\n' "$(uname -n)" "$$" > "$L/owner"
-      s=$(date +%s)
-      if UVM_LOCK_TIMEOUT=3 UVM_LOCK_STALE=60 uv --version >/dev/null 2>"$UVM_SANDBOX/err"; then
-        echo "FAIL R5: a fresh foreign lock did not time out" >&2; exit 1; fi
-      e=$(date +%s)
-      [ $((e-s)) -ge 3 ] || { echo "FAIL R5: timed out in $((e-s))s, before UVM_LOCK_TIMEOUT" >&2; exit 1; }
-      [ $((e-s)) -le 6 ] || { echo "FAIL R5: took $((e-s))s to honour a 3s timeout" >&2; exit 1; }
-      n=$(grep -c 'provisioning lock is forfeit' "$UVM_SANDBOX/err" || true)
-      [ "$n" = 0 ] || { echo "FAIL R5: a live foreign lock was declared forfeit ($n notes)" >&2; exit 1; }
-      COUNTERDRIVE
-      test -x tests/lock-race.sh || { echo "FAIL R5: tests/lock-race.sh is absent -- P1 has not landed" >&2; exit 1; }
-      tests/lock-race.sh --plant owner --ranks 64 --bursts 70 --quiet
+- id: P1
+  name: 'The instrument: a committed lock-race drive at tests/'
+  status: done
+  satisfies:
+  - R1
+  - R2
+  depends_on: []
+  parallel: false
+  hammerable: false
+  hill: downhill
+  verify: "set -eu\n.agents/factory/bin/lint.sh >/dev/null\ntest -x tests/lock-race.sh\
+    \ || { echo \"FAIL R1: tests/lock-race.sh is missing or not executable\" >&2;\
+    \ exit 1; }\ntest -x tests/lock-race-burst.sh || { echo \"FAIL R1: tests/lock-race-burst.sh\
+    \ is missing or not executable\" >&2; exit 1; }\nfor f in tests/lock-race.sh tests/lock-race-burst.sh;\
+    \ do\n  n=$(grep -c -F \"$f\" .agents/factory/bin/lint.sh || true)\n  [ \"$n\"\
+    \ -ge 2 ] || { echo \"FAIL: $f appears $n time(s) in lint.sh; it owes the sh -n\
+    \ loop AND the shellcheck list\" >&2; exit 1; }\ndone\nout=$(tests/lock-race.sh\
+    \ --plant control --ranks 64 --bursts 2 --quiet) \\\n  || { echo \"FAIL R2: the\
+    \ control run reported a race where none is reachable\" >&2; exit 1; }\nfor k\
+    \ in stolen_holds=0 robbed_winners=0 concurrent_installers=0 break_notes=0 progress=ok;\
+    \ do\n  printf '%s\\n' \"$out\" | grep -q -F \"$k\" \\\n    || { echo \"FAIL R2:\
+    \ the control run did not report $k -- got:\" >&2; printf '%s\\n' \"$out\" >&2;\
+    \ exit 1; }\ndone\nif out=$(tests/lock-race.sh --plant control --ranks 8 --bursts\
+    \ 2 --straggler --deadline 3 --quiet); then rc=0; else rc=$?; fi\n[ \"$rc\" -eq\
+    \ 3 ] || { echo \"FAIL R1: the straggler injection gave rc $rc, not 3\" >&2; exit\
+    \ 1; }\n[ -z \"$out\" ] || { echo \"FAIL R1: the straggler run put a count on\
+    \ stdout: $out\" >&2; exit 1; }\nif out=$(tests/lock-race.sh --plant control --ranks\
+    \ 8 --bursts 4 --late 3 --quiet); then rc=0; else rc=$?; fi\n[ \"$rc\" -eq 3 ]\
+    \ || { echo \"FAIL R1: the late-write injection gave rc $rc, not 3\" >&2; exit\
+    \ 1; }\n[ -z \"$out\" ] || { echo \"FAIL R1: the late-write run put a count on\
+    \ stdout: $out\" >&2; exit 1; }"
+- id: P2
+  name: A denied break destroys no evidence (R4 sequences before R3)
+  status: pending
+  satisfies:
+  - R4
+  depends_on:
+  - P1
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: "set -eu\nbash -n bin/uv-manager\n.agents/factory/bin/lint.sh >/dev/null\n\
+    for c in stray dotstray parent500 lock500; do\n  .agents/factory/bin/temp_root.sh\
+    \ --offline --arch probe sh -s \"$c\" <<'R4DRIVE'\nset -u\nc=\"$1\"\nL=\"$UVM_ROOT/probe/.install.lock\"\
+    \nmkdir -p \"$L\"\nprintf 'host=othernode pid=99999 nonce=r4gate\\n' > \"$L/owner\"\
+    \ncase \"$c\" in\n  stray)    : > \"$L/stray\" ;;\n  dotstray) : > \"$L/.stray\"\
+    \ ;;\nesac\ntouch -t 202001010000 \"$L/owner\" \"$L\"\n[ \"$c\" = parent500 ]\
+    \ && chmod 500 \"$UVM_ROOT/probe\"\n[ \"$c\" = lock500 ] && chmod 500 \"$L\"\n\
+    err=\"$UVM_SANDBOX/err\"\nUVM_LOCK_STALE=5 UVM_LOCK_TIMEOUT=2 uv --version >/dev/null\
+    \ 2>\"$err\" || true\nchmod 700 \"$UVM_ROOT/probe\" 2>/dev/null || true\nchmod\
+    \ 700 \"$L\" 2>/dev/null || true\n[ -f \"$L/owner\" ] || { echo \"FAIL R4 [$c]:\
+    \ a denied break removed the owner file\" >&2; cat \"$err\" >&2; exit 1; }\nif\
+    \ grep -q '<none recorded>' \"$err\"; then\n  echo \"FAIL R4 [$c]: the timeout\
+    \ message lost the holder\" >&2; cat \"$err\" >&2; exit 1; fi\ngrep -q 'nonce=r4gate'\
+    \ \"$err\" \\\n  || { echo \"FAIL R4 [$c]: no message named the recorded holder\"\
+    \ >&2; cat \"$err\" >&2; exit 1; }\ngrep -q \"rmdir '$L'\" \"$err\" \\\n  || {\
+    \ echo \"FAIL R4 [$c]: the timeout message printed no recovery command\" >&2;\
+    \ cat \"$err\" >&2; exit 1; }\ngrep -q \"mark' && rmdir\" \"$err\" \\\n  || {\
+    \ echo \"FAIL R4 [$c]: the recovery command does not account for the mark file\"\
+    \ >&2; cat \"$err\" >&2; exit 1; }\nn=$(grep -c 'provisioning lock is forfeit'\
+    \ \"$err\" || true)\n[ \"$n\" = 1 ] || { echo \"FAIL R7 [$c]: $n break notes in\
+    \ one wait, want exactly 1\" >&2; cat \"$err\" >&2; exit 1; }\nt=$(grep -c 'timed\
+    \ out after' \"$err\" || true)\n[ \"$t\" = 1 ] || { echo \"FAIL R4 [$c]: $t timeout\
+    \ messages, want exactly 1\" >&2; exit 1; }\nR4DRIVE\ndone\n.agents/factory/bin/temp_root.sh\
+    \ --offline --arch probe sh -s <<'STALEDRIVE'\nset -u\nL=\"$UVM_ROOT/probe/.install.lock\"\
+    \nmkdir -p \"$L\"\nprintf 'host=othernode pid=99999 nonce=stalegate\\n' > \"$L/owner\"\
+    \n: > \"$L/stray\"\ntouch -t 202001010000 \"$L/owner\" \"$L\"\nUVM_LOCK_STALE=5\
+    \ UVM_LOCK_TIMEOUT=2 uv --version >/dev/null 2>\"$UVM_SANDBOX/e1\" || true\nUVM_LOCK_STALE=5\
+    \ UVM_LOCK_TIMEOUT=2 uv --version >/dev/null 2>\"$UVM_SANDBOX/e2\" || true\nn=$(grep\
+    \ -c 'provisioning lock is forfeit' \"$UVM_SANDBOX/e2\" || true)\n[ \"$n\" = 1\
+    \ ] || { echo \"FAIL R4: a denied break left the lock unbreakable -- the second\
+    \ rank emitted $n break notes, want 1. The first break bumped the directory mtime\
+    \ and uvm_age fell back to it.\" >&2; cat \"$UVM_SANDBOX/e2\" >&2; exit 1; }\n\
+    STALEDRIVE\ngit grep -q \"mark' && rmdir\" -- README.md \\\n  || { echo \"FAIL:\
+    \ README.md still documents a recovery command that leaves the mark file behind\"\
+    \ >&2; exit 1; }\n"
+- id: P3
+  name: 'Age, pin, verify, remove: a break removes only the instance it judged'
+  status: pending
+  satisfies:
+  - R3
+  depends_on:
+  - P2
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: "set -eu\nbash -n bin/uv-manager\n.agents/factory/bin/lint.sh >/dev/null\n\
+    test -x tests/lock-race.sh || { echo \"FAIL R3: tests/lock-race.sh is absent --\
+    \ P1 has not landed\" >&2; exit 1; }\ntests/lock-race.sh --plant control --ranks\
+    \ 64 --bursts 5  --quiet\ntests/lock-race.sh --plant none    --ranks 64 --bursts\
+    \ 12 --quiet\ntests/lock-race.sh --plant owner   --ranks 64 --bursts 40 --quiet\n\
+    tests/lock-race.sh --plant none --ranks 64 --bursts 2 --quiet | grep -q 'progress=ok'\
+    \ \\\n  || { echo \"FAIL R3: the drive reported no progress, so its zeros are\
+    \ a deadlock rather than a fix\" >&2; exit 1; }\n.agents/factory/bin/temp_root.sh\
+    \ --offline sh -s <<'LITTERDRIVE'\nset -u\nuv --version >/dev/null 2>&1 || { echo\
+    \ \"FAIL R3: an ordinary offline drive did not provision\" >&2; exit 1; }\na=$(uname\
+    \ -m)\nfor f in \"$UVM_ROOT/$a\"/.install.mark*; do\n  [ -e \"$f\" ] || continue\n\
+    \  echo \"FAIL R3: the age reference was left behind in the user's tree: ${f##*/}\"\
+    \ >&2\n  exit 1\ndone\n[ -d \"$UVM_ROOT/$a/.install.lock\" ] && { echo \"FAIL\
+    \ R3: a lock was left behind\" >&2; exit 1; }\nexit 0\nLITTERDRIVE\ngit grep -q\
+    \ 'forfeit' -- .agents/factory/invariants.md \\\n  || { echo \"FAIL: invariants.md\
+    \ 5 does not carry the reworded break note\" >&2; exit 1; }\ngit grep -q 'mark'\
+    \ -- .agents/factory/invariants.md \\\n  || { echo \"FAIL: invariants.md 5 does\
+    \ not describe the pin this phase adds\" >&2; exit 1; }\ngit grep -q 'mark' --\
+    \ AGENTS.md \\\n  || { echo \"FAIL: AGENTS.md Invariants does not describe the\
+    \ pin this phase adds\" >&2; exit 1; }\nif git grep -q '0.10 ms' -- AGENTS.md\
+    \ .agents/factory/invariants.md; then\n  echo \"FAIL: both files still quote the\
+    \ 0.10 ms window, which measures only the redirect; the measured end-to-end window\
+    \ is 0.265 ms\" >&2\n  exit 1\nfi\n"
+- id: P4
+  name: 'Collateral: the counters, the retake, and the single-download hold are untouched'
+  status: pending
+  satisfies:
+  - R5
+  - R6
+  depends_on:
+  - P3
+  parallel: false
+  hammerable: false
+  hill: uphill
+  verify: "set -eu\nbash -n bin/uv-manager\n.agents/factory/bin/lint.sh >/dev/null\n\
+    .agents/factory/bin/temp_root.sh --offline sh -s <<'HOLDDRIVE'\nset -u\nout=$(uv\
+    \ --version 2>/dev/null) || { echo \"FAIL R6: the offline drive did not provision\"\
+    \ >&2; exit 1; }\n[ \"$out\" = \"uv 9.9.9 (fixture)\" ] || { echo \"FAIL R6: stdout\
+    \ was [$out], not the fixture version alone\" >&2; exit 1; }\na=$(uname -m)\n\
+    t=$(readlink \"$UVM_ROOT/$a/current\" 2>/dev/null || true)\n[ \"$t\" = versions/9.9.9\
+    \ ] || { echo \"FAIL R6: current points at [$t], not versions/9.9.9\" >&2; exit\
+    \ 1; }\n[ -d \"$UVM_ROOT/$a/.install.lock\" ] && { echo \"FAIL R6: a lock was\
+    \ left behind\" >&2; exit 1; }\nexit 0\nHOLDDRIVE\nn=$(grep -c flock bin/uv-manager\
+    \ || true)\n[ \"$n\" = 1 ] || { echo \"FAIL R6: $n flock mentions in the script,\
+    \ want exactly the one rationale comment\" >&2; exit 1; }\n.agents/factory/bin/temp_root.sh\
+    \ --offline sh -s <<'RETAKEDRIVE'\nset -u\nS=\"$UVM_SANDBOX/shim\"; mkdir -p \"\
+    $S\"\nprintf '%s\\n' '#!/bin/sh' 'case \"${1:-}\" in *.install.lock) /bin/mkdir\
+    \ \"$1\" || exit $?; [ -e \"$UVM_SANDBOX/fired\" ] || { : > \"$UVM_SANDBOX/fired\"\
+    ; /bin/rmdir \"$1\"; }; exit 0;; esac; exec /bin/mkdir \"$@\"' > \"$S/mkdir\"\n\
+    chmod +x \"$S/mkdir\"; PATH=\"$S:$PATH\"; export PATH\nout=$(uv --version 2>\"\
+    $UVM_SANDBOX/err\") || { echo \"FAIL R5: the robbed winner stopped retaking the\
+    \ lock\" >&2; cat \"$UVM_SANDBOX/err\" >&2; exit 1; }\n[ \"$out\" = \"uv 9.9.9\
+    \ (fixture)\" ] || { echo \"FAIL R5: stdout was [$out] after a retake\" >&2; exit\
+    \ 1; }\nRETAKEDRIVE\n.agents/factory/bin/temp_root.sh --offline sh -s <<'EACCESDRIVE'\n\
+    set -u\nS=\"$UVM_SANDBOX/shim\"; mkdir -p \"$S\"\nprintf '%s\\n' '#!/bin/sh' 'case\
+    \ \"${1:-}\" in *.install.lock) /bin/mkdir \"$1\" || exit $?; [ -e \"$UVM_SANDBOX/fired\"\
+    \ ] || { : > \"$UVM_SANDBOX/fired\"; /bin/chmod 500 \"$1\"; }; exit 0;; esac;\
+    \ exec /bin/mkdir \"$@\"' > \"$S/mkdir\"\nchmod +x \"$S/mkdir\"; PATH=\"$S:$PATH\"\
+    ; export PATH\nif UVM_LOCK_TIMEOUT=5 UVM_LOCK_STALE=60 uv --version >/dev/null\
+    \ 2>\"$UVM_SANDBOX/err\"; then\n  echo \"FAIL R5: an EACCES owner write was retried\
+    \ into success\" >&2; exit 1; fi\ngrep -q 'Permission denied' \"$UVM_SANDBOX/err\"\
+    \ || { echo \"FAIL R5: the errno no longer reaches stderr\" >&2; cat \"$UVM_SANDBOX/err\"\
+    \ >&2; exit 1; }\ngrep -q 'cannot record ownership' \"$UVM_SANDBOX/err\" || {\
+    \ echo \"FAIL R5: the fatal message is gone\" >&2; exit 1; }\nEACCESDRIVE\n.agents/factory/bin/temp_root.sh\
+    \ --offline --arch probe sh -s <<'COUNTERDRIVE'\nset -u\nL=\"$UVM_ROOT/probe/.install.lock\"\
+    ; mkdir -p \"$L\"\n# Our own pid: alive, and owned by us. A pid we do not own\
+    \ reads as dead,\n# because kill -0 cannot distinguish EPERM from ESRCH.\nprintf\
+    \ 'host=%s pid=%s nonce=fresh\\n' \"$(uname -n)\" \"$$\" > \"$L/owner\"\ns=$(date\
+    \ +%s)\nif UVM_LOCK_TIMEOUT=3 UVM_LOCK_STALE=60 uv --version >/dev/null 2>\"$UVM_SANDBOX/err\"\
+    ; then\n  echo \"FAIL R5: a fresh foreign lock did not time out\" >&2; exit 1;\
+    \ fi\ne=$(date +%s)\n[ $((e-s)) -ge 3 ] || { echo \"FAIL R5: timed out in $((e-s))s,\
+    \ before UVM_LOCK_TIMEOUT\" >&2; exit 1; }\n[ $((e-s)) -le 6 ] || { echo \"FAIL\
+    \ R5: took $((e-s))s to honour a 3s timeout\" >&2; exit 1; }\nn=$(grep -c 'provisioning\
+    \ lock is forfeit' \"$UVM_SANDBOX/err\" || true)\n[ \"$n\" = 0 ] || { echo \"\
+    FAIL R5: a live foreign lock was declared forfeit ($n notes)\" >&2; exit 1; }\n\
+    COUNTERDRIVE\ntest -x tests/lock-race.sh || { echo \"FAIL R5: tests/lock-race.sh\
+    \ is absent -- P1 has not landed\" >&2; exit 1; }\ntests/lock-race.sh --plant\
+    \ owner --ranks 64 --bursts 70 --quiet\n"
 review:
-  last_reviewed_commit: ""
+  last_reviewed_commit: ''
   verdict: none
-  blocked_reason: ""
+  blocked_reason: ''
   cycle: 0
 ---
-
 # TECH.md — A losing breaker deletes the lock a third rank just won
 
 The **context engine and finite-state machine** for building this fix. The YAML frontmatter above is
@@ -236,25 +208,25 @@ the per-phase checklists below are the work.
 **Goal:** a committed drive that constructs the race, counts three defects separately, and cannot
 report a number it does not trust.
 
-- [ ] Add `tests/lock-race.sh` and `tests/lock-race-burst.sh`, lifting
+- [x] Add `tests/lock-race.sh` and `tests/lock-race-burst.sh`, lifting
       [`research/04`](research/04-concurrency-drive.md) § *The prototype* and
       [`research/07`](research/07-candidate-remedies.md) § *The drive's progress assertion*.
       Two files, not one: a driver holding the burst body in a heredoc is invisible to `sh -n` and to
       shellcheck.
-- [ ] Collection state outside the sandbox; every writer registers a liveness marker cleared on exit;
+- [x] Collection state outside the sandbox; every writer registers a liveness marker cleared on exit;
       each burst counted at its own time and every burst recounted at the end. Exit **3** with
       **nothing on stdout** when either guard fires.
-- [ ] The progress assertion, exit **4**: ≥1 installer entry per burst, no lock left standing, no
+- [x] The progress assertion, exit **4**: ≥1 installer entry per burst, no lock left standing, no
       non-zero rank — checked *before* any race verdict. Without it a candidate that declines every
       break scores green with all three race counters legitimately zero, which is measured, not
       hypothetical.
-- [ ] Splice the fixture hook into the sandbox's copy of `install.sh`; the tracked fixture is not
+- [x] Splice the fixture hook into the sandbox's copy of `install.sh`; the tracked fixture is not
       edited.
-- [ ] Write the burst sizing into the file as a comment carrying `p`, `P_burst`, the burst count and
+- [x] Write the burst sizing into the file as a comment carrying `p`, `P_burst`, the burst count and
       the resulting false-green probability, so a reader can check the arithmetic rather than trust it.
-- [ ] Add both files to `.agents/factory/bin/lint.sh` at **both** `:46` (the `sh -n` loop) and `:73`
+- [x] Add both files to `.agents/factory/bin/lint.sh` at **both** `:46` (the `sh -n` loop) and `:73`
       (the shellcheck list), with `# shellcheck disable=SC2329` above `finish()`.
-- [ ] `AGENTS.md`: a `tests/` row in § *Repository map*, and § *Verification* no longer opens "There is
+- [x] `AGENTS.md`: a `tests/` row in § *Repository map*, and § *Verification* no longer opens "There is
       no test suite yet" — it is one drive, not a suite, and saying so is the honest form.
 - **Verify:** lint; both files present, executable and lint-covered in both lists; the control run
   clean with `break_notes=0`; all three counters reported as separate lines; and both collection
@@ -266,6 +238,24 @@ report a number it does not trust.
   rc 1 — reproduced by the coordinator, and the same construction on the candidate composition gave
   all zeros with one installer entry per burst and rc 0.
 - **Touches:** `tests/`, `.agents/factory/bin/lint.sh`, `AGENTS.md`.
+- **Amendment (2026-09-08).** The gate was retuned through `set_phase.py --verify`: it re-ran a
+  64-rank control burst four times to grep four separate lines, so it now captures once and checks
+  five keys against that output. Same assertion, a quarter of the wall clock, and less to flake.
+- **Corrections applied to the lifted prototype**, none of them cosmetic. Its header documented exit
+  codes 0–3 and omitted 4, the code it already had. Two comments cited `bin/uv-manager` line numbers
+  that P3 moves. One quoted the 0.10 ms window this cycle corrects to 0.265 ms. One attributed a
+  burst with no break note to the early-out at `:570`, which [`research/05`](research/05-installer-attribution.md)
+  **refuted** — that path produces no installer entry at all — so it now names the three routes that
+  really do produce a serialized extra entry. `LOCKRACE_STALE`/`LOCKRACE_TIMEOUT` were used without
+  being in the `:?` guard list, and an unused `leftowner` marker was written and never read; both are
+  fixed. The break-note regex matches the current wording **and** the one P2 introduces, so the drive
+  works either side of that phase.
+- **Observed:** gate green in 15 s. The control run reported `stolen_holds=0 robbed_winners=0
+  concurrent_installers=0 break_notes=0 progress=ok`; `--straggler` exited 3 naming
+  `live.inst.<pid>.1.straggler`; `--late` exited 3 with `installer entries 4 -> 4, concurrent 0 -> 2`.
+  The five-key control block was then shown to fire — fed a `--plant none` run it rejects on
+  `stolen_holds`, `concurrent_installers` and `break_notes` — because a gate never observed failing
+  is not a gate, and this one is new.
 
 ## Phase P2 — A denied break destroys no evidence
 **Satisfies:** R4 · **Depends on:** P1

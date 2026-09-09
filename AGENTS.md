@@ -86,6 +86,7 @@ root at a temp directory, and removes it on exit.
 | `etc/uv-manager.conf.example` | Site settings, heavily commented. Every variable in it is real. |
 | `share/modulefiles/uv/main.lua` | Example Lmod modulefile. Exports only architecture-neutral paths. |
 | `README.md` | Design rationale + user and administrator documentation. |
+| `tests/` | Executable drives. Currently one: the provisioning-lock race. |
 | `.agents/` | The spec-driven software factory (skills, methodology, templates, scripts). |
 | `spec/{slug}/` | Committed, dated per-feature design records. Retained on merge. |
 | `issues/{slug}.md`, `ROADMAP.md` | Deferred code work and its ordered index. |
@@ -262,9 +263,19 @@ sign-off gate at review:
 
 ## Verification
 
-There is no test suite yet — building one is planned work, tracked in `ROADMAP.md`. Until then, a
-change is proven by driving the real script in a sandbox, and the factory's `verify:` commands are
-written that way.
+There is no test suite yet — building one is planned work, tracked in `ROADMAP.md`. A change is
+proven by driving the real script in a sandbox, and the factory's `verify:` commands are written that
+way.
+
+`tests/` holds the drives that outgrew a `verify:` line. There is one so far, and it is there because
+its subject cannot be measured any other way: `tests/lock-race.sh` releases bursts of concurrent ranks
+at a planted provisioning lock and counts three defects separately — a hold stolen from a rank that
+recorded ownership, a winner robbed inside its acquire window, and two installers running at once. It
+asserts that the wrapper made progress *before* it reports any of them, because a wrapper that
+declines every break leaves all three counters legitimately zero. Burst sizes are derived from a
+measured per-rank rate rather than chosen, and the arithmetic is in the file. It needs no
+instrumentation of `bin/uv-manager`: every counter is read from what the wrapper already prints on
+stderr.
 
 `.agents/factory/bin/temp_root.sh` is the substrate. It scrubs the inherited environment (every
 `UV_*` and `UVM_*` variable, and every scratch candidate `uvm_resolve_root` consults), points

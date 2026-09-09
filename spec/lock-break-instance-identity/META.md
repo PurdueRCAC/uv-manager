@@ -111,3 +111,32 @@
   substitute it recommends by name for a documentation sweep. Its `-c` output shape belongs on that
   list; `grep -c` on a path prints the bare count and is the right spelling for a census.
 - **Confidence:** high · **Effort:** small
+
+## F6 — Step 4's "red before the fix" check is unavailable exactly when the skill tells you to retune a gate
+`origin=uvm-build:P1 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-build/SKILL.md`
+- **What happened:** Step 4 says a new or retuned `verify:` must be confirmed "red before the fix and
+  green after". I retuned P1's gate mid-phase — Step 1 prescribes `set_phase.py --verify` for exactly
+  this — but by then the deliverable existed, so the pre-fix state the check wants was gone and the
+  new assertion block had never been observed failing. I had to invent a substitute: feed the block a
+  `--plant none` run and show it rejects on three of its five keys.
+- **Skill cause:** The instruction assumes a gate is authored before the code it grades. The same
+  skill prescribes retuning a gate through `set_phase.py --verify` in remediation mode and mid-phase,
+  both of which happen *after* code exists, so the check is structurally unavailable in the flow the
+  skill itself directs you into. Nothing offers the substitute.
+- **Recommended fix:** Say what to do when the pre-fix state is gone: construct an input the new
+  assertion must reject and show it rejecting, which is the same evidence in the only form still
+  available. One sentence beside the existing red-before-green-after rule.
+- **Confidence:** high · **Effort:** small
+
+## F7 — `run_verify.py`'s trace escapes the gate's newlines, so a mangled gate and an intact one look alike
+`origin=uvm-build:P1 severity=low category=tooling status=open target=.agents/factory/bin/run_verify.py`
+- **What happened:** The trace prints `+ /bin/sh -c 'set -eu\n.agents/factory/bin/lint.sh …'` with
+  literal `\n` between every statement. That is precisely the shape of a gate whose newlines were
+  lost in reflowing — the failure `run_verify.py` exists to prevent — so I had to reason from the
+  gate's *behavior* to establish that the string it executed was intact.
+- **Skill cause:** Step 4 mandates this tool on the grounds that hand-copying a wrapped gate is where
+  a quoting error enters, then the tool renders its own input in a form indistinguishable from that
+  error. A reader who trusts the trace concludes the opposite of the truth.
+- **Recommended fix:** Print the gate as a real multi-line block before the `+` line, or escape
+  nothing and let it wrap. Either makes a genuinely collapsed gate visibly different.
+- **Confidence:** high · **Effort:** small
