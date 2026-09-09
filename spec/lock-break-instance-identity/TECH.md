@@ -6,7 +6,7 @@ appetite: big
 status: in_progress
 branch: fix/lock-break-instance-identity
 base: main
-current_phase: P2
+current_phase: P3
 last_updated: '2026-09-08'
 phases:
 - id: P1
@@ -42,14 +42,14 @@ phases:
     \ stdout: $out\" >&2; exit 1; }"
 - id: P2
   name: A denied break destroys no evidence (R4 sequences before R3)
-  status: pending
+  status: done
   satisfies:
   - R4
   depends_on:
   - P1
   parallel: false
   hammerable: false
-  hill: uphill
+  hill: downhill
   verify: "set -eu\nbash -n bin/uv-manager\n.agents/factory/bin/lint.sh >/dev/null\n\
     for c in stray dotstray parent500 lock500; do\n  .agents/factory/bin/temp_root.sh\
     \ --offline --arch probe sh -s \"$c\" <<'R4DRIVE'\nset -u\nc=\"$1\"\nL=\"$UVM_ROOT/probe/.install.lock\"\
@@ -82,9 +82,9 @@ phases:
     \ ] || { echo \"FAIL R4: a denied break left the lock unbreakable -- the second\
     \ rank emitted $n break notes, want 1. The first break bumped the directory mtime\
     \ and uvm_age fell back to it.\" >&2; cat \"$UVM_SANDBOX/e2\" >&2; exit 1; }\n\
-    STALEDRIVE\ngit grep -q \"mark' && rmdir\" -- README.md \\\n  || { echo \"FAIL:\
-    \ README.md still documents a recovery command that leaves the mark file behind\"\
-    \ >&2; exit 1; }\n"
+    STALEDRIVE\ngit grep -q -F 'rm -f \"$L/owner\" \"$L/mark\"' -- README.md \\\n\
+    \  || { echo \"FAIL: README.md still documents a recovery command that leaves\
+    \ the mark file behind\" >&2; exit 1; }"
 - id: P3
   name: 'Age, pin, verify, remove: a break removes only the instance it judged'
   status: pending
@@ -262,21 +262,21 @@ report a number it does not trust.
 **Goal:** a break that is decided and then refused leaves the lock exactly as it found it — `owner`
 included — so the timeout message still names the holder and the next rank still sees a stale lock.
 
-- [ ] Add `uvm_lock_removable` ([`PLAN.md`](PLAN.md) § 2.1) and gate **both** removals behind it.
+- [x] Add `uvm_lock_removable` ([`PLAN.md`](PLAN.md) § 2.1) and gate **both** removals behind it.
       Explicit dot patterns, not `shopt -s dotglob`: a bare glob cannot see a stray dot-entry and
       `shopt` is global state in a script that globs in `uvm_trampolines`. Keep the
       `[[ -e || -L ]] || continue` guard — with `nullglob` unset a non-matching pattern expands to
       itself.
-- [ ] Add a `last_holder` local, set from every non-empty `owner` read, and make the timeout message
+- [x] Add a `last_holder` local, set from every non-empty `owner` read, and make the timeout message
       read it. Relabel to the past tense: `holder, as the lock's owner file recorded it:`.
-- [ ] Correct the recovery command everywhere it appears — the timeout message and `README.md:533` —
+- [x] Correct the recovery command everywhere it appears — the timeout message and `README.md:533` —
       to `rm -f '<lock>/owner' '<lock>/mark' && rmdir '<lock>'`. The current advice fails
       `Directory not empty` while any entry stands, and already fails in the state this phase fixes.
-- [ ] Reword the break note from an accomplished act to an attempted one:
+- [x] Reword the break note from an accomplished act to an attempted one:
       `provisioning lock is forfeit and will be broken (<n>s old)`. It stays where it is — moving it
       inside the decision costs the one-note-per-wait contract, and a note emitted after a successful
       removal cannot report the `owner` line it just deleted.
-- [ ] Update `invariants.md` §5 and `AGENTS.md`'s copy for the note wording and the recovery command.
+- [x] Update `invariants.md` §5 and `AGENTS.md`'s copy for the note wording and the recovery command.
 - **Verify:** four constructions — stray entry, stray dot-entry, parent at mode 500, and `chmod 500`
   on the lock itself as the negative control — each asserting `owner` survives, the message names
   `nonce=r4gate` rather than `<none recorded>`, the recovery command accounts for `mark`, and exactly
@@ -286,6 +286,23 @@ included — so the timeout message still names the holder and the next rank sti
   `<none recorded>`, and the second rank emits **zero** break notes
   ([`research/03`](research/03-removal-order.md)).
 - **Touches:** `bin/uv-manager`, `README.md`, `AGENTS.md`, `.agents/factory/invariants.md`.
+- **Observed:** on a stray-entry plant aged past the threshold, `owner` survives, the note reads
+  `provisioning lock is forfeit and will be broken (211066232s old)`, and the timeout reports
+  `holder, as the lock's owner file recorded it: host=othernode pid=99999 nonce=demo` where `main`
+  printed `<none recorded>`. All four constructions plus the second-rank staleness drive pass.
+- **Amendment (2026-09-08), the gate's README anchor.** It was written as `mark' && rmdir`, the shape
+  the *timeout message* has, and `README.md` documents the same command without those quotes — so the
+  anchor could not match whatever the file said. The README paragraph also wrapped the command across
+  two lines, which is both unmatchable by `git grep` and not copy-pasteable, so it is now a fenced
+  block binding `L` once. The anchor is the recovery line itself, confirmed absent on `main` and
+  present here.
+- **Correction beyond the checklist.** The invariant asserts "a recovery command that works", and
+  after this phase it still does not for a lock holding an entry the wrapper never wrote: `rm -f`
+  clears `owner` and `mark`, then `rmdir` refuses. Rather than grow the wrapper's output with a line
+  naming the blocker, all three documents now say the command covers what the wrapper writes and that
+  `rmdir`'s own error is what reports anything else. Asserting a command works where it measurably
+  does not is the defect this phase exists to remove, so the text had to move rather than the claim
+  being left standing.
 
 ## Phase P3 — Age, pin, verify, remove
 **Satisfies:** R3 · **Depends on:** P2

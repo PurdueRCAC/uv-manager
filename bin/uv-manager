@@ -283,10 +283,40 @@ uvm_age() {
   printf '%s\n' "$(( now - mtime ))"
 }
 
+# Whether both removals below can be expected to succeed. A break that strips
+# `owner` and is then refused its `rmdir` leaves a lock nobody can account for:
+# the timeout message has no holder to name, its recovery command reports
+# `Directory not empty`, and the unlink bumped the directory's mtime so the age
+# fallback no longer reads the lock as stale and no later rank tries again. One
+# denied removal converts a breakable lock into a wedged one.
+#
+# A precondition, not a proof. It cannot see an entry created after it returns,
+# an immutable flag, or an ACL the mode bits do not express; in those the
+# residue is what it was before this guard existed. Costs no fork: every test
+# is a builtin and the loop is pathname expansion.
+uvm_lock_removable() {
+  local lock="$1" e
+  [[ -d "${lock}" ]] || return 1
+  [[ -w "${lock}" && -w "${lock%/*}" ]] || return 1
+  # Dot-entries need patterns of their own. A bare glob cannot see them, and a
+  # stray dot-file is exactly what makes `rmdir` refuse invisibly. `shopt -s
+  # dotglob` would be global state in a script that globs elsewhere.
+  for e in "${lock}"/* "${lock}"/.[!.]* "${lock}"/..?*; do
+    # With `nullglob` unset a pattern that matches nothing expands to itself.
+    [[ -e "${e}" || -L "${e}" ]] || continue
+    case "${e##*/}" in
+      owner|mark) ;;
+      *) return 1 ;;
+    esac
+  done
+  return 0
+}
+
 uvm_acquire_lock() {
   local want="$1" force="$2"
   local lock="${uvm_root}/.install.lock"
   local waited=0 age holder pid broke="" reason absent=0 robbed=0 host started still
+  local last_holder=""
   # uname -n, not HOSTNAME, which bash leaves at whatever it inherited. A
   # container image that sets it, or a login-node value carried out by
   # `sbatch --export=ALL`, gives two nodes one name — and the host token is
@@ -405,6 +435,11 @@ uvm_acquire_lock() {
     # stale window; everything else is decided by age below.
     holder=""
     read -r holder 2>/dev/null < "${lock}/owner" || true
+    # Kept for the timeout message, which runs after a break may have removed
+    # the file it would otherwise read. Reporting <none recorded> for a lock
+    # whose holder this loop already named is a diagnostic that contradicts
+    # itself two lines apart.
+    [[ -z "${holder}" ]] || last_holder="${holder}"
     pid=""
     if [[ "${holder%% *}" == "host=${host}" ]]; then
       pid="${holder#*pid=}"
@@ -419,7 +454,7 @@ uvm_acquire_lock() {
     # decided here and acted on once below.
     reason=""
     if [[ -n "${pid}" ]] && ! kill -0 "${pid}" 2>/dev/null; then
-      reason="breaking provisioning lock abandoned by a dead process"
+      reason="provisioning lock is forfeit and will be broken, abandoned by a dead process"
     # Age is consulted whatever the probe answered. kill -0 answers for a pid
     # number, not for the process that recorded it, and the number is reused:
     # gated behind a negative probe, a lock left by a killed holder becomes
@@ -434,15 +469,17 @@ uvm_acquire_lock() {
     # acquire window.
     elif { age="$(uvm_age "${lock}/owner")" || age="$(uvm_age "${lock}")"; } \
          && (( age > lock_stale )); then
-      reason="breaking stale provisioning lock (${age}s old)"
+      reason="provisioning lock is forfeit and will be broken (${age}s old)"
     fi
 
     if [[ -n "${reason}" ]]; then
-      # A break note names the owner it deleted. Ownership makes "whose lock
-      # was that" the first question asked after a break, and the file that
-      # answers it is gone by the time anyone reads the note. Announced once:
-      # a break that keeps being denied repeats every second, which at the
-      # default timeout is 180 identical lines.
+      # The note reports an intention, not an accomplishment. Every guard below
+      # can decline, and a note claiming the lock was broken is then wrong for
+      # the rest of the wait. It still carries the owner line, because "whose
+      # lock was that" is the first question asked after a break and a
+      # successful one takes the answer with it. Announced once: a break that
+      # keeps being denied repeats every second, which at the default timeout
+      # is 180 identical lines.
       [[ -n "${broke}" ]] || note "${reason}: ${lock}
     its owner file recorded: ${holder:-<none recorded>}"
       # Re-read immediately before acting. The forfeiture above was decided
@@ -453,9 +490,14 @@ uvm_acquire_lock() {
       # what makes the directory empty, so gating it also arms rmdir's refusal
       # of a non-empty directory as the second half of the same guard — which
       # is why both calls sit inside the test and not one of them.
+      #
+      # Removability joins the same test rather than sitting after it. Learning
+      # that `rmdir` will be refused only by attempting it means learning it
+      # after `owner` is already gone, and that residue is worse than the
+      # denial: it wedges a lock the stale breaker would otherwise reclaim.
       still=""
       read -r still 2>/dev/null < "${lock}/owner" || true
-      if [[ "${still}" == "${holder}" ]]; then
+      if [[ "${still}" == "${holder}" ]] && uvm_lock_removable "${lock}"; then
         rm -f "${lock}/owner" 2>/dev/null || true
         rmdir "${lock}" 2>/dev/null || true
       fi
@@ -474,13 +516,16 @@ uvm_acquire_lock() {
     if (( waited > lock_timeout )); then
       # A recorded pid belongs to the host recorded beside it, so a stalled
       # user who probes it here concludes the holder is gone and deletes a
-      # live lock. The removal is two steps because owner lives inside the
-      # directory: rmdir alone reports Directory not empty for every lock
-      # whose holder got as far as claiming it.
+      # live lock. The line is past tense and read from the loop's own record,
+      # because a break may have removed the file since: reporting <none
+      # recorded> under a note that named the holder is a contradiction the
+      # reader has to resolve before they can act. The removal names every
+      # entry the wrapper writes, because rmdir alone reports Directory not
+      # empty for any lock whose holder got as far as claiming it.
       die "timed out after ${lock_timeout}s waiting for provisioning lock: ${lock}
-    holder, from the lock's owner file: ${holder:-<none recorded>}
+    holder, as the lock's owner file recorded it: ${last_holder:-<none recorded>}
     A pid recorded there is on that host, not this one. If it is gone, remove the lock:
-        rm -f '${lock}/owner' && rmdir '${lock}'"
+        rm -f '${lock}/owner' '${lock}/mark' && rmdir '${lock}'"
     fi
     sleep 1
   done

@@ -200,9 +200,23 @@ configuration is broken.
 **The timeout message names the holder and a recovery command that works.** It prints the `owner`
 line the lock records, states that a recorded pid is on the host recorded beside it and not on the
 reader's — probing it locally is how a stalled user talks themselves into deleting a live lock — and
-advises `rm -f '<lock>/owner' && rmdir '<lock>'`. A bare `rmdir` reports `Directory not empty` for
-every lock whose holder got as far as claiming it, because `owner` is inside the directory. Break
-notes carry the same owner line: the file that answers "whose lock was that" is deleted with the lock.
+advises `rm -f '<lock>/owner' '<lock>/mark' && rmdir '<lock>'`. A bare `rmdir` reports
+`Directory not empty` for every lock whose holder got as far as claiming it, because `owner` is
+inside the directory, and so is any `mark` a breaker left. It names every entry the wrapper writes
+and no others: a lock carrying a third party's file still needs that removed by hand, and `rmdir`'s
+own error is what tells the reader so. The line comes from the acquire loop's own
+`last_holder` record and is phrased in the past tense, since a break may have removed the file since.
+Break notes carry the same owner line: a successful break takes the answer with it.
+
+**A break announces an intention, and a guard may still decline it.** `uvm_lock_removable` gates both
+removals from inside the identity test, not after it. Discovering that `rmdir` will be refused by
+attempting it means discovering it once `owner` is already unlinked, and that residue is worse than
+the denial: it wedges the lock, because the timeout message then has no holder to name, its recovery
+command reports `Directory not empty`, and the unlink bumped the directory's mtime so `uvm_age`'s
+fallback stops reading the lock as stale and no later rank tries. The predicate is fork-free, needs
+explicit dot-entry patterns because a bare glob cannot see the stray dot-file that refuses `rmdir`
+invisibly, and is a precondition rather than a proof — an ACL, an immutable flag, or an entry created
+after it returns each leave the residue that predates it.
 
 **`current` is swapped atomically, and its target is relative** (`versions/<ver>`), so the tree stays
 relocatable and a concurrent reader never observes a missing or half-written `current`.

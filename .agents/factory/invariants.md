@@ -151,11 +151,29 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
   `uvm --version` still answer on a misconfigured node.
 - Break a lock older than `UVM_LOCK_STALE`; time out after `UVM_LOCK_TIMEOUT` naming the holder the
   `owner` file records and a recovery command that works —
-  `rm -f '<lock>/owner' && rmdir '<lock>'`. A bare `rmdir` reports `Directory not empty` for every
-  lock whose holder got as far as claiming it, because `owner` is inside the directory it removes.
-  The message also says that a recorded pid is on the host recorded beside it: a stalled user who
-  probes it locally concludes the holder is gone and deletes a live lock. Every break note carries
-  the same owner line, since the file that answers "whose lock was that" is deleted with it.
+  `rm -f '<lock>/owner' '<lock>/mark' && rmdir '<lock>'`. A bare `rmdir` reports
+  `Directory not empty` for every lock whose holder got as far as claiming it, because `owner` is
+  inside the directory it removes, and so is any `mark` a breaker left behind. The command names
+  every entry the wrapper writes and no others, so a lock carrying something a third party put there
+  still needs that entry removed by hand — `rmdir`'s own `Directory not empty` is what says so, and
+  no fixed string can name an entry the wrapper never chose. The message also says
+  that a recorded pid is on the host recorded beside it: a stalled user who probes it locally
+  concludes the holder is gone and deletes a live lock. It reads the line from `uvm_acquire_lock`'s
+  own `last_holder` record and phrases it in the past tense, because a break may have removed the
+  file since — reporting `<none recorded>` two lines under a note that named the holder is a
+  contradiction the reader has to resolve before they can act. Every break note carries the same
+  owner line, since a successful break takes the answer with it.
+- **A break announces an intention, not an accomplishment**, and any guard between the note and the
+  removals may decline it. `uvm_lock_removable` is one, and it joins the identity test rather than
+  following it: learning that `rmdir` will be refused by attempting it means learning it once `owner`
+  is already unlinked, and that residue is worse than the denial. It wedges the lock — the timeout
+  message has no holder to name, its recovery command reports `Directory not empty`, and the unlink
+  bumped the directory's mtime, so `uvm_age`'s fallback stops reading the lock as stale and no later
+  rank attempts a break at all. Dot-entries need their own glob patterns, because a bare `*` cannot
+  see the stray dot-file that makes `rmdir` refuse invisibly and `shopt -s dotglob` is global state
+  in a script that globs elsewhere. The predicate is a precondition and not a proof: an entry created
+  after it returns, an immutable flag, or an ACL the mode bits do not express each leave the residue
+  that predates it.
 
 ## 6. Installer environment
 
