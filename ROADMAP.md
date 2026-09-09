@@ -59,6 +59,25 @@ is not, this becomes a terminal record and the second defect on the same branch 
 the fatal path's unqualified `rmdir`, pre-existing and strictly rarer than on `main`, which whatever
 fixes the classifier has to decide what to do about.
 
+### A pinned rank that loses the provisioning race runs whatever version it finds
+**Seed:** [`issues/pin-early-out-selects-nothing.md`](issues/pin-early-out-selects-nothing.md) ·
+`fix` · appetite small
+
+`uvm_install` has three paths that return success and only two of them select the version. The lock's
+early-out at `bin/uv-manager:570` returns 0 without the `uvm_point_current` that `:566` and `:574`
+both perform, and the window it samples is the one line between the rename at `:618` and the swap at
+`:620`. Unreachable without a pin, because `uvm_have ""` tests `current/uv` and so can only be true
+when nothing needs repairing — 2962 unpinned early-outs measured harmless. With a pin, 31 of 32
+concurrent ranks asking for 6.6.6 on a warm tree executed 9.9.9 at rc 0 with nothing on stderr, which
+contradicts §4's "a pin is authoritative" and is wrong output rather than a failure. A prior review
+recorded this line as self-correcting; the tree self-corrects, the invocation does not.
+
+Sequenced here because it is independent of the lock cycles above it despite living one line from
+one — the lock's early-out is correct, and the defect is that `uvm_install` reads "another process
+satisfied this" as "done" rather than "satisfied, still unselected". The repair is probably a status
+the caller acts on rather than a fourth copy of the same two lines, which is why it is not a
+one-liner.
+
 ### `uv run` rehydrates a purged tree, gated by `UVM_REPAIR`
 **Seed:** [`issues/purge-tree-repair.md`](issues/purge-tree-repair.md) · `feature` · appetite big
 

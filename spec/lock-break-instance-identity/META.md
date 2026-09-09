@@ -15,6 +15,10 @@
 
 ## What worked well
 
+- `uvm-plan` Step 6's insistence that every `verify:` be **run** before the plan is committed earned
+  its keep twice in one cycle: `git grep -c`'s filename prefix and a planted `pid=1` that `kill -0`
+  reads as dead both made a gate red while the code was correct. Reading them would have caught
+  neither.
 - `uvm-feature` Step 4's rule that a deferral naming another file is only a promise in that file is
   what produced three real seed edits here instead of three sentences in *Non-goals*. This promotion
   deferred four of the seed's six sketch criteria, and every one of them would have been deleted with
@@ -60,4 +64,50 @@
   *and* claims to show a defect, or fails *and* claims to pin existing behavior. State that a fix
   cycle's gates are expected red now and its unchanged-behavior gates green now, and require the
   observed status be written into the criterion either way, as this GOAL does.
+- **Confidence:** high · **Effort:** small
+
+## F3 — Nothing requires a research brief's recommended shell idiom to be tested before it is adopted
+`origin=uvm-plan:3 severity=high category=missing-guidance status=open target=.agents/skills/uvm-plan/SKILL.md`
+- **What happened:** A brief recommended the fix's central guard as `[[ "${lock}" -ot "${mark}" ]]`.
+  Bash documents `-ot` as true when file1 does not exist and file2 does, so that expression passes
+  **exactly when the lock is already gone** — fail-open in the one state the guard exists to catch.
+  A second brief then reproduced the same form. Nothing in Step 3 or Step 4 asks for a recommended
+  idiom to be run; I caught it only by testing it on my own initiative, and the corrected form
+  (`[[ -d "${lock}" && … ]]`) had to be pushed back into the research round.
+- **Skill cause:** Step 6 requires every `verify:` be executed before the plan is committed, which
+  catches a dead *gate*. There is no equivalent for the *design* a brief recommends, even though
+  Step 3 explicitly invites briefs to drive the script and they arrive carrying source. So the one
+  artefact the plan copies verbatim into the highest-risk function is the one artefact no step
+  requires anybody to run.
+- **Recommended fix:** Add to Step 4: any shell idiom a brief recommends and the design adopts is
+  executed against the portability floor first, and PLAN records what it returned. One line, and it
+  is the same discipline Step 6 already applies to gates.
+- **Confidence:** high · **Effort:** small
+
+## F4 — Step 6's red-gate rule has no category for a gate blocked on an earlier phase
+`origin=uvm-plan:6 severity=medium category=missing-guidance status=open target=.agents/skills/uvm-plan/SKILL.md`
+- **What happened:** Step 6 sorts a red gate into two kinds — red on the asserted post-condition
+  (good) or red for its own reasons (bad). Two of four phases here gate on a deliverable an earlier
+  phase produces, so at plan time they died on `tests/lock-race.sh: No such file or directory`, which
+  is neither. I had to decide the rule did not cover it and invent an idiom — a `test -x … || { echo
+  "FAIL: P1 has not landed"; }` guard — so the failure reads as a dependency rather than a broken
+  gate.
+- **Skill cause:** The rule is written for a single phase in isolation, but the same step tells you to
+  author phases as ordered vertical slices with `depends_on`, which makes a gate depending on an
+  earlier phase's output the normal case rather than an exception.
+- **Recommended fix:** Name the third category in Step 6: a gate whose first unmet clause is an
+  artefact from a phase in its own `depends_on` is legitimately red, and should say so in one guarded
+  line rather than dying on a raw shell error.
+- **Confidence:** high · **Effort:** small
+
+## F5 — The gate-authoring trap list omits `git grep -c`, which the same step recommends using
+`origin=uvm-plan:6 severity=low category=missing-guidance status=open target=.agents/skills/uvm-plan/SKILL.md`
+- **What happened:** `n=$(git grep -c flock -- bin/uv-manager); [ "$n" = 1 ]` is always false:
+  `git grep -c` prints `bin/uv-manager:1`, not `1`. The gate was red while the code was correct, and
+  would have walked `--record-attempt` toward the circuit breaker in a phase whose job is to prove
+  nothing changed.
+- **Skill cause:** Step 6 keeps a good, specific list of gate traps — `! cmd` under `set -e`, an
+  interpolated pathspec under `zsh`, a prose anchor spanning a wrapped line — and `git grep` is the
+  substitute it recommends by name for a documentation sweep. Its `-c` output shape belongs on that
+  list; `grep -c` on a path prints the bare count and is the right spelling for a census.
 - **Confidence:** high · **Effort:** small

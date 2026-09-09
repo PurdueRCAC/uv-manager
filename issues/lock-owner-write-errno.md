@@ -122,13 +122,23 @@ Draft R-IDs, to be firmed up at promotion.
   different call shape makes the gate stop constructing the state it exists to construct, and the
   failure mode is that it passes. Same caveat `spec/lock-acquire-retake/GOAL.md` § *Verification
   limit* declares.
-- **Measuring the residual needs the harness, and it is arriving earlier than this bullet assumed.**
-  A rate this low is not observable from a single-process construction; `issues/test-harness.md` R3d
-  describes the two-process concurrency runner that could bound it. As of 2026-09-08 the drive itself
-  no longer waits for that cycle: `lock-break-instance-identity` was promoted with its R1 landing a
-  committed concurrency drive at `tests/`, sized by stated arithmetic and with separate assertions
-  per defect. Grade this seed's mechanism against that drive rather than by reading, and check first
-  whether it still measures anything here.
+- **The residual was measured and is rarer than PLAUSIBLE suggested, not commoner.**
+  `lock-break-instance-identity` planning built a concurrency drive and instrumented every removal
+  site on `main`. Over **7680 planted ranks** the fatal branch at `:363` was entered **once**, and
+  its `rmdir` **failed** — it destroyed nothing. All 48 robbery events in that run came from the
+  break block at `:459-460`. An earlier brief in the same cycle reported the destructive form twice
+  in 1280 ranks; the per-site instrumentation **corrects that**, and the correction is recorded in
+  [`spec/lock-break-instance-identity/research/07-candidate-remedies.md`](../spec/lock-break-instance-identity/research/07-candidate-remedies.md)
+  finding 2. The reach is the square of a 0.27 ms window — our `mkdir` must succeed, our `owner`
+  write must fail ENOENT, *and* a third rank must re-`mkdir` inside that window — and then `rmdir`
+  still refuses as soon as that rank writes its own `owner`.
+- **That lowers the priority and does not make the branch correct.** `[[ -d "${lock}" ]]` is still a
+  path test standing in for an errno. The honest reading of R3 is sharper than this file's wording:
+  removing only what this process can show it owns means removing **nothing**, because a rank on this
+  path never recorded ownership. Whoever promotes this should settle that before sizing a gate — a
+  defect reachable once in 7680 ranks is not measurable from a burst, so the mechanism is graded by
+  reading whatever the harness can do. The drive itself lands at `tests/lock-race.sh` and its
+  `--plant owner` construction is reusable verbatim.
 - Related: [`issues/lock-break-instance-identity.md`](lock-break-instance-identity.md) — its R2 is the
   race that *creates* the robbery. Closing that would make this residue unreachable, so whichever
   lands first changes the case for the other. **It went first**, adopted 2026-09-08 as
