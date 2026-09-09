@@ -7,6 +7,10 @@ lane: public
 
 # The owner write is classified by the directory a moment later, not by the errno
 
+> **Superseded on 2026-09-09 by [`lock-simplification`](lock-simplification.md).** This defect rides
+> on a robbed winner, and nothing takes a lock by force after that cycle. Confirm at promotion; if the
+> fatal path's unqualified `rmdir` survives independently of the robbery, it moves there as an R-ID.
+
 > **Candidate, not a contract.** Deferred work recorded so a future session does not re-derive it.
 > Not graded by `uvm-review`; never copy into a `GOAL.md` verbatim.
 

@@ -10,6 +10,12 @@ lane: public
 > **Candidate, not a contract.** Deferred work recorded so a future session does not re-derive it.
 > Not graded by `uvm-review`; never copy into a `GOAL.md` verbatim.
 
+> **Superseded on 2026-09-09 by [`lock-simplification`](lock-simplification.md).** The measurement
+> half of this seed shipped as `tests/lock-race.sh`. The fix half is declined: the cycle that adopted
+> it confirmed three CRITICALs, two of them classes its own remedy introduced, and the wrapper was
+> reverted to `main`. The wrapper no longer breaks locks at all, so there is no break left to
+> constrain. Read that seed's § *Rejected — do not re-propose* before re-filing anything here.
+
 ## Problem
 
 `uvm_acquire_lock` decides a lock is forfeit from an `owner` line it read up to a second earlier, and
