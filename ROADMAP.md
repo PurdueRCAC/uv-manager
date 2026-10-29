@@ -72,22 +72,6 @@ half survives in another form: `rmdir` refuses a directory holding an entry, and
 lock would stand until a human cleared it. That half is R11 there, gated with this seed's own `mkdir`
 shim. The rest is a terminal record, retired with that cycle by `/uvm-roadmap`.
 
-### A pinned rank that loses the provisioning race runs whatever version it finds
-**Seed:** [`issues/pin-early-out-selects-nothing.md`](issues/pin-early-out-selects-nothing.md) ·
-`fix` · appetite small · **adopted** as [`spec/lock-simplification/`](spec/lock-simplification/GOAL.md)
-
-`uvm_install` has three paths that return success and only two of them select the version. The lock's
-early-out at `bin/uv-manager:570` returns 0 without the `uvm_point_current` that `:566` and `:574`
-both perform, and the window it samples is the one line between the rename at `:618` and the swap at
-`:620`. Unreachable without a pin; with one, 31 of 32 concurrent ranks asking for 6.6.6 on a warm
-tree executed 9.9.9 at rc 0 with nothing on stderr, and 15 of 16 did again when re-measured on
-2026-10-27. That contradicts §4's "a pin is authoritative".
-
-Adopted into `lock-simplification` by decision of the maintainer rather than taken alone, because that
-cycle rewrites this early-out to take a caller-named predicate. Its draft R1–R3 are R12–R14 there:
-select the pin or fail naming it, make the three success paths agree visibly, and leave the unpinned
-path unchanged.
-
 ### `uv run` rehydrates a purged tree, gated by `UVM_REPAIR`
 **Seed:** [`issues/purge-tree-repair.md`](issues/purge-tree-repair.md) · `feature` · appetite big
 
@@ -103,6 +87,19 @@ gone. What remains above it is `lock-simplification`, which replaced both lock c
 here. This cycle is the reason that one exists: R7's "exactly one repairs, the rest wait and re-test"
 is the first non-provisioning hold, at 1-30 seconds rather than a download, and it contributes R5 and
 R6 there. Its own R11 moves into that cycle as R6.
+
+### A pinned call can run another call's pin, when two pins race for `current`
+**Seed:** [`issues/pin-holds-against-concurrent-pins.md`](issues/pin-holds-against-concurrent-pins.md) ·
+`fix` · appetite small
+
+`current` is one link per root and a pin is per process, so two calls on one root pinned to different
+versions each select their own and the later swap wins. Every run of `uv` goes through `current`, so
+the earlier call then runs the other pin's version at rc 0 with nothing on stderr. Measured in
+`lock-simplification` review cycle 3: 13 and 19 of 320 ranks in alternating-pin bursts, on the atomic
+`mv -h` path, against 0 of 320 with one pin throughout. Ranks sharing one pin, as an `srun` job's do,
+are unaffected, which is why it is not urgent. Pre-existing, documented in `invariants.md` §4 and
+`README.md`, and deferred by the maintainer when that cycle shipped. The direction to shape, not yet
+decided, is for a pinned call to exec its own `versions/<pin>/uv` rather than going through `current`.
 
 ### Two small code gaps behind inaccurate invariants
 **Seed:** [`issues/invariant-audit-gaps.md`](issues/invariant-audit-gaps.md) · `fix` · appetite small
