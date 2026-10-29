@@ -70,3 +70,23 @@
 - **Recommended fix:** extend the Step 2 exception to `spec/{slug}/evidence/` when a GOAL R-ID or an inspection item names it. Alternatively, say in Step 3 that the orchestrator grades those files and records it in REVIEW.md. This does not weaken blindness: PLAN, TECH, research and META stay out.
 - **Confidence:** med · **Effort:** small
 
+## F9 — "Landed" is read off `spec/{slug}/`, which a reverted cycle also leaves on `main`
+`origin=uvm-roadmap:2 severity=low category=instruction status=open target=.agents/skills/uvm-roadmap/SKILL.md`
+- **What happened:** Step 2 classifies a seed as landed when `git ls-tree main -- spec/{slug}` is non-empty. `issues/lock-break-instance-identity.md` carried `adopted:lock-break-instance-identity`, and `spec/lock-break-instance-identity/` is on `main`, so the table said "landed, retire". But that cycle's fix was reverted, and only its account and its drive were kept. The seed still retired, for a different reason: `lock-simplification` superseded it and landed. Retiring it on the table's reading would have been right by accident.
+- **Skill cause:** the safety rule equates "a `spec/{slug}/` directory on `main`" with "the cycle shipped". The repository deliberately keeps the spec of a reverted cycle as a retained record, so the test cannot tell the two apart.
+- **Recommended fix:** in Step 2, treat a non-empty `spec/{slug}/` as landed only when its `REVIEW.md` verdict is approved, or a `[fix]`/`[feature]` squash names the slug on `main`. Otherwise, classify it as "retained record, not shipped" and require a superseding cycle that landed, or a human decision, before retiring the seed.
+- **Confidence:** med · **Effort:** small
+
+## F10 — Step 2 cannot see a seed superseded by the cycle being retired
+`origin=uvm-roadmap:2 severity=low category=missing-guidance status=open target=.agents/skills/uvm-roadmap/SKILL.md`
+- **What happened:** `issues/lock-owner-write-errno.md` was superseded by this cycle and is `unshaped` with a prose banner. Step 2's grep matches only `^status: adopted:`, so the sweep never found it. It retired because the foreman's brief named it and the GOAL's Clarifications call its retirement this cycle's obligation. This is the `/uvm-roadmap` side of F2 above.
+- **Skill cause:** the skill models one seed per cycle plus `adopted:` folds. `ROADMAP.md` already writes **superseded** markers, but nothing in the sweep reads them.
+- **Recommended fix:** add a second search to Step 2. For each landed cycle, find seeds whose `status:` (once F2 adds `superseded:{slug}`) or ROADMAP Seed line names that cycle as superseding them. Run Step 3 on those as well, since a superseded seed's live half is exactly what Step 3 exists to catch.
+- **Confidence:** high · **Effort:** small
+
+## F11 — Step 3 reads only `GOAL.md` § *Non-goals*, but deferrals also land in `PLAN.md` and `REVIEW.md`
+`origin=uvm-roadmap:3 severity=medium category=instruction status=open target=.agents/skills/uvm-roadmap/SKILL.md`
+- **What happened:** two obligations nearly died with the seeds. `PLAN.md` § 5 deferred two lock questions to "the next cycle (`issues/purge-tree-repair.md`)", and that seed did not carry them. `REVIEW.md` § *Maintainer override* recorded the different-pin race as "Deferred", and no `issues/` file held it. Both were found only because the sweep read PLAN and REVIEW in full. They are now in `issues/purge-tree-repair.md` and `issues/pin-holds-against-concurrent-pins.md`.
+- **Skill cause:** Step 3's rule ("a non-goal that discharges itself by pointing elsewhere is conditional … the named destination is the record") is scoped to GOAL § *Non-goals*. The skill even names `PLAN.md` as "not the record", yet never sends the sweep to read it for pointers.
+- **Recommended fix:** extend Step 3 to grep the landed cycle's `PLAN.md` and `REVIEW.md` for `issues/`, "next cycle", "deferred" and "seed". Apply the same rule to each hit: open the named destination and confirm the obligation is in it. If no destination is named, file a seed in the retirement's commit.
+- **Confidence:** high · **Effort:** small
