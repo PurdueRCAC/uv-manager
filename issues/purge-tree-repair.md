@@ -12,7 +12,7 @@ lane: public
 A scratch purge is per-file on access time, so it removes a tool environment piecemeal while uv still
 records it as installed. uv performs no integrity check on an environment it believes is present; it
 execs a half-deleted venv and the user gets an `ImportError`. `uvm_doctor` finds this and prints
-commands for a human (`bin/uv-manager:1068-1093`). Nobody reads that from a compute node at 03:00, and
+commands for a human (`bin/uv-manager:983-1008`). Nobody reads that from a compute node at 03:00, and
 automation cannot act on it.
 
 The requirement, in the maintainer's words: put `uv run ...` in a script that launches an application
@@ -65,7 +65,9 @@ knob is unset, and nothing is spent on the second and later invocations within t
 - **R10** — The knob's accepted values SHALL be explicit and documented; `UVM_REPAIR=0` SHALL NOT
   enable repair.
 - **R11** — *Moved on 2026-10-27 to [`lock-simplification`](../spec/lock-simplification/GOAL.md),
-  where it is R6; the text below is the evidence it left with.* `uvm_acquire_lock`'s early-out SHALL
+  where it is R6, and shipped there as a required predicate argument,
+  `uvm_acquire_lock ON_TIMEOUT PREDICATE [ARG...]`, rather than the optional parameter prototyped
+  below; the text below is the evidence it left with.* `uvm_acquire_lock`'s early-out SHALL
   let a caller name the predicate that decides "already satisfied", rather than always asking the provisioning question `uvm_have "${want}"`. R7 makes this
   cycle the first non-provisioning caller of the lock, and a repairer that early-outs on "is some uv
   present" skips a repair it was asked to perform. Research prototyped an optional third parameter
@@ -89,7 +91,7 @@ Findings from the `purge-resilient-run` research that a promotion must not redis
 - **The cost problem is real and the receipt is the proposed answer.** Doctor-grade detection is 2.8 s
   on a realistic tree (jupyterlab, ruff, pre-commit, httpie, snakemake, two managed pythons), 0.37 s
   once the walk is fork-free. Neither is payable per invocation in a many-rank launch, and
-  `README.md:503` already tells operators to keep `uv run` off that path. R2's receipt records "a
+  `README.md:514` already tells operators to keep `uv run` off that path. R2's receipt records "a
   check ran in this scope", not "the tree is intact" — a purge that eats the receipt causes a
   redundant re-check, never a false clean. Scoping it by letting the knob carry the value
   (`export UVM_REPAIR="$SLURM_JOB_ID"`) keeps scheduler names out of the wrapper and leaves the scope
@@ -116,7 +118,7 @@ Findings from the `purge-resilient-run` research that a promotion must not redis
   pin for every other rank in the job, including ranks already past `uvm_ensure_uv` and about to exec
   `${uvm_current}/uv`. Invariant §4. Repair must go through `uvm_ensure_uv`, or pass the pin.
 - **Reach limit that must be documented.** A purged tool invoked by its own name never enters the
-  wrapper: the trampoline (`:481-495`) execs `$d/$a/bin/shims/$n` directly. `UVM_REPAIR` reaches `uv`,
+  wrapper: the trampoline (`:642-654`) execs `$d/$a/bin/shims/$n` directly. `UVM_REPAIR` reaches `uv`,
   `uvx` and `uvm` and nothing else, so a user typing `ruff` on a purged tree still gets the
   `ImportError`. The knob serves the stated requirement, which is about `uv run`; it does not make the
   whole tree self-healing, and the README should not imply it does.
@@ -132,10 +134,22 @@ Findings from the `purge-resilient-run` research that a promotion must not redis
   constraint: the ownership and hold-time fix landed alongside it, so the defects that would have
   become live the moment anything held the lock for a rebuild rather than a download are no longer
   this cycle's to absorb. Its retained record is
-  [`spec/lock-ownership-and-hold-time/`](../spec/lock-ownership-and-hold-time/GOAL.md). What remains
-  above this cycle is [`lock-simplification`](../spec/lock-simplification/GOAL.md), adopted
-  2026-10-27, which superseded `lock-break-instance-identity` and gives this cycle a lock that fails a
-  repair waiter rather than breaking a holder.
+  [`spec/lock-ownership-and-hold-time/`](../spec/lock-ownership-and-hold-time/GOAL.md). So is the
+  lock it builds on: [`lock-simplification`](../spec/lock-simplification/GOAL.md) landed,
+  superseding `lock-break-instance-identity`, and gives this cycle a lock that fails a repair waiter
+  at its timeout rather than breaking a holder. Nothing is sequenced above this cycle now.
+- **Two lock questions `lock-simplification` left for this cycle** (its `PLAN.md` § 5). First, does
+  repair take `.install.lock` or a lock of its own? Shared, repair and provisioning serialize, but a
+  provisioning waiter past `UVM_LOCK_TIMEOUT` proceeds during a repair, and a provisioning predicate
+  can come true mid-repair. Its own, `uvm_acquire_lock` gains a path argument, and `uvm doctor` and
+  `uvm clean` cover two locks. Second, what is repair's timeout? It would inherit `UVM_LOCK_TIMEOUT`
+  (180 s by default), sized for a download, against a 1-30 s repair hold, and a new knob goes in
+  front of a human. The lock's messages also say "provisioning lock", which reads oddly to a repair
+  caller; the wording follows the first answer. One residual sharpens the first question.
+  `uvm clean lock` against a live holder shifts ownership by one call for the rest of that
+  contention episode, since each holder's release removes the next caller's lock. Provisioning
+  recovers at the first publish, but repairers would overlap their predecessors in a chain (derived
+  in `spec/lock-simplification/research/01-lock-wait-contract.md` Q5, not measured).
 - Related: [`issues/uvm-bootstrap.md`](uvm-bootstrap.md) and
   [`issues/test-harness.md`](test-harness.md); R7 is the concurrency assertion that seed names as the
   hardest thing it must cover.

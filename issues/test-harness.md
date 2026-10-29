@@ -50,7 +50,8 @@ were never executed.
 - **R2** — The suite SHALL cover every `uv-manager` subcommand, both dispatch modes (`uv`, `uvx`), the
   `self update` interception, and the `tool`/`python` non-exec path.
 - **R3** — The suite SHALL cover the documented failure paths: no state root resolvable, no egress,
-  a wrong-architecture binary, a stale lock, a lock timeout, and a partially purged tree.
+  a wrong-architecture binary, a lock left standing past `UVM_LOCK_TIMEOUT`, and a partially purged
+  tree.
 - **R3a** — The suite SHALL cover a generated trampoline resolving its target WHILE `UVM_PLATFORM` is
   set, asserting it execs under the override rather than under `uname -m`. This case is owed: the
   trampoline cycle shipped its fix without a regression test on the written condition that the harness
@@ -64,41 +65,41 @@ were never executed.
   `pyvenv.cfg` reported with the no-safe-repair wording; a tree whose only finding is a receipt-less
   tool directory exiting 0; and `uvm doctor | head -1` writing nothing matching `write error` to
   stderr. Owed on the same terms as R3a and R3b.
-- **R3d** — The suite SHALL cover the lock's ownership and hold-time contract: a release attempted
-  against a lock whose `owner` names another process SHALL leave that lock standing; a live holder
-  SHALL NOT be breakable as stale however long it holds; an inverted
-  `UVM_LOCK_TIMEOUT`/`UVM_LOCK_STALE` SHALL be refused; and no lock SHALL survive an `exec`. Owed on
-  the same terms as R3a through R3c, and the sharpest of the four — R3 above already names a stale
-  lock and a lock timeout, but those are single-process cases, and every defect here needs two
-  processes racing on one tree.
-- **R3e** — The suite SHALL cover the acquire-time retake: a wrapper that has won `mkdir` and whose
-  `owner` write then fails because the directory was removed underneath it SHALL reacquire and exit
-  0, while the same write failing `EACCES` SHALL still exit non-zero carrying its errno. Owed by
-  `lock-acquire-retake`, whose `GOAL.md` § *Non-goals* defers the committed test here. Unlike R3d
-  this needs **one** process: the state is constructible with a `mkdir` shim first on `PATH` inside
-  `temp_root.sh --offline`, which makes it the cheapest of the five and a reasonable one to land
-  first. It is also the counterexample to R3d's premise that every defect in this area needs two
-  processes racing on one tree — the *reachability* of this one does, its *handling* does not, and
-  the handling is what a regression test pins.
-- **R3f** — The suite SHALL cover the break path's instance identity: a break decided against a lock
-  instance that no longer exists SHALL leave whatever occupies that path standing, including when the
-  judged instance recorded no `owner` file, and a break that is then denied SHALL leave the `owner`
-  file it found. `lock-break-instance-identity` lands the concurrency drive this case needs at
-  `tests/`, so unlike R3a through R3e this one arrives with its apparatus already committed — what is
-  owed here is folding it into the runner rather than writing it.
+- **R3d** — The suite SHALL cover the provisioning lock's never-break contract. A lock planted by
+  hand, whatever its age and whatever its `owner` line records or omits, SHALL still stand
+  byte-identical after a provisioning call has waited out `UVM_LOCK_TIMEOUT`, proceeded, and exited
+  0 with the requested version. A caller of `uvm_acquire_lock` that does not pass `proceed` SHALL
+  instead exit non-zero naming the holder and run nothing. An exported `UVM_LOCK_STALE` SHALL change
+  nothing. `uvm doctor` SHALL report a standing lock as a WARN, and `uvm clean lock --yes` SHALL
+  remove it and leave `current` resolving. No lock SHALL survive an `exec`. Every case is one
+  process under `temp_root.sh --offline`. Until `lock-simplification`, this criterion carried the
+  ownership and hold-time contract that cycle removed. That cycle gated the cases above with sandbox
+  drives and, by its § *Non-goals*, committed none of them beyond `tests/lock-race.sh`.
+- **R3e** — The suite SHALL cover a failed `owner` write. With a `mkdir` shim first on `PATH` that,
+  for a path ending `.install.lock`, runs the real `mkdir` and then plants `owner` as a dangling
+  symlink, the call SHALL exit non-zero with the shell's errno line and `cannot record ownership` on
+  stderr, and SHALL leave no `.install.lock` behind. Until `lock-simplification`, this criterion
+  covered the acquire-time retake owed by `lock-acquire-retake`. That cycle deleted the retake, since
+  nothing removes a winner's directory any more, and its R11 is this case. It needs one process,
+  which makes it the cheapest case here and a reasonable one to land first.
+- **R3f** — The suite SHALL fold `tests/lock-race.sh` into the runner with the assertions it now
+  makes. After a burst in which ranks published one version concurrently, `versions/<ver>` holds one
+  distribution with nothing nested inside it, no `versions/.incoming.*` survives, `current`
+  resolves, and every rank's stdout carries the version it asked for, pinned or not. Until
+  `lock-simplification`, this criterion covered the break path's instance identity, which went with
+  the break path, and that cycle re-pointed the drive at the contract above. As before, the apparatus
+  is committed and what is owed is folding it in.
 - **R4** — The suite SHALL assert post-conditions on the state tree, not merely exit status.
 - **R5** — The suite SHALL run on bash 3.2 and on bash 5, and SHALL run in CI on both Linux and macOS.
 - **R6** — The suite SHALL report a coverage measurement over `bin/uv-manager`.
-- **R7** — The suite SHALL settle the provisioning lock's performance claims with numbers rather than
-  arguments: the wrapper's ~5 ms hot-path budget, which no timing drive on a shared machine currently
-  resolves and which `spec/lock-ownership-and-hold-time/GOAL.md` R4 delegates to a reviewer reading
-  the implementation; the one `ps` fork `uvm_proc_start` adds per heartbeat beat; and the one `sleep`
-  each acquisition orphans for up to a beat, because `uvm_unlock` kills the refresher subshell and not
-  the `sleep` it is blocked in. A location-controlled A/B measured ~0.6 ms of drift between the
-  pre-0.6.0 wrapper and the branch, ~0.2 ms of it parse cost from the file growing 37,184 → 49,376
-  bytes, mostly comments — a real number nobody can currently act on. The fork counts are reachable
-  with the counting-stub trick R3b uses; the `pids.max` interaction that makes the orphan matter is
-  **not** reachable here, and this criterion concedes it rather than pretending otherwise. Owed by
+- **R7** — The suite SHALL settle the wrapper's hot-path performance claim with numbers rather than
+  arguments: the ~5 ms budget `AGENTS.md` states. No timing drive on a shared machine currently
+  resolves it, and `spec/lock-ownership-and-hold-time/GOAL.md` R4 delegates it to a reviewer reading
+  the implementation. A location-controlled A/B measured ~0.6 ms of drift between the pre-0.6.0
+  wrapper and the branch, ~0.2 ms of it parse cost from the file growing 37,184 → 49,376 bytes,
+  mostly comments — a real number nobody can currently act on. The provisioning lock's own two
+  claims, the `ps` fork per heartbeat beat and the `sleep` each acquisition orphaned, went with the
+  heartbeat in `lock-simplification` and are no longer owed. Owed by
   [`spec/lock-break-instance-identity/GOAL.md`](../spec/lock-break-instance-identity/GOAL.md)
   § *Non-goals*, which declines it on the grounds that a timing A/B is a different instrument from a
   race detector.
@@ -115,8 +116,10 @@ Open questions for shaping, each with a real trade-off:
   needs Ruby. A cheaper approximation is a `DEBUG` trap logging executed line numbers, which needs no
   dependency and is good enough to answer "which functions were never entered".
 - **Concurrency.** The provisioning lock is the highest-risk region and the hardest to test. Two
-  background invocations racing on one sandbox root is the minimum; asserting that exactly one
-  installs, and that the other waits rather than proceeding, is the point.
+  background invocations racing on one sandbox root is the minimum. Within `UVM_LOCK_TIMEOUT`,
+  exactly one installs and the other waits. Past it, a waiter proceeds and installs beside the
+  holder, and the assertion becomes the tree's post-conditions rather than the installer count.
+  `tests/lock-race.sh` already makes both.
 - **Signal handling.** The `INT`/`TERM` lock release matters and is testable: start a provisioning
   run against a fixture installer that sleeps, kill it, assert the lock directory is gone.
 - **Relationship to the factory.** The suite should become the `verify:` command that phases use, and

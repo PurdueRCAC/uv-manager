@@ -17,25 +17,6 @@ See `AGENTS.md` for why.
 
 ## Queued
 
-### Stop breaking the lock, and split provisioning from repair
-**Seed:** [`issues/lock-simplification.md`](issues/lock-simplification.md) · `fix` · appetite big ·
-**adopted** as [`spec/lock-simplification/`](spec/lock-simplification/GOAL.md)
-
-In flight. The decision taken on 2026-09-09 after `lock-break-instance-identity`'s review stands: the
-wrapper never breaks a lock and never infers whether a holder is alive. Shaping on 2026-10-27 settled
-fifteen criteria. A provisioning waiter past `UVM_LOCK_TIMEOUT` installs for itself and a repair
-waiter fails, with one notice naming the holder when a wait runs long. Publishing becomes safe against
-a concurrent publish of the same version, which today nests one tree inside another at rc 0, and a
-failed publish cleans up after itself. `uvm doctor` reports a standing lock and `uvm clean` removes
-it without the tree. The heartbeat, lock ageing, every break path, the ownership-qualified release
-and `UVM_LOCK_STALE` go, and `tests/lock-race.sh` is re-pointed at a correct-tree assertion.
-
-Two neighbours folded in. The pinned early-out defect below was adopted whole, since this cycle
-rewrites the early-out it lives in. The owner-write fatal path was confirmed to survive the robbery
-in one form, a lock left standing that nothing would reclaim, and is R11. It also absorbs R3 of
-`invariant-audit-gaps` and makes that seed's R4 moot, and takes `purge-tree-repair` R11 as its R6.
-Sequenced first: it unblocks `purge-tree-repair`.
-
 ### `uv run` rehydrates a purged tree, gated by `UVM_REPAIR`
 **Seed:** [`issues/purge-tree-repair.md`](issues/purge-tree-repair.md) · `feature` · appetite big
 
@@ -45,12 +26,13 @@ construction where a bring-up subcommand — proposed and rejected during planni
 login node's tree and leave the job's untouched. What changed is the contract. Detection has a floor
 no budget removes, since a deleted distribution and every managed interpreter leave no manifest, so
 the criteria must name what is caught and concede the rest. Cost is handled by a verification receipt
-rather than an integrity stamp. The detector it reads shipped in 0.5.0, and the lock's ownership and
-hold-time fix landed with it, so the concurrency bug this cycle would otherwise have inherited is
-gone. What remains above it is `lock-simplification`, which replaced both lock cycles that used to sit
-here. This cycle is the reason that one exists: R7's "exactly one repairs, the rest wait and re-test"
-is the first non-provisioning hold, at 1-30 seconds rather than a download, and it contributes R5 and
-R6 there. Its own R11 moves into that cycle as R6.
+rather than an integrity stamp. The detector it reads shipped in 0.5.0. The lock it needs shipped
+with `lock-simplification`, which this cycle was the reason for: R7's "exactly one repairs, the rest
+wait and re-test" is the first non-provisioning hold, at 1-30 seconds rather than a download. That
+ordering constraint has cleared. Nothing breaks a lock any more, a caller names its own "already
+satisfied" predicate (this seed's R11, shipped there as R6), and a caller that is not provisioning
+fails at its timeout naming the holder. Two lock questions were left for this cycle: whether repair
+takes the provisioning lock or one of its own, and what its timeout is.
 
 ### A pinned call can run another call's pin, when two pins race for `current`
 **Seed:** [`issues/pin-holds-against-concurrent-pins.md`](issues/pin-holds-against-concurrent-pins.md) ·
@@ -75,9 +57,9 @@ redirect a cache the wrapper otherwise exports. The trampoline overwrite guard t
 unmarked 0644 file somebody wrote is silently replaced. Small and independent; the corresponding text
 repairs are harness work and land separately.
 
-It carried four gaps until 2026-10-27. The unguarded rename in `uvm_install` (R3) went to
-`lock-simplification`, and the heartbeat's silently degrading leash (R4) is moot there because that
-cycle deletes the heartbeat.
+It carried four gaps until 2026-10-27. `lock-simplification` shipped a guarded publish for the
+unguarded rename in `uvm_install` (R3), and deleted the heartbeat whose silently degrading leash was
+R4.
 
 ### `.claude` is a symlink, so no agent can create a worktree
 **Seed:** [`issues/claude-dir-shim.md`](issues/claude-dir-shim.md) · `refactor` · appetite small
@@ -124,17 +106,17 @@ story that cycle starts.
 ### A real test harness
 **Seed:** [`issues/test-harness.md`](issues/test-harness.md) · `feature` · appetite big
 
-The two hard parts for a shell script — mocking the network and the filesystem — are already solved by
-`temp_root.sh` and the `file://` installer fixture. What is missing is a runner, a corpus of cases,
-and a coverage measurement. It converts the factory's process guarantees into actual coverage, and it
-now carries six regression cases that shipped or in-flight cycles owe it: R3a from the `UVM_PLATFORM`
-trampoline fix, R3b from the state-directory guard, R3c from `uvm doctor`'s detection contract, R3d
-for the lock's ownership and hold-time contract, R3e for the acquire-time retake, and R3f for the
-break path's instance identity. It also inherits the provisioning lock's unmeasured performance
-claims as R7. `tests/` and its first drive arrive ahead of this cycle, from
-`lock-break-instance-identity`, so the runner has an inhabitant to be shaped around rather than a
-blank directory. Sequenced below the operational gaps above only because those are live; nothing
-about its value has changed.
+The two hard parts for a shell script — mocking the network and the filesystem — are already solved
+by `temp_root.sh` and the `file://` installer fixture. What is missing is a runner, a corpus of
+cases, and a coverage measurement. It converts the factory's process guarantees into actual
+coverage, and it now carries six regression cases. R3a, R3b and R3c are owed by shipped cycles: the
+`UVM_PLATFORM` trampoline fix, the state-directory guard and `uvm doctor`'s detection contract. R3d
+covers the provisioning lock's never-break contract and R3e a failed `owner` write, both from
+`lock-simplification`'s sandbox drives. R3f folds in `tests/lock-race.sh`. It also inherits the
+wrapper's unmeasured hot-path budget as R7. `tests/` and its first drive arrived ahead of this
+cycle, from `lock-break-instance-identity`, so the runner has an inhabitant to be shaped around
+rather than a blank directory. Sequenced below the operational gaps above only because those are
+live; nothing about its value has changed.
 
 ### An onboarding guide for the factory
 **Seed:** [`issues/factory-onboarding-guide.md`](issues/factory-onboarding-guide.md) · `feature` ·

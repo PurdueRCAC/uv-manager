@@ -28,7 +28,7 @@ in writing; one that puts nothing on `PATH` is useless to the person who ran it.
 tension is the substance of this cycle, not an implementation detail of it.
 
 An up-to-date check has a source of truth to work from: the version is single-sourced at
-`bin/uv-manager:21` and `uvm --version` prints it (`:1157`).
+`bin/uv-manager:21` and `uvm --version` prints it (`:1086`).
 
 ## Why it was deferred
 
@@ -73,8 +73,8 @@ Open questions for shaping, each with a real trade-off:
   have repaired the tree, which is exactly the failure `issues/purge-tree-repair.md` is about. And
   what is the default when it is unset, given `~/.local/bin/uv` is forbidden. — the maintainer,
   2026-08-09.
-- **The `curl | sh` posture.** The project already fetches uv this way (`uvm_fetch`, `:249`, and the
-  piped `sh` at `:341`), so the precedent is uv's own. Decide whether a tag pin, a published checksum,
+- **The `curl | sh` posture.** The project already fetches uv this way (`uvm_fetch`, `:340`, and the
+  piped `sh` at `:457-459`), so the precedent is uv's own. Decide whether a tag pin, a published checksum,
   and a documented download-inspect-run path are required rather than optional, given this is
   potentially load-bearing infrastructure for a computing center.
 - **What "up to date" means, and how often it is checked.** A version check per invocation adds a

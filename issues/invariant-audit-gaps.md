@@ -12,8 +12,9 @@ lane: public
 
 > **Shrunk on 2026-10-27 from four gaps to two.** R3 (the unguarded rename) was absorbed into
 > [`lock-simplification`](../spec/lock-simplification/GOAL.md) as its R4 and R10, and R4 (the
-> heartbeat's leash) is moot there because that cycle deletes the heartbeat. Their numbers are left
-> vacant below rather than closed up, since `ROADMAP.md` and other seeds cite R1–R4 by number.
+> heartbeat's leash) is moot because that cycle, which has shipped, deleted the heartbeat. Their
+> numbers are left vacant below rather than closed up, since `ROADMAP.md` and other seeds cite R1–R4
+> by number.
 
 ## Problem
 
@@ -24,27 +25,29 @@ The **text** repairs are harness work (`spec/lock-ownership-and-hold-time/META.m
 `/uvm-harness`). Behind two of them, and beside a third, sit small **code** gaps that change wrapper
 behavior and therefore need a cycle with a deviation table. Each was measured, not read.
 
-**Argument inspection misses two value-taking global options.** `invariants.md` §11 and
-`AGENTS.md` assert that `uvm_global_takes_value`'s five entries are the complete set of `uv` global
-options taking a separate value, and that "everything else that looks like one is a per-command
-option". Measured against `uv 0.12.4`: `uv --cache-dir DIR tool dir` succeeds, and
-`uv --python-preference only-managed tool dir` succeeds, while `uv --python 3.12 tool dir` fails with
-`unexpected argument`. So both are accepted *before* the subcommand and both take a value. An option
-missing from the list is bare-shifted, `uvm_cmd` latches onto its value, and `self update`, `tool` and
-`python` all go unrecognized — no trampoline resync, no self-update interception. `--cache-dir` is the
-likeliest to be hit in practice: `uvm_set_paths` exports `UV_CACHE_DIR` unconditionally, so the flag
-is the only remaining way to redirect the cache. The banner above `uvm_global_takes_value`
-(`bin/uv-manager:790-795`) names `--cache-dir` as an example of the category it is a counterexample
-to.
+**Argument inspection misses two value-taking global options.** The banner above
+`uvm_global_takes_value` asserts that its five entries are the complete set of `uv` global options
+taking a separate value, and that "everything else that looks like one … is a per-command option".
+`invariants.md` §11 and `AGENTS.md` asserted the same until 2026-09-07, when the harness text repair
+corrected both to say the list is not complete. Measured against `uv 0.12.4`:
+`uv --cache-dir DIR tool dir` succeeds, and `uv --python-preference only-managed tool dir` succeeds,
+while `uv --python 3.12 tool dir` fails with `unexpected argument`. So both are accepted *before* the subcommand and
+both take a value. An option missing from the list is bare-shifted, `uvm_cmd` latches onto its
+value, and `self update`, `tool` and `python` all go unrecognized — no trampoline resync, no
+self-update interception. `--cache-dir` is the likeliest to be hit in practice: `uvm_set_paths`
+exports `UV_CACHE_DIR` unconditionally, so the flag is the only remaining way to redirect the cache.
+The banner (`bin/uv-manager:676-681`) names `--cache-dir` as an example of the category it is a
+counterexample to.
 
 **The trampoline overwrite guard tests `-x`.** `invariants.md` §9 and `AGENTS.md` say a file that is
-non-empty, executable and unmarked is left alone, and that "only marked files are ever overwritten or
-removed". Removal is genuinely marker-only. Overwriting is not: the guard in `uvm_trampolines`
-(`bin/uv-manager:748-752`) is a three-way conjunction, so an unmarked file failing `-s` **or** `-x` is
-written over. A planted
-0644, non-empty user file named for a tool in the union was replaced by the generated trampoline with
-no note. `-s` alone already satisfies the "repair a truncated trampoline" requirement the bullet above
-it states, so `-x` is buying nothing and costing somebody's file.
+non-empty, executable and unmarked is left alone. Until 2026-09-07 both also said "only marked files
+are ever overwritten or removed"; the harness text repair narrowed that to removal, and both now
+name the `-x` term as a gap this seed carries. Removal is genuinely marker-only. Overwriting is not:
+the guard in `uvm_trampolines` (`bin/uv-manager:634-638`) is a three-way conjunction, so an unmarked
+file failing `-s` **or** `-x` is written over. A planted 0644, non-empty user file named for a tool
+in the union was replaced by the generated trampoline with no note. `-s` alone already satisfies the
+"repair a truncated trampoline" requirement the bullet above it states, so `-x` is buying nothing
+and costing somebody's file.
 
 The two further gaps this file used to carry — the unguarded rename in `uvm_install`, and the
 heartbeat's leash silently degrading to bare `kill -0` — left with `lock-simplification` (banner
@@ -75,8 +78,8 @@ wrote.
 - **R3** — *Moved out* on 2026-10-27 to
   [`lock-simplification`](../spec/lock-simplification/GOAL.md), where it is R10 and, for the
   concurrent-publish half, R4.
-- **R4** — *Moot* as of 2026-10-27: [`lock-simplification`](../spec/lock-simplification/GOAL.md)
-  R7 deletes the heartbeat and its leash, so there is no degradation left to make visible.
+- **R4** — *Moot*: [`lock-simplification`](../spec/lock-simplification/GOAL.md) R7 deleted the
+  heartbeat and its leash, so there is no degradation left to make visible.
 
 ## Notes
 
