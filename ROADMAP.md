@@ -36,24 +36,6 @@ in one form, a lock left standing that nothing would reclaim, and is R11. It als
 `invariant-audit-gaps` and makes that seed's R4 moot, and takes `purge-tree-repair` R11 as its R6.
 Sequenced first: it unblocks `purge-tree-repair`.
 
-### The break still deletes locks it did not judge, and nothing here can measure it yet
-**Seed:** [`issues/lock-break-instance-identity.md`](issues/lock-break-instance-identity.md) · `fix` ·
-appetite big · **adopted** as [`spec/lock-break-instance-identity/`](spec/lock-break-instance-identity/GOAL.md)
-· **superseded** by [`spec/lock-simplification/`](spec/lock-simplification/GOAL.md)
-
-**Landed in half.** Its measurement half shipped and is `tests/lock-race.sh`: the repository can now
-tell a one-in-a-thousand lock race from noise, with separate assertions so a red gate names what it
-caught. Its fix half is declined. Review cycle 1 confirmed three CRITICALs, two of them failure
-classes the remedy itself introduced — a fresh winner condemned by a husk count with no age floor, and
-an abandoned `${lock}/mark` wedging provisioning permanently on every node until a human intervened.
-The wrapper was reverted to `main` and the drive kept.
-
-That review is what produced the decision above, and `spec/lock-break-instance-identity/REVIEW.md` is
-its evidence. Nothing in this seed is live: `lock-simplification` removes the break it constrains and
-re-points the drive it shipped. Retiring this entry and its seed when that cycle lands is that cycle's
-obligation, discharged by `/uvm-roadmap`; the reasoning that must outlive them is in
-`lock-simplification` § *Rejected — do not re-propose*.
-
 ### `uv run` rehydrates a purged tree, gated by `UVM_REPAIR`
 **Seed:** [`issues/purge-tree-repair.md`](issues/purge-tree-repair.md) · `feature` · appetite big
 
