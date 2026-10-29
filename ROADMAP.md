@@ -54,24 +54,6 @@ re-points the drive it shipped. Retiring this entry and its seed when that cycle
 obligation, discharged by `/uvm-roadmap`; the reasoning that must outlive them is in
 `lock-simplification` § *Rejected — do not re-propose*.
 
-### The owner write is classified by the directory a moment later, not by the errno
-**Seed:** [`issues/lock-owner-write-errno.md`](issues/lock-owner-write-errno.md) · `fix` ·
-appetite small · **superseded** by [`spec/lock-simplification/`](spec/lock-simplification/GOAL.md)
-
-What `lock-acquire-retake` narrowed but did not close. The retake decides between a lost race and a
-filesystem fault by testing whether the lock directory is still standing, because a failed redirect
-leaves the shell no errno a branch can read. The write fails at one instant and the test runs at the
-next, so a rank that wins `mkdir` at that path in between turns a robbed winner back into a fatal
-fault. Recorded PLAUSIBLE by that cycle's review, not CONFIRMED: the mechanism is real by reading and
-by an out-of-contract construction, but 5760 ranks of 64-way contention found none of it.
-
-Confirmed superseded on 2026-10-27, when `lock-simplification` was shaped. Once nothing takes a lock
-by force the robbery is unreachable, so the classifier has nothing to misclassify, and a directory
-standing on the fatal path is the rank's own, so its `rmdir` is no longer unqualified in effect. One
-half survives in another form: `rmdir` refuses a directory holding an entry, and with no breaker that
-lock would stand until a human cleared it. That half is R11 there, gated with this seed's own `mkdir`
-shim. The rest is a terminal record, retired with that cycle by `/uvm-roadmap`.
-
 ### `uv run` rehydrates a purged tree, gated by `UVM_REPAIR`
 **Seed:** [`issues/purge-tree-repair.md`](issues/purge-tree-repair.md) · `feature` · appetite big
 
