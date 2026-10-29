@@ -68,24 +68,15 @@
 # 3. Provisioning behaviour
 # ===========================================================================
 
-# Seconds to wait for another process's provisioning lock.
+# Seconds to wait for another process's provisioning lock before installing
+# without it. A whole number, read as decimal. A waiter says once, at 30
+# seconds or at the timeout if that is sooner, which process the lock records
+# and how to remove it; at the timeout it downloads and installs for itself.
+# No call ever removes a lock it did not create, so a holder killed by
+# SIGKILL, job cancellation or node failure leaves its lock until a human
+# removes it. Until then a provisioning call whose request is not yet
+# satisfied waits until it is or until this timeout passes.
 #export UVM_LOCK_TIMEOUT=180
-
-# Seconds after which an untouched lock is assumed abandoned and broken.
-# Guards against a holder killed by SIGKILL, job cancellation or node failure.
-#export UVM_LOCK_STALE=600
-
-# Both are whole seconds, read as decimal, and the timeout must be less than
-# the stale threshold. The wrapper refuses the inversion the next time it
-# takes the lock: a waiter that outlives the threshold breaks the lock it is
-# waiting for while the process holding it is still running. On NFS, keep the
-# stale threshold above roughly 120 seconds — a waiter on another node sees a
-# holder's refresh no sooner than one heartbeat plus the attribute-cache
-# lifetime, and the wrapper beats once every tenth of the threshold.
-
-# Set the stale threshold site-wide, not per job. A holder refreshes its lock
-# every tenth of its own value, so a waiter configured lower than the holder
-# reads a lock that is being refreshed on schedule as abandoned and breaks it.
 
 # Override the architecture key. Default is `uname -m`. Set this if login and
 # compute images differ in a way `uname -m` does not capture — glibc version

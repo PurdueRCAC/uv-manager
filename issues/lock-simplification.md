@@ -1,5 +1,5 @@
 ---
-status: shaped
+status: adopted:lock-simplification
 kind: fix
 appetite: big
 lane: public

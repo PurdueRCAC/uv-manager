@@ -10,6 +10,13 @@ lane: public
 > **Superseded on 2026-09-09 by [`lock-simplification`](lock-simplification.md).** This defect rides
 > on a robbed winner, and nothing takes a lock by force after that cycle. Confirm at promotion; if the
 > fatal path's unqualified `rmdir` survives independently of the robbery, it moves there as an R-ID.
+>
+> **Confirmed on 2026-10-27**, when that seed was adopted as
+> [`spec/lock-simplification/`](../spec/lock-simplification/GOAL.md). Once nothing takes a lock by
+> force the robbery is unreachable, and a directory standing on the fatal path is the rank's own, so
+> the `rmdir` is no longer unqualified in effect. What survives is that `rmdir` refuses a directory
+> holding an entry, leaving a lock nothing will reclaim. That half is R11 there, gated with the shim
+> below. The rest of this file is a terminal record and retires with that cycle.
 
 > **Candidate, not a contract.** Deferred work recorded so a future session does not re-derive it.
 > Not graded by `uvm-review`; never copy into a `GOAL.md` verbatim.

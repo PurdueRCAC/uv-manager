@@ -135,7 +135,9 @@ On every invocation it:
 
 3. **Provisions `uv` on first use for that architecture**, into a version-keyed directory, with
    `current` swapped atomically. Concurrent invocations serialize on an atomic `mkdir` lock that
-   releases itself on signals and breaks itself when abandoned.
+   is released on signals too. A call that has waited `UVM_LOCK_TIMEOUT` for it installs for
+   itself rather than failing; when several publish the same version at once, one copy is kept
+   and the others are discarded.
 
 4. **Exports the `UV_*` storage variables** and `exec`s the real binary. Because it `exec`s, exit
    codes and signals are the real `uv`'s. The wrapper adds roughly 5 ms per invocation on top of
@@ -181,7 +183,7 @@ Everything is ordinary `uv`. The additions live under `uv-manager`:
 | `uv-manager versions` | List `uv` versions installed for this architecture. |
 | `uv-manager install [VER]` | Select a version, downloading it if absent. With no version, re-resolve latest from the network. |
 | `uv-manager trampolines` | Regenerate the neutral executable shims. |
-| `uv-manager clean [cache\|arch\|all] --yes` | Remove part of the tree. |
+| `uv-manager clean [cache\|lock\|arch\|all] --yes` | Remove part of the tree. `lock` removes only the provisioning lock and leaves the installed versions alone. |
 
 `uvm` is a short alias for `uv-manager`, so `uvm status` and `uvm doctor` work too.
 
@@ -416,11 +418,14 @@ Mitigations, in order of effectiveness:
 2. **`uv-manager doctor`** looks at every installed distribution and reports the damage uv ignores:
    dangling shims, a tool directory that lost its `pyvenv.cfg` or its receipt, a damaged managed
    interpreter, a distribution whose `RECORD` manifest is gone, and files a surviving manifest lists
-   that are no longer on disk. Failures set the exit status and advisories do not, so a job prologue
-   can key on it. Its floor is whatever nothing on disk records. A distribution removed entirely
-   leaves no evidence, because `uv-receipt.toml` names the request — `jupyterlab` — not the 91
-   distributions uv resolved it to; a managed interpreter carries no manifest at all, so the check
-   there is whether `import json, os, ssl` still succeeds, which it does with `email/`, `xml/` and
+   that are no longer on disk. As advisories, it also reports a provisioning lock left standing, with
+   the owner line it records, and any staging copy an interrupted install left under `versions/`.
+   Each of those lines names what to remove and says the process that left it may still be running,
+   because nothing on disk can tell. Failures set the exit status and advisories do not, so a job
+   prologue can key on it. Its floor is whatever nothing on disk records. A distribution removed
+   entirely leaves no evidence, because `uv-receipt.toml` names the request — `jupyterlab` — not
+   the 91 distributions uv resolved it to; a managed interpreter carries no manifest at all, so the
+   check there is whether `import json, os, ssl` still succeeds, which it does with `email/`, `xml/` and
    `unittest/` gone. A clean report means nothing detectable is wrong, not that the tree is whole.
 3. **Prefer `uvx` over `uv tool install`.** Ephemeral environments are keyed off the cache and
    rebuild cleanly; installed ones accumulate damage.
@@ -458,6 +463,16 @@ advisory, makes switching between downloaded versions instant, and makes rollbac
 **`mkdir` for the provisioning lock.** Atomic on Lustre, GPFS and NFS, needs no helper binary, and
 does not depend on `flock`, which `uv` itself requires but which is not enabled everywhere.
 
+**Only the call that created the lock removes it.** Earlier designs let a waiter conclude that the
+holder had died and take its lock: by an age threshold, by a holder refreshing its lock on a timer,
+by a probe of a recorded pid. Each asked a question a shared filesystem cannot answer reliably.
+Attribute caches serve an old owner line, clocks differ between nodes, and a pid names a number on
+one host rather than a process. Each fix also added state whose own leftovers became the next
+defect. A waiter past `UVM_LOCK_TIMEOUT` now does something safe instead: it installs for itself,
+and when two copies of a version are published at once, one is kept and the other discarded. A
+holder killed mid-install costs each call that has to provision one timeout, and leaves a line in
+`uv-manager doctor` until a human clears it with `uv-manager clean lock`.
+
 **Architecture-neutral trampolines.** The only way to have one `PATH` entry that is correct on both
 node types. Each is a short `sh` script that re-resolves the platform key at exec time. They are
 generated for the union of names across all architectures, so invoking a tool on an architecture
@@ -493,7 +508,9 @@ For that to work the wrapper has to survive an environment it did not choose:
   node-local storage.
 - **`worker_init` runs on compute nodes**, so egress and pre-warming assumptions apply there.
 - **Pin the version.** `UVM_PIN` is authoritative: it selects which installed version
-  `current` points at, so pinning to an already-downloaded version costs milliseconds.
+  `current` points at, so pinning to an already-downloaded version costs milliseconds. Calls
+  running at once on the same architecture's tree with different pins race for `current`, and the
+  last one wins; calls sharing one pin agree.
 - **Provision once, then run directly.** Keep `uv run` off the hot path of a many-rank launch. It
   takes a lock on the project environment, and N ranks starting at once either serialize on it or,
   where `flock` is unreliable, race.
@@ -523,15 +540,22 @@ automation context that did not inherit a login shell.
 **"install failed — no egress from this node?"** Pre-warm from a node of the same architecture that
 has outbound HTTPS.
 
-**"timed out waiting for provisioning lock"** means another process is provisioning the same
-architecture's tree. The lock is the directory `$UVM_ROOT/<arch>/.install.lock`, and the `owner` file
-inside it records the host, pid and nonce of the process holding it — the timeout message prints that
-line. A recorded pid belongs to the host recorded beside it, so probing it from the node you are on
-proves nothing. The wrapper breaks the lock itself when that pid is dead on this node, or when nothing
-has refreshed it for `UVM_LOCK_STALE` seconds; a live holder keeps it for as long as the work takes.
-Removing one by hand takes the `owner` file with it —
-`rm -f $UVM_ROOT/<arch>/.install.lock/owner && rmdir $UVM_ROOT/<arch>/.install.lock`, because `rmdir`
-on its own reports `Directory not empty`.
+**"waiting for the provisioning lock"** means another process holds the lock on the same
+architecture's tree, usually because it is provisioning it. The lock is the directory
+`$UVM_ROOT/<arch>/.install.lock`, and the `owner` file inside it records the host and pid of the
+process that took it; the notice prints that line once, at 30 seconds or at `UVM_LOCK_TIMEOUT` if
+that is sooner. A waiter never removes a lock it did not create, whatever its age. At
+`UVM_LOCK_TIMEOUT` it downloads and installs for itself and carries on, so until someone removes a
+lock left by a holder that was killed, a provisioning call whose request is not yet satisfied waits
+until it is or until the timeout passes. The holder may still be running: a recorded pid belongs to
+the host recorded beside it, so probing it from the node
+you are on proves nothing. Once nothing is provisioning that tree, remove the lock with the command
+the notice prints, `rm -f '<lock>/owner' && rmdir '<lock>'`; `rmdir` on its own reports
+`Directory not empty`. On a node of the same architecture with the same `UVM_ROOT`,
+`uv-manager doctor` reports the lock with its owner line and `uv-manager clean lock --yes` removes
+it; from anywhere else, use the path. Removing a lock whose holder is still running lets a second
+call provision beside it, and the holder's own release then removes that call's lock, so wait until
+nothing is provisioning the tree.
 
 **A tool prints "is not installed for architecture 'aarch64'".** That is the trampoline working as
 intended. The quoted name is the platform key, which a site may have overridden; install the tool
@@ -544,7 +568,7 @@ from a node that resolves to it.
 provisioning is cosmetic. The installer notices that the module's `bin/`, which holds the wrapper,
 precedes its own install directory. That is the arrangement we want.
 
-**Disk accounting.** `du -sh $UVM_ROOT/*` breaks down cost per architecture.
+**Disk accounting.** `du -sh $UVM_ROOT/*` gives the cost of each architecture.
 
 ---
 
@@ -558,15 +582,10 @@ precedes its own install directory. That is the arrangement we want.
 | `UVM_PIN` | `uv` version to provision and select. |
 | `UVM_PLATFORM` | Override the architecture key. Default `uname -m`. |
 | `UVM_INSTALL_URL` | Installer base URL, for mirrors. Default `https://astral.sh/uv`. |
-| `UVM_LOCK_TIMEOUT` | Seconds to wait for the provisioning lock. Default 180. Must be less than `UVM_LOCK_STALE`. |
-| `UVM_LOCK_STALE` | Seconds after which an untouched lock is broken. Default 600. |
+| `UVM_LOCK_TIMEOUT` | Seconds to wait for the provisioning lock before installing without it. Default 180. |
 
-Both lock knobs are whole seconds read as decimal, and the wrapper refuses a configuration in which
-the timeout is not less than the stale threshold: a waiter that outlives the threshold breaks the
-lock it is waiting for while the process holding it is still running. A live holder refreshes its own
-lock every tenth of the threshold, so a long provisioning run is not mistaken for an abandoned one.
-On NFS, keep `UVM_LOCK_STALE` above roughly 120 seconds — a waiter on another node sees that refresh
-no sooner than one beat plus the attribute-cache lifetime.
+`UVM_LOCK_TIMEOUT` is whole seconds, read as decimal. No call removes a lock it did not create, so
+there is no threshold after which a lock counts as abandoned.
 
 ### `uv` variables the wrapper sets
 

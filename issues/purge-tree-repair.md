@@ -64,8 +64,9 @@ knob is unset, and nothing is spent on the second and later invocations within t
   stderr and exit non-zero rather than exec into an environment it knows is damaged.
 - **R10** — The knob's accepted values SHALL be explicit and documented; `UVM_REPAIR=0` SHALL NOT
   enable repair.
-- **R11** — `uvm_acquire_lock`'s early-out SHALL let a caller name the predicate that decides "already
-  satisfied", rather than always asking the provisioning question `uvm_have "${want}"`. R7 makes this
+- **R11** — *Moved on 2026-10-27 to [`lock-simplification`](../spec/lock-simplification/GOAL.md),
+  where it is R6; the text below is the evidence it left with.* `uvm_acquire_lock`'s early-out SHALL
+  let a caller name the predicate that decides "already satisfied", rather than always asking the provisioning question `uvm_have "${want}"`. R7 makes this
   cycle the first non-provisioning caller of the lock, and a repairer that early-outs on "is some uv
   present" skips a repair it was asked to perform. Research prototyped an optional third parameter
   (`satisfied="${3:-uvm_have}"`, plain indirect invocation — namerefs are bash 4.3 and breach the 3.2
@@ -132,8 +133,9 @@ Findings from the `purge-resilient-run` research that a promotion must not redis
   become live the moment anything held the lock for a rebuild rather than a download are no longer
   this cycle's to absorb. Its retained record is
   [`spec/lock-ownership-and-hold-time/`](../spec/lock-ownership-and-hold-time/GOAL.md). What remains
-  above this cycle is [`issues/lock-break-instance-identity.md`](lock-break-instance-identity.md) —
-  the residual that fix narrowed rather than closed, which long holds are what make common.
+  above this cycle is [`lock-simplification`](../spec/lock-simplification/GOAL.md), adopted
+  2026-10-27, which superseded `lock-break-instance-identity` and gives this cycle a lock that fails a
+  repair waiter rather than breaking a holder.
 - Related: [`issues/uvm-bootstrap.md`](uvm-bootstrap.md) and
   [`issues/test-harness.md`](test-harness.md); R7 is the concurrency assertion that seed names as the
   hardest thing it must cover.

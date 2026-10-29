@@ -136,27 +136,41 @@ a re-download on every node of every job, an egress requirement everywhere, and 
 vanish at job end. When nothing resolves, the wrapper prints every candidate it tried and why each
 failed, then exits non-zero.
 
-**A pin is authoritative.** `UVM_PIN` selects which version `current` points at — not merely
-which version to download when nothing is present.
+**A pin is authoritative** over which version a call selects, and over `current` while no concurrent
+call on the same root selects a different version. `UVM_PIN` selects which version `current` points
+at — not merely which version to download when nothing is present. `current` is one link per root
+and a pin is per process, so concurrent calls pinned to different versions race for `current` and
+the last swap wins: an earlier call can exec a later call's version at status 0. Calls sharing one
+pin, as the ranks of an `srun` job do, agree on `current` whichever swap lands last.
 
 **The provisioning lock is `mkdir`.** Atomic on Lustre, GPFS and NFS; needs no helper binary; does not
 depend on `flock`, which `uv` itself requires but which is not enabled on every parallel filesystem.
-It must release on `EXIT`, `INT` and `TERM` (a leaked lock blocks that user until someone removes it
-by hand), break itself when abandoned past `UVM_LOCK_STALE`, and its early-out must test **the
-version this call was asked for** — testing "is some uv present" hands a pinned caller whatever
-another process happened to be installing.
+It releases on `EXIT`, `INT` and `TERM`, not only on return, through `uvm_unlock`, which acts only
+on `uvm_lock`: a process holds a lock exactly while `uvm_lock` names it, and removes only a lock it
+holds. `uvm_unlock` clears `uvm_lock` before removing anything, because in the opposite order a
+signal landing after the `rmdir` would make the trap remove the lock the next caller took in the
+meantime. The cost is that bash handles a trapped signal only after the foreground command returns,
+so a signal while the lock is being created, before `uvm_lock` names it, or being removed, after
+`uvm_lock` is cleared, can leave the lock standing, empty or still carrying its owner line. No call
+removes it on its own: `uvm doctor` reports it and a human removes it with `uvm clean lock`. Until
+then a provisioning call whose request is not yet satisfied waits until it is or until
+`UVM_LOCK_TIMEOUT` passes, and a forced `uvm install` waits even on a warm tree. That is the accepted
+failure mode. The caller names the predicate a waiter runs once a second to ask whether its work is
+already done, and provisioning's predicate tests **the version this call was asked for** — testing
+"is some uv present" hands a pinned caller whatever another process happened to be installing.
 
-**Release is qualified by ownership, not by path.** `uvm_acquire_lock` records a `host`/`pid`/nonce
-line in the lock directory's `owner` file, and `uvm_unlock` removes the directory only while that
-file still holds the line this process wrote. Matching on the path alone means a holder whose lock
-was broken as stale deletes the breaker's lock instead, leaving two processes provisioning one tree
-with no mutual exclusion between them. Every other reading — absent, empty, truncated, unreadable,
-foreign — leaves the directory standing: a false leave is reclaimed by the stale breaker, a false
-delete is bounded by nothing. The owner write is fatal, because a holder that cannot prove ownership
-leaks its own lock for a full stale window — except where the directory this process just created
-is already gone, which is a lost race rather than a fault and is retaken under a literal bound that
-never resets. A directory still standing means the write itself was refused, and that still dies,
-carrying the errno the shell's own diagnostic names.
+**Only the creator removes the lock.** `uvm_unlock` releases by path, and that is sound because
+nothing but this process's own winning `mkdir` sets `uvm_lock`: no call removes or takes another
+call's lock, whatever its age or its owner line records, and the wrapper never asks whether a holder
+is alive, a question a shared filesystem cannot answer reliably. The one exception is a human, by
+hand or through `uvm clean lock`; clearing a lock whose holder is still running lets a second call
+provision beside it, which is why every message that points at the lock says its holder may still
+be running. `uvm doctor` reports a standing lock, with its owner line, as a WARN and never a FAIL,
+and reports every staging copy left under `versions/` the same way; it removes neither. `uvm_lock`
+is set as soon as the winning `mkdir` returns, *before* the `host=<uname -n> pid=<pid>` line is
+written to `owner`, so a failed write — fatal, with `cannot record ownership` and the errno the
+shell's own diagnostic names — is cleaned up by the EXIT trap's release, entry and directory both.
+The owner line is for a human; nothing in the wrapper decides anything from it.
 
 **No lock survives an `exec`.** `exec` replaces the process image and the EXIT trap never runs, so
 every `exec` of the real `uv` releases first — the three in the dispatch tail and the one in
@@ -170,42 +184,30 @@ absence is evidence of nothing — it reported a released lock as an unwritable 
 ranks in 64-way cold bursts, on GPFS and on APFS alike. The waiter retries, and names the
 permissions, quota or ENOSPC fault only once a literal bound of attempts has each found the lock
 gone. The bound is a constant in the script and never an environment variable, and the count never
-resets: a monotonic count is what stops an alternation of absent-retry and successful break from
-evading the timeout accounting.
+resets, which holds the iterations it can add to the wait to that bound however the loop alternates.
 
-**A live holder's lock never ages out.** `uvm_acquire_lock` spawns a detached refresher that rewrites
-`owner` with byte-identical content every `UVM_LOCK_STALE/10` seconds and stops when the holder is
-gone; `uvm_unlock` reaps it with `kill` then `wait`. Age is therefore read from `${lock}/owner` and
-not from the directory, whose mtime tracks its entry list rather than writes to files inside it. A
-waiter probes liveness first as a fast path — a holder on this node whose pid is gone loses the lock
-immediately — but the age test runs whatever the probe answered, because `kill -0` answers for a pid
-number rather than for the process that recorded it, and a lock gated behind a recycled pid is
-unbreakable until a human removes it. The heartbeat is what keeps a live holder's lock, not a skipped
-age test. Its host token is `uname -n` and never the inherited `HOSTNAME`, so two nodes cannot
-present one identity and break each other's live locks. The refresher re-reads `owner` before each
-write, because stamping our identity over a new holder's record would make the lock immortal. Its
-own leash is a pid paired with the start time `uvm_proc_start` reads, never `kill -0` alone: a
-refresher that survives its holder by inheriting the reoccupied number keeps the lock fresh forever,
-and neither the age net nor the waiter's probe can then recover it.
+**`UVM_LOCK_TIMEOUT` is form-tested, then forced to base 10, inside `uvm_acquire_lock`.** On bash
+3.2 a non-numeric value makes the arithmetic fatal under `set -u`, and the EXIT trap's status
+overrides the error's, so the script exits 0 and `VER=$(uv --version)` returns empty and true; bash
+also reads `0600` as 384, and `0800` is not a number at all. The guard sits inside the function,
+never at load, so `uvm help` and `uvm --version` still answer on a node whose configuration is
+broken.
 
-**`UVM_LOCK_TIMEOUT` must be less than `UVM_LOCK_STALE`**, and `uvm_acquire_lock` refuses the
-inversion instead of acting on it. The guard tests numeric form before the comparison — on bash 3.2 a
-non-numeric value makes the arithmetic fatal under `set -u`, and the EXIT trap's status overrides the
-error's, so the script exits 0 and `VER=$(uv --version)` returns empty and true — then forces base 10
-onto the globals every later reader shares, because bash reads `0600` as 384 and `0800` passes a
-digits-only test only to error non-fatally inside the comparison and be *accepted*. It sits inside
-the function, never at load, so `uvm help` and `uvm --version` still answer on a node whose
-configuration is broken.
-
-**The timeout message names the holder and a recovery command that works.** It prints the `owner`
-line the lock records, states that a recorded pid is on the host recorded beside it and not on the
-reader's — probing it locally is how a stalled user talks themselves into deleting a live lock — and
-advises `rm -f '<lock>/owner' && rmdir '<lock>'`. A bare `rmdir` reports `Directory not empty` for
-every lock whose holder got as far as claiming it, because `owner` is inside the directory. Break
-notes carry the same owner line: the file that answers "whose lock was that" is deleted with the lock.
+**A waiter speaks once, then proceeds or fails.** At `min(30, UVM_LOCK_TIMEOUT)` seconds it prints
+one notice naming the lock, the `owner` line it records, that the holder may still be running, and
+`rm -f '<lock>/owner' && rmdir '<lock>'` — two steps, because a bare `rmdir` reports `Directory not
+empty` while `owner` is inside, and an absolute path rather than a `uvm` command, because a reader on
+another node, architecture or `UVM_ROOT` would otherwise clear a different lock and be told it
+succeeded. At `UVM_LOCK_TIMEOUT` a provisioning waiter (`proceed`) returns holding nothing and
+installs for itself; any other caller dies naming the lock and its owner line, and runs nothing.
 
 **`current` is swapped atomically, and its target is relative** (`versions/<ver>`), so the tree stays
-relocatable and a concurrent reader never observes a missing or half-written `current`.
+relocatable. With GNU (`-T`) or BSD/macOS (`-h`) `mv`, a concurrent reader never observes a missing
+or half-written `current`; an `mv` with neither takes a non-atomic fallback that can leave `current`
+briefly missing. Under it, a concurrent swap can turn a call's rename into a `.current.<pid>` link
+nested inside the version directory that swap selected, so the call's own swap never lands. When
+that swap selected a different version, `current` never names the version the call selected and the
+call execs the other version at status 0.
 
 **Scrub `UV_INSTALL_DIR` and `CARGO_DIST_FORCE_INSTALL_DIR` before running the installer.**
 `install.sh` checks them *before* `UV_UNMANAGED_INSTALL` and they take precedence; if a user has
@@ -234,10 +236,11 @@ idempotent because the exported `PATH` is inherited by everything `uv` spawns.
 
 **Per-user, never shared.** State directories are created under `umask 077`.
 
-**Portability floor.** POSIX-ish bash with no GNU assumptions: `mv -T` has a non-atomic fallback,
-`stat -c` and `stat -f` are both tried, `realpath`/`readlink -f` are not used (`abspath` exists for
-that reason). The script parses under bash 3.2 (macOS) as well as the bash 4/5 found on cluster
-images. Generated trampolines are `/bin/sh`, not bash.
+**Portability floor.** POSIX-ish bash with no GNU assumptions: the `current` swap tries `mv -T` (GNU),
+then `mv -h` (BSD), then a non-atomic fallback; `stat -c` and `stat -f` are both tried;
+`realpath`/`readlink -f` are not used (`abspath` exists for that reason). The script parses under
+bash 3.2 (macOS) as well as the bash 4/5 found on cluster images. Generated trampolines are `/bin/sh`,
+not bash.
 
 **The global-option list in `uvm_global_takes_value` is deliberately short.** It exists only to find
 the first positional argument so `self update`, `tool` and `python` can be recognized — not to model
@@ -254,7 +257,7 @@ sign-off gate at review:
 
 | Region | Why |
 |--------|-----|
-| `uvm_acquire_lock` / `uvm_unlock` | Concurrency across nodes. A wrong early-out hands a pinned caller the wrong version; a leaked lock blocks the user until manual repair. |
+| `uvm_acquire_lock` / `uvm_unlock` | Concurrency across nodes. A wrong early-out hands a pinned caller the wrong version; a release that removes a lock this process did not create admits a second holder; until a human clears a leaked lock, a provisioning call whose request is not yet satisfied waits until it is or until the timeout passes. |
 | `uvm_install` / `uvm_point_current` | Atomicity of the version swap under concurrent readers; installer environment scrubbing. |
 | `uvm_resolve_root` / `uvm_init` | Silent misplacement of a user's entire state tree. Deferred on purpose so `help` and `--version` still work when unconfigured. |
 | `uvm_trampolines` | Writes into a directory on the user's `PATH`. Overwriting an unmarked file is destroying somebody's script. |
@@ -269,13 +272,20 @@ way.
 
 `tests/` holds the drives that outgrew a `verify:` line. There is one so far, and it is there because
 its subject cannot be measured any other way: `tests/lock-race.sh` releases bursts of concurrent ranks
-at a planted provisioning lock and counts three defects separately — a hold stolen from a rank that
-recorded ownership, a winner robbed inside its acquire window, and two installers running at once. It
-asserts that the wrapper made progress *before* it reports any of them, because a wrapper that
-declines every break leaves all three counters legitimately zero. Burst sizes are derived from a
-measured per-rank rate rather than chosen, and the arithmetic is in the file. It needs no
-instrumentation of `bin/uv-manager`: every counter is read from what the wrapper already prints on
-stderr.
+at the provisioning lock and checks the tree and the answers they leave. Under `--plant held` a live
+holder never releases, so every rank waits out the timeout and then installs and publishes beside the
+others; a barrier spliced into the sandbox's fixture copy releases them to publish together. Under
+`--plant control` nothing is planted, and one installer per burst, never two at once, is asserted.
+After each burst, `versions/<ver>` must hold exactly one distribution with nothing nested inside it,
+no staging copy may survive beside it, `current` must resolve, and every rank must exit 0 printing
+the version it asked for; each defect has its own counter. It asserts that the wrapper made progress
+*before* any of that — an installer ran in every burst, no lock other than an intact plant was left
+standing, and under `held` at least one burst ran two installers at once — because a burst that never
+raced leaves a clean tree that proves nothing. Burst sizes are derived from a measured per-burst rate
+rather than chosen, and the arithmetic is in the file. It needs no instrumentation of
+`bin/uv-manager`. With `--launch srun` the same bursts run from every node of a Slurm allocation
+against one tree on the parallel filesystem that `LOCKRACE_SHARED` names, and `--summary` writes a
+result made only of counts and version numbers, so a cluster run can be committed as evidence.
 
 `.agents/factory/bin/temp_root.sh` is the substrate. It scrubs the inherited environment (every
 `UV_*` and `UVM_*` variable, and every scratch candidate `uvm_resolve_root` consults), points

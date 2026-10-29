@@ -1,11 +1,15 @@
 ---
-status: unshaped
+status: adopted:lock-simplification
 kind: fix
 appetite: small
 lane: public
 ---
 
 # A pinned rank that loses the provisioning race runs whatever version it finds
+
+> **Adopted on 2026-10-27 into [`lock-simplification`](../spec/lock-simplification/GOAL.md)** by
+> decision of the maintainer, since that cycle rewrites the early-out this defect lives in. The draft
+> R1–R3 below are R12–R14 there. This file retires with that cycle.
 
 > **Candidate, not a contract.** Deferred work recorded so a future session does not re-derive it.
 > Not graded by `uvm-review`; never copy into a `GOAL.md` verbatim.
