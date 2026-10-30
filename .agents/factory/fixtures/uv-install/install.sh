@@ -19,6 +19,20 @@
 #   UVM_FIXTURE_VERSION   version the stub reports (default 9.9.9)
 #   UVM_FIXTURE_EXIT      exit status the stub returns, for rc-propagation drives
 #   UVM_FIXTURE_BROKEN    make the stub unrunnable, to reach the wrong-architecture path
+#   UVM_FIXTURE_MARK      a file the stub creates whenever it runs a command that is not
+#                         a repair, so a drive can assert that the user's command never ran
+#   UVM_FIXTURE_REPAIR_SLEEP  seconds a repair command takes (default 0), to hold the
+#                         repair lock past several of a waiter's one-second polls
+#   UVM_FIXTURE_REPAIR_EXIT   exit status of a repair command (default 0). UVM_FIXTURE_EXIT
+#                         does not reach it, so a drive can fail the user's command and
+#                         not the repair, or the other way round
+#
+# A repair command is `pip install ...` (the tool arm, one per damaged tool) or
+# `python install ...` (the interpreter arm); `tool upgrade ...`, the tool arm before
+# it named its tools, still counts, so a drive can be run against an older wrapper.
+# The stub echoes it like any other command line, then sleeps, then exits. Drives
+# count repairs by those echoed lines, which is why no wrapper message on the uv and
+# uvx path names any of them.
 #
 # temp_root.sh scrubs UVM_* from the inherited environment, so a drive sets these on
 # the inner command: `temp_root.sh --offline sh -c 'UVM_FIXTURE_VERSION=6.6.6 uv --version'`.
@@ -42,6 +56,13 @@ mkdir -p "$UV_UNMANAGED_INSTALL"
 cat > "$UV_UNMANAGED_INSTALL/uv" <<STUB
 #!/bin/sh
 [ -n "\${UVM_FIXTURE_BROKEN:-}" ] && exit 126
+case "\${1:-} \${2:-}" in
+    'pip install'|'python install'|'tool upgrade')
+        echo "uv-fixture: \$*"
+        sleep "\${UVM_FIXTURE_REPAIR_SLEEP:-0}"
+        exit "\${UVM_FIXTURE_REPAIR_EXIT:-0}" ;;
+esac
+[ -z "\${UVM_FIXTURE_MARK:-}" ] || : > "\$UVM_FIXTURE_MARK"
 case "\${1:-}" in
     --version) echo "uv $version (fixture)" ;;
     *)         echo "uv-fixture: \$*" ;;
@@ -52,6 +73,7 @@ STUB
 cat > "$UV_UNMANAGED_INSTALL/uvx" <<STUB
 #!/bin/sh
 [ -n "\${UVM_FIXTURE_BROKEN:-}" ] && exit 126
+[ -z "\${UVM_FIXTURE_MARK:-}" ] || : > "\$UVM_FIXTURE_MARK"
 echo "uvx-fixture: \$*"
 exit "\${UVM_FIXTURE_EXIT:-0}"
 STUB

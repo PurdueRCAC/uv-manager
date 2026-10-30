@@ -22,8 +22,8 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
 ## High-blast-radius regions (any CONFIRMED finding here → mandatory human gate)
 
 `uvm_acquire_lock` · `uvm_unlock` · `uvm_install` · `uvm_point_current` · `uvm_resolve_root` ·
-`uvm_init` · `uvm_trampolines` · `uvm_export_env` · `uvm_set_paths` · the dispatch tail
-(everything below the `# ---- dispatch` banner)
+`uvm_init` · `uvm_trampolines` · `uvm_export_env` · `uvm_set_paths` · `uvm_repair` · the dispatch
+tail (everything below the `# ---- dispatch` banner)
 
 ---
 
@@ -49,6 +49,10 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
   `exit "${rc}"`. Do not let a trampoline resync failure overwrite the real exit code.
 - `uv self update` is intercepted (an unmanaged install has no receipt, so the binary's own
   self-update is disabled). `--dry-run` and `-h/--help` must answer without touching the network.
+  The one exception is `UVM_REPAIR`: with it on, the repair runs first on every invocation through
+  `uv` or `uvx`, help and dry-run included, as the knob's own contract says, because it sits on the
+  dispatch ahead of every subcommand. A scope with an outcome already recorded costs one `stat`
+  and no network.
 
 ## 3. State root resolution
 
@@ -96,10 +100,16 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
 - The installed version is read back from the binary (`uv --version`, field 2), never assumed from the
   requested string — that is also how a wrong-architecture download is detected.
 
-## 5. Provisioning lock
+## 5. Locks
 
 - The lock is an atomic **`mkdir`**, not `flock`. `flock` is what `uv` itself needs and is not enabled
   on every parallel filesystem; `mkdir` is atomic on Lustre, GPFS and NFS and needs no helper binary.
+- **Two locks, never both held.** `.install.lock` guards provisioning (`versions/`, `current`) and
+  `.repair.lock` guards the purge repair (`tools/`, `python/`), side by side in `${uvm_root}`. No
+  call holds both: `uvm_ensure_uv` returns from `uvm_install`, which releases, before `uvm_repair`
+  acquires, so the one `uvm_lock` global names everything a process holds. A repair waiter is
+  `fail` mode: at `UVM_LOCK_TIMEOUT` it dies naming the repair lock and its owner line and never
+  proceeds. Every bullet below applies to both locks unless it names one.
 - Released on `EXIT`, `INT` **and** `TERM` through `uvm_unlock`, which acts only on `uvm_lock`; a
   `RETURN` trap alone leaks the lock when the holder is killed. A process holds a lock exactly while
   `uvm_lock` names it, and removes only a lock it holds. `uvm_unlock` clears `uvm_lock` before it
@@ -109,8 +119,9 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
   before `uvm_lock` names it, or being removed, after `uvm_lock` is cleared, can leave the lock
   standing, empty or still carrying its owner line. No call removes it on its own: `uvm doctor`
   reports it and a human removes it with `uvm clean lock`. Until then a provisioning call whose
-  request is not yet satisfied waits until it is or until `UVM_LOCK_TIMEOUT` passes, and a forced
-  `uvm install` waits even on a warm tree. That is the accepted failure mode.
+  request is not yet satisfied waits until it is or until `UVM_LOCK_TIMEOUT` passes, a forced
+  `uvm install` waits even on a warm tree, and a repair call with no outcome for its scope fails at
+  the timeout. That is the accepted failure mode.
 - **Only the creator removes the lock.** `uvm_unlock` acts only on `uvm_lock`, which nothing but this
   process's own winning `mkdir` in `uvm_acquire_lock` sets, so releasing by path removes the
   directory this process made. No call removes or takes another call's lock, whatever its age or its
@@ -128,9 +139,10 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
   decisions; the host is `uname -n`, never the inherited `HOSTNAME`, so the line names the node the
   holder actually ran on.
 - **No lock survives an `exec`.** `exec` replaces the process image, so the EXIT trap never runs;
-  every `exec` of the real `uv` releases first. Nothing acquires the lock that late in the dispatch
-  path today, which is what makes the guard cheap — on a path holding none it is one builtin test and
-  no fork. A new `exec` site owes the same call.
+  every `exec` of the real `uv` releases first. `uvm_repair` takes the repair lock that late in the
+  dispatch path and releases it before it returns, so the pre-exec `uvm_unlock` is a guard, not the
+  release; on a path holding none it is one builtin test and no fork. A new `exec` site owes the
+  same call.
 - **Distinguish contention from failure by persistence, not by a second look.** A `mkdir` that failed
   `EEXIST` and a holder that released before the `[[ ! -d ]]` test are indistinguishable afterwards,
   so one absence is evidence of nothing: it reported a released lock as an unwritable filesystem for
@@ -139,12 +151,14 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
   each found the lock gone. The bound is a constant in the script, never an environment variable, and
   the count never resets, which holds the iterations absent-retry can add to the wait to that bound
   however the loop alternates.
-- **The caller names the predicate.** `uvm_acquire_lock ON_TIMEOUT PREDICATE [ARG...]` runs the
+- **The caller names the predicate.** `uvm_acquire_lock LOCK ON_TIMEOUT PREDICATE [ARG...]` runs the
   predicate as `"$@"` once a second while waiting and returns 1, holding nothing, when it comes true.
+  LOCK, `install` or `repair`, names the lock, `${uvm_root}/.LOCK.lock`, and the words its messages
+  use, so provisioning's text is unchanged; an unknown name dies.
   Provisioning (`uvm_install`) passes `uvm_have "${want}"`, or `false` when forced, so its early-out
   tests **the version this call was asked for** — testing "is some uv present" silently hands a pinned
   caller whatever another process was installing. Any other caller passes its own test and never
-  early-outs on the provisioning question. A missing predicate dies on an explicit `(( $# >= 2 ))`:
+  early-outs on the provisioning question. A missing predicate dies on an explicit `(( $# >= 3 ))`:
   an empty `"$@"` is a successful no-op, and `${1:?}` exits 0 under the EXIT trap on bash 3.2. A
   predicate runs with errexit suspended, so its status must be the deciding test's, and it never
   touches `uvm_lock`.
@@ -157,13 +171,20 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
   `UVM_LOCK_TIMEOUT`, `proceed` returns 0 holding nothing and the caller does the work without the
   lock; any other mode dies naming the lock and its owner line and runs nothing. No message says or
   implies whether the holder is alive.
-- **Doctor reports the lock and judges nothing.** A standing lock is one `uvm doctor` WARN naming
-  the path, the owner line (`<none recorded>` when there is none), that the holder may still be
-  running, and `uvm clean lock --yes`. It is never a FAIL: every rank sees the lock while any rank
-  provisions, and a job prologue keyed on doctor's exit status would fail beside a healthy
-  provisioner. `uvm clean lock` removes the lock directory and nothing else. Its dry run prints the
-  owner line and says that clearing a live holder's lock lets another call provision beside it and
-  the holder's release then removes that call's lock; only `--yes` removes it.
+- **Doctor reports both locks and judges nothing.** Each standing lock, provisioning or repair, is
+  one `uvm doctor` WARN naming which lock, the path, the owner line (`<none recorded>` when there is
+  none), that the holder may still be running, and `uvm clean lock --yes`. It is never a FAIL: every
+  rank sees a lock while any rank provisions or repairs, and a job prologue keyed on doctor's exit
+  status would fail beside a healthy holder. `uvm clean lock` removes both lock directories and
+  nothing else. Its dry run prints each standing lock's owner line and says that clearing a live
+  holder's lock lets another call provision or repair beside it and the holder's release then
+  removes that call's lock; only `--yes` removes them.
+- **Doctor reports a failed repair outcome and never reads one under a job.** A failed outcome
+  recorded under a value is a WARN with its reason and `uvm clean outcomes --yes`, since it stands
+  until the value changes. Failed outcomes under Slurm jobs are counted on one WARN by name and
+  never opened: each ended with its job, and a read would refresh its atime and keep it alive
+  through the purge that is meant to take it. Repaired outcomes are not reported. `uvm clean
+  outcomes` removes `.repair/` whole; its dry run counts the records by name, never opening one.
 - **`UVM_LOCK_TIMEOUT` is form-tested, then forced to base 10, inside `uvm_acquire_lock`.** Form
   first: on bash 3.2 a non-numeric value makes the arithmetic fatal under `set -u` and the EXIT trap's
   status then overrides the error's, so the script exits 0 and `VER=$(uv --version)` comes back empty
@@ -208,7 +229,8 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
 
 - **Installer and diagnostic output goes to stderr.** Provisioning is a side effect of whatever the
   user actually asked for; `VER=$(uv --version)` on a cold node must not return installer chatter
-  ahead of the answer.
+  ahead of the answer. The purge repair is the same: its findings, its notes and the stdout of uv's
+  repair command all go to stderr, and the user's command keeps its own stdout and exit status.
 - Multi-line wrapper output uses a **heredoc through `cat`**, not a series of `printf`s: `cat` dies
   quietly on `SIGPIPE`, while bash's `printf` builtin reports `write error: Broken pipe`. This is why
   `uvm_status | head` behaves like an ordinary Unix filter.
@@ -221,6 +243,24 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
   `UV_DEFAULT_INDEX`, `UV_INDEX`, `UV_PYTHON_PREFERENCE`, `UV_PYTHON_DOWNLOADS`, `UV_LINK_MODE`,
   `UV_COMPILE_BYTECODE`, `TMPDIR`. The first two would change dependency **resolution**, not just
   storage; the rest are site or user policy. Storage is the wrapper's business; resolution is not.
+- **The purge repair restores what is installed and changes no resolution.** The interpreter arm
+  names each damaged install by its key under `python/`; the tool arm runs per damaged tool, `uv pip
+  install --python <tool>/bin/python --reinstall --no-cache` with every distribution pinned at the
+  version its dist-info directory name records. Both arms name their targets, so no `.python-version`,
+  global pin or `UV_PYTHON` steers them. The tool arm never writes `uv-receipt.toml` and builds no
+  spec from it: a tool keeps its pin, its `--with` packages and its receipt byte for byte, and a
+  healthy tool is never touched. It reads the receipt to refuse and for nothing else: a tool whose
+  receipt records a requirement, constraint or override from a directory, path, editable, git or
+  URL source fails the scope before any `uv` call for it, as one whose `direct_url.json` records
+  such a source does, since a version from an index would replace what was installed. The
+  receipt's index options are not a refusal: uv writes the index `uv.toml` or a `UV_INDEX` variable
+  configures into every receipt, `uv.toml` and the `UV_*` variables apply to the reinstall, which
+  keeps resolution the user's, as above, and an index given on one install's command line alone is
+  not applied again (conceded). Both arms run from `/` in a subshell: uv reads project configuration
+  (`[tool.uv]`, `[tool.uv.pip]`, `uv.toml`) from the working directory and its parents, where a
+  `target` would send the reinstall into the job's project and an `exclude-newer` would hide the
+  installed versions. `--no-config` is not the fix; it drops the user's and the system's `uv.toml`
+  too.
 - `uvm_set_paths` is **pure** — it sets variables and touches no filesystem — so read-only subcommands
   (`status`, `doctor`) can call it without provisioning anything.
 - `PATH` prepending is **idempotent**. The exported `PATH` is inherited by everything `uv` spawns, and
@@ -260,6 +300,15 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
 - Everything on the hot path stays cheap. `uname -m` runs on every invocation, including inside loops
   calling `uv run` thousands of times. A new subshell, `find`, or second process on that path needs a
   reason.
+- **`UVM_REPAIR` off forks nothing**: `[[ -n "${UVM_REPAIR:-}" && "${UVM_REPAIR}" != 0 ]]` in the
+  dispatch tail, no fork and no filesystem access. What the unset path does cost is bash parsing the
+  added code, about 0.6 ms per call. On, with an outcome already recorded for the scope, it is one
+  `stat` (`[[ -e ]]`) before the exec. The outcome test precedes `uvm_detect`, and `uvm_detect` runs
+  only after the repair lock is won. The record name is built by builtins (`printf -v` among them),
+  escapes every byte outside its class (`a-z 0-9 . -`, so every uppercase letter too) as `_` and two
+  hex digits so that no two scopes share a name, on a case-insensitive filesystem as well, and walks
+  bytes under `LC_ALL=C`, restoring the caller's locale. Its class lists its characters: a
+  range follows the locale's collation before bash 5.0.
 
 ## 11. Argument inspection
 

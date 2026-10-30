@@ -45,7 +45,7 @@ fi
 
 for f in .agents/factory/bin/temp_root.sh .agents/factory/bin/lint.sh \
          .agents/factory/fixtures/uv-install/install.sh \
-         tests/lock-race.sh tests/lock-race-burst.sh; do
+         tests/lock-race.sh tests/lock-race-burst.sh tests/repair-race.sh; do
     sh -n "$f" || fail "$f does not parse"
 done
 
@@ -76,7 +76,8 @@ if [ -n "$shellcheck_mode" ]; then
             .agents/factory/bin/lint.sh \
             .agents/factory/fixtures/uv-install/install.sh \
             tests/lock-race.sh \
-            tests/lock-race-burst.sh; then
+            tests/lock-race-burst.sh \
+            tests/repair-race.sh; then
         note "OK    shellcheck .agents/ and tests/ shell scripts"
     else
         fail "shellcheck reported findings in the factory or test scripts"

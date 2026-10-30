@@ -65,18 +65,63 @@
 
 
 # ===========================================================================
-# 3. Provisioning behaviour
+# 3. Provisioning and repair behaviour
 # ===========================================================================
 
-# Seconds to wait for another process's provisioning lock before installing
-# without it. A whole number, read as decimal. A waiter says once, at 30
-# seconds or at the timeout if that is sooner, which process the lock records
-# and how to remove it; at the timeout it downloads and installs for itself.
-# No call ever removes a lock it did not create, so a holder killed by
-# SIGKILL, job cancellation or node failure leaves its lock until a human
-# removes it. Until then a provisioning call whose request is not yet
-# satisfied waits until it is or until this timeout passes.
+# Seconds to wait for a lock another process holds. A whole number, read as
+# decimal. A waiter says once, at 30 seconds or at the timeout if that is
+# sooner, which process the lock records and how to remove it. At the
+# timeout a provisioning call downloads and installs for itself, and a
+# repair call fails, since two repairs at once are not safe. No call ever
+# removes a lock it did not create, so a holder killed by SIGKILL, job
+# cancellation or node failure leaves its lock until a human removes it:
+# `uvm doctor` reports each standing lock with its owner line, and
+# `uvm clean lock --yes` removes both the provisioning and the repair lock.
+# Until then a provisioning call whose request is not yet satisfied waits
+# until it is or until this timeout passes, and a repair call with no
+# outcome recorded for its scope fails at the timeout.
 #export UVM_LOCK_TIMEOUT=180
+
+# Repair what a scratch purge removed before running the command. Normally
+# set in a job script rather than site-wide. Unset, empty and 0 are off; any
+# other value, 00 and false included, is on. Inside a Slurm job one call per
+# job checks the tree, and later calls cost one stat. A successful check is
+# keyed on the job id, qualified by the cluster name, and an array shares it
+# under the array id, so a purge that lands partway through an array goes
+# unseen by the tasks after it. A failed check is keyed on the task's own
+# job id, so the array's next task checks again. Outside a job the value
+# itself is the scope, so give a per-run value: the record is only ever
+# tested, so its atime is its creation time, and under a constant value a
+# purge can take older tool files while the record survives, which reads as
+# clean on a damaged tree. Leave it unset on storage that is not purged. A
+# damaged managed interpreter is reinstalled first, at the version
+# installed, whatever Python the job asks for; then each damaged tool gets
+# every distribution in its environment reinstalled at the version its
+# dist-info directory names, so it keeps its versions, pinned or not, its
+# --with packages and its receipt, and no healthy tool is touched. A tool
+# directory that has lost its pyvenv.cfg, a tool whose interpreter is gone,
+# and a tool holding a distribution not from an index fail the call
+# instead: one whose direct_url.json records a URL, git or path source, or
+# whose receipt records a requirement, constraint or override from a
+# directory, path, editable, git or URL source. The receipt is read for
+# that alone and never written. The repair runs under uv.toml and the UV_
+# variables, so a configured index or mirror is in effect, and from /, so
+# the project configuration of the job's directory is not; an index or
+# find-links given only on one install's command line is not applied again,
+# so a name from it can resolve from the configured index instead. The
+# tool repair needs pypi.org and files.pythonhosted.org, or the configured
+# index, and room under TMPDIR for the tool's environment; the
+# interpreter reinstall needs releases.astral.sh. It runs in `uv` and `uvx`
+# under any subcommand, not in a tool invoked by its own name. A failed
+# repair stops its scope: under a value the record stands until the value
+# changes, and `uvm doctor` reports it with its reason.
+# `uvm clean outcomes --yes` removes every recorded outcome, which costs each
+# scope a fresh check, never a false clean. A value may be 194 bytes long,
+# each byte outside a-z 0-9 . -, an uppercase letter included, counting as
+# three; a longer one fails the call. README.md, "Repairing inside a job",
+# has the rest: what the repair concedes, the queue that separately
+# submitted jobs form, and the lock.
+#export UVM_REPAIR=1
 
 # Override the architecture key. Default is `uname -m`. Set this if login and
 # compute images differ in a way `uname -m` does not capture — glibc version
@@ -151,4 +196,5 @@
 #
 # For many-rank jobs, resolve the environment once in the prologue and launch
 # the interpreter directly rather than putting `uv run` on the hot path —
-# `uv run` takes a lock on the project environment.
+# `uv run` takes a lock on the project environment. UVM_REPAIR does not
+# change this; once its scope has an outcome it adds one stat per call.

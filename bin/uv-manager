@@ -165,11 +165,20 @@ pin="${UVM_PIN:-}"
 lock_timeout="${UVM_LOCK_TIMEOUT:-180}"
 install_base_url="${UVM_INSTALL_URL:-https://astral.sh/uv}"
 
-# ---- provisioning lock -----------------------------------------------------
+# ---- locks -----------------------------------------------------------------
 #
 # mkdir is atomic on Lustre, GPFS and NFS, needs no helper binary, and does
 # not depend on flock — which uv itself requires but which is not enabled on
 # every parallel filesystem.
+#
+# Two locks sit side by side in the per-architecture root: .install.lock for
+# provisioning, which writes versions/ and current, and .repair.lock for the
+# purge repair, which rewrites tools/ and python/. The parts are disjoint, so
+# one lock would serialize work that does not conflict, and it would cost
+# correctness too: a repair waiter would fail because of an unrelated slow
+# download, and a provisioning waiter past its timeout would exec mid-repair.
+# No call holds both, because provisioning has released before a repair
+# begins, so the one uvm_lock global below still names everything held.
 #
 # Only the process whose mkdir created the lock removes it. No call removes or
 # takes another call's lock, whatever its age or its owner line records:
@@ -211,7 +220,9 @@ trap 'uvm_unlock' EXIT
 trap 'uvm_unlock; exit 130' INT
 trap 'uvm_unlock; exit 143' TERM
 
-# uvm_acquire_lock ON_TIMEOUT PREDICATE [ARG...]
+# uvm_acquire_lock LOCK ON_TIMEOUT PREDICATE [ARG...]
+#   LOCK        install or repair. Names the lock, ${uvm_root}/.LOCK.lock, and
+#               the words its messages use; anything else dies.
 #   ON_TIMEOUT  proceed: at UVM_LOCK_TIMEOUT, return 0 holding nothing, so the
 #               caller does the work without the lock. For work that is safe
 #               to repeat beside another process doing the same.
@@ -235,9 +246,15 @@ uvm_acquire_lock() {
   # is a successful no-op, so a call with no predicate would early-out on
   # every contended call and only under contention. ${1:?} exits 0 under the
   # EXIT trap on bash 3.2, the trap's status overriding the error's.
-  (( $# >= 2 )) || die "uvm_acquire_lock needs ON_TIMEOUT and a predicate"
-  local on_timeout="$1"; shift
-  local lock="${uvm_root}/.install.lock" waited=0 absent=0 notice=30 holder=""
+  (( $# >= 3 )) || die "uvm_acquire_lock needs LOCK, ON_TIMEOUT and a predicate"
+  local kind="$1" on_timeout="$2"; shift 2
+  local what doing
+  case "${kind}" in
+    install) what="provisioning lock"; doing="provisioning" ;;
+    repair)  what="repair lock";       doing="repairing" ;;
+    *)       die "uvm_acquire_lock: unknown lock: ${kind}" ;;
+  esac
+  local lock="${uvm_root}/.${kind}.lock" waited=0 absent=0 notice=30 holder=""
   # Read by a human, by uvm doctor and by nothing else, so it carries what a
   # person needs to find the process. uname -n, not HOSTNAME, which bash
   # leaves at whatever it inherited from a login node or a container image.
@@ -283,7 +300,7 @@ uvm_acquire_lock() {
     if [[ ! -d "${lock}" ]]; then
       absent=$(( absent + 1 ))
       (( absent >= 3 )) || continue
-      die "cannot create provisioning lock at ${lock} — check permissions and quota on ${uvm_base}"
+      die "cannot create ${what} at ${lock} — check permissions and quota on ${uvm_base}"
     fi
 
     # Someone else may have finished the work this call was about to do. The
@@ -304,15 +321,15 @@ uvm_acquire_lock() {
     # command, because a reader on another node, architecture or UVM_ROOT
     # would otherwise clear a different lock and be told it succeeded.
     if (( waited == notice )); then
-      note "waiting for the provisioning lock at ${lock}
+      note "waiting for the ${what} at ${lock}
     held by: ${holder:-<none recorded>}
     That process may still be running. At ${lock_timeout}s this call ${after}.
-    If nothing is provisioning this tree, remove the lock with:
+    If nothing is ${doing} this tree, remove the lock with:
         rm -f '${lock}/owner' && rmdir '${lock}'"
     fi
     if (( waited >= lock_timeout )); then
       if [[ "${on_timeout}" == proceed ]]; then return 0; fi
-      die "timed out after ${lock_timeout}s waiting for the provisioning lock at ${lock}
+      die "timed out after ${lock_timeout}s waiting for the ${what} at ${lock}
     held by: ${holder:-<none recorded>}"
     fi
     waited=$(( waited + 1 ))
@@ -332,7 +349,7 @@ uvm_acquire_lock() {
   # accepted cost of a trap that never removes a lock uvm_lock does not name.
   uvm_lock="${lock}"
   printf '%s\n' "${owner}" > "${lock}/owner" \
-    || die "cannot record ownership of the provisioning lock at ${lock}/owner"
+    || die "cannot record ownership of the ${what} at ${lock}/owner"
 }
 
 # ---- fetching --------------------------------------------------------------
@@ -432,7 +449,7 @@ uvm_install() {
   # through to selection. Past the timeout nothing is held, and every
   # uvm_unlock below is then a no-op.
   if ! "${satisfied[@]}" &&
-     uvm_acquire_lock proceed "${satisfied[@]}" &&
+     uvm_acquire_lock install proceed "${satisfied[@]}" &&
      ! "${satisfied[@]}"; then
     url="${install_base_url}/install.sh"
     [[ -n "${want}" ]] && url="${install_base_url}/${want}/install.sh"
@@ -825,26 +842,141 @@ uvm_list_versions() {
 # Broken pipe` once per finding still queued behind the reader that left.
 # `cat` dies quietly. The string is expanded once inside the heredoc and not
 # rescanned, so a path containing `$` is data rather than an expansion.
-uvm_doctor() {
+#
+# The walk is uvm_detect, shared with the purge repair, so the repair acts on
+# exactly the damage doctor reports and never on a copy of the walk that has
+# drifted from it. uvm_detect sets doctor's findings and both counters, and
+# for the repair what each finding calls for: uvm_damaged_tools (an array of
+# the damaged tools' directory names), uvm_damaged_pythons (an array of the
+# damaged interpreters' install keys) and uvm_orphans (tool names missing
+# pyvenv.cfg, one per line). A finding the repair cannot act on sets none of
+# them. It prints nothing; doctor adds its own advisories and the report.
+uvm_damaged_python() {  # KEY: add an install key once
+  case " ${uvm_damaged_pythons[*]-} " in *" $1 "*) return 0 ;; esac
+  uvm_damaged_pythons+=("$1")
+}
+
+uvm_damaged_tool() {  # NAME: add a tool once
+  case " ${uvm_damaged_tools[*]-} " in *" $1 "*) return 0 ;; esac
+  uvm_damaged_tools+=("$1")
+}
+
+# TOOL: sets uvm_pins to every distribution installed in the tool's
+# environment as name==version, read from its dist-info directory names. A
+# purge removes files and leaves directories, so these names survive the
+# RECORD and METADATA inside them, and they are the only record of the
+# versions the tool had: the receipt holds what was asked for, not what was
+# resolved. uvm_unrestorable names the first distribution that a version on
+# an index cannot restore, one installed from a URL, a git repository or a
+# local path, which its direct_url.json records.
+uvm_tool_pins() {
+  local di dist
+  uvm_pins=() uvm_unrestorable=""
+  for di in "${uvm_root}/tools/$1"/lib/*/site-packages/*.dist-info; do
+    [[ -d "${di}" ]] || continue
+    dist="${di##*/}"; dist="${dist%.dist-info}"
+    uvm_pins+=("${dist%-*}==${dist##*-}")
+    if [[ -z "${uvm_unrestorable}" && -e "${di}/direct_url.json" ]]; then
+      uvm_unrestorable="${dist%-*}"
+    fi
+  done
+}
+
+# TOOL: sets uvm_receipt_source to the first entry of the tool's receipt
+# that names a source an index cannot stand in for, or to nothing: a
+# requirement (the tool or a --with package), a constraint or an override
+# from a directory, path, editable, git or URL source. A purge can take
+# direct_url.json with the rest of a distribution, and the receipt is then
+# the only record that the tool did not come from an index; a reinstall by
+# version would replace a fork with upstream, or a private package with a
+# public one of the same name. The receipt is read for this and nothing
+# else: no spec is built from it, and it is never written.
+#
+# Its index options are not a refusal. uv writes the index that uv.toml or a
+# UV_INDEX variable configures into every receipt, and the repair runs under
+# that same configuration, so refusing them would refuse every damaged tool
+# at a site with a mirror. An index given on one install's command line alone
+# is not applied again; that is conceded.
+#
+# The match is on the form uv 0.13.6 writes, not on any line that mentions a
+# key. Each entry is an inline table on one line, inside the requirements,
+# constraints or overrides array of [tool], and a source is one of the five
+# keys inside that table. An entrypoint's install-path and a requirement's
+# marker are not, so string values are blanked before the keys are matched.
+uvm_tool_receipt() {
+  local receipt="${uvm_root}/tools/$1/uv-receipt.toml" line name table="" list=0
+  local quoted='^([^"]*)"([^"\\]|\\.)*"(.*)$'
+  local named='\{[[:space:]]*name[[:space:]]*=[[:space:]]*"([^"]*)"'
+  local header='^[[:space:]]*\[([^]]*)\][[:space:]]*$'
+  local start='^[[:space:]]*(requirements|constraints|overrides)[[:space:]]*='
+  local source='[{,][[:space:]]*(directory|path|editable|git|url)[[:space:]]*='
+  uvm_receipt_source=""
+  [[ -f "${receipt}" ]] || return 0
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    name=""
+    if [[ "${line}" =~ ${named} ]]; then name="${BASH_REMATCH[1]}"; fi
+    while [[ "${line}" =~ ${quoted} ]]; do line="${BASH_REMATCH[1]}S${BASH_REMATCH[3]}"; done
+    line="${line%%#*}"
+    if [[ "${line}" =~ ${header} ]]; then
+      table="${BASH_REMATCH[1]}" list=0
+      continue
+    fi
+    [[ "${table}" == tool ]] || continue
+    if [[ "${line}" =~ ${start} ]]; then list=1; fi
+    (( list )) || continue
+    if [[ "${line}" =~ ${source} ]]; then
+      uvm_receipt_source="${name:-an entry} from its ${BASH_REMATCH[1]} source"
+      return 0
+    fi
+    if [[ "${line}" == *"]" ]]; then list=0; fi
+  done < "${receipt}"
+}
+
+uvm_detect() {
   local problems=0 advisories=0 findings="" d f target name
+  uvm_damaged_tools=() uvm_damaged_pythons=() uvm_orphans=""
 
   if [[ ! -x "${real_uv}" ]]; then
     findings+="FAIL  uv binary missing: ${real_uv}"$'\n'; problems=$(( problems + 1 ))
   fi
 
-  # Dangling tool/python shims: the target was purged or removed.
+  # Dangling tool/python shims: the target was purged or removed. A shim is
+  # a symlink to <dir>/bin/<name>, where <dir> is the tool environment or the
+  # interpreter it serves. uv points a python shim at the minor-version link,
+  # python/cpython-3.12-<platform>, not at the install it resolves to, so the
+  # link is followed to the install's own directory, which is the key the
+  # repair names. With that directory still present the repair rebuilds it
+  # and the shim resolves again. With the directory removed whole, uv no
+  # longer counts that tool or interpreter as installed, so the repair has
+  # nothing to rebuild: doctor reports the shim and the repair leaves it.
   for d in "${uvm_root}/bin/shims" "${uvm_root}/bin/python-shims"; do
     [[ -d "${d}" ]] || continue
     for f in "${d}"/*; do
       [[ -e "${f}" || -L "${f}" ]] || continue
       if [[ ! -x "${f}" ]]; then
         findings+="FAIL  dangling executable: ${f}"$'\n'; problems=$(( problems + 1 ))
+        target="$(readlink -- "${f}" 2>/dev/null || true)"
+        [[ "${target}" == */bin/* ]] || continue
+        target="${target%/bin/*}"; name="${target##*/}"
+        if [[ "${d}" != */python-shims ]]; then
+          if [[ -d "${uvm_root}/tools/${name}" ]]; then uvm_damaged_tool "${name}"; fi
+          continue
+        fi
+        if [[ -L "${uvm_root}/python/${name}" ]]; then
+          target="$(readlink -- "${uvm_root}/python/${name}" 2>/dev/null || true)"
+          target="${target%/}"; name="${target##*/}"
+        fi
+        if [[ -n "${name}" && -d "${uvm_root}/python/${name}" && ! -L "${uvm_root}/python/${name}" ]]; then
+          uvm_damaged_python "${name}"
+        fi
       fi
     done
   done
 
   # Tool environments missing their receipt, their virtualenv marker, or their
-  # interpreter.
+  # interpreter. The receipt is not damage: the repair reads the environment's
+  # own dist-info names, and the receipt only to refuse, so it neither needs
+  # one nor writes one.
   if [[ -d "${uvm_root}/tools" ]]; then
     for d in "${uvm_root}/tools"/*/; do
       [[ -d "${d}" ]] || continue
@@ -871,11 +1003,12 @@ uvm_doctor() {
       if [[ ! -f "${d}pyvenv.cfg" ]]; then
         findings+="FAIL  tool ${name} has no pyvenv.cfg; no automated repair is safe for it"$'\n'
         problems=$(( problems + 1 ))
+        uvm_orphans+="${name}"$'\n'
       fi
       target="${d}bin/python"
       if [[ -e "${target}" || -L "${target}" ]] && [[ ! -x "${target}" ]]; then
         findings+="FAIL  tool ${name} has a broken interpreter link"$'\n'
-        problems=$(( problems + 1 ))
+        problems=$(( problems + 1 )); uvm_damaged_tool "${name}"
       fi
     done
   fi
@@ -888,15 +1021,16 @@ uvm_doctor() {
   # distribution, and so an early casualty of an atime-ordered purge. A
   # manifest that is itself gone has to be a finding; globbing for it made the
   # check blind exactly on the trees it exists to catch.
-  local di record sp rel missing total
+  local di record sp rel missing total tool
   for di in "${uvm_root}"/tools/*/lib/*/site-packages/*.dist-info; do
     [[ -d "${di}" ]] || continue
+    tool="${di#"${uvm_root}/tools/"}"; tool="${tool%%/*}"
     name="${di##*/}"; name="${name%.dist-info}"
     record="${di}/RECORD"
     sp="${di%/*}"
     if [[ ! -f "${record}" ]]; then
       findings+="FAIL  ${name} has no RECORD manifest (partial purge)"$'\n'
-      problems=$(( problems + 1 ))
+      problems=$(( problems + 1 )); uvm_damaged_tool "${tool}"
       continue
     fi
     missing=0; total=0
@@ -915,41 +1049,70 @@ uvm_doctor() {
     done < "${record}"
     if (( missing > 0 )); then
       findings+="FAIL  ${name} is missing ${missing} of ${total} files (partial purge)"$'\n'
-      problems=$(( problems + 1 ))
+      problems=$(( problems + 1 )); uvm_damaged_tool "${tool}"
     fi
   done
 
-  # Managed interpreters that no longer run.
+  # Managed interpreters that no longer run. An install is a real directory
+  # under python/, and its name is the key the repair names. uv keeps a
+  # symlink per minor version beside each install, cpython-3.12-<platform>
+  # for cpython-3.12.1-<platform>; the probe runs through both, as it always
+  # has, and the repair names only the install, which the symlink resolves
+  # to. An install whose binary is gone is damaged too: a purge takes every
+  # file of an idle interpreter and leaves its directories and links, and
+  # the probe has nothing to run.
   if [[ -d "${uvm_root}/python" ]]; then
     for d in "${uvm_root}/python"/*/; do
       [[ -d "${d}" ]] || continue
       name="$(basename -- "${d%/}")"
+      if [[ ! -L "${d%/}" && ! -x "${d}bin/python3" && ! -x "${d}bin/python" ]]; then
+        findings+="FAIL  managed interpreter ${name} is damaged (its binary is missing)"$'\n'
+        problems=$(( problems + 1 ))
+        uvm_damaged_python "${name}"
+        continue
+      fi
       for f in "${d}bin/python3" "${d}bin/python"; do
         [[ -x "${f}" ]] || continue
         if ! "${f}" -c 'import json, os, ssl' >/dev/null 2>&1; then
           findings+="FAIL  managed interpreter ${name} is damaged (stdlib import failed)"$'\n'
           problems=$(( problems + 1 ))
+          if [[ ! -L "${d%/}" ]]; then uvm_damaged_python "${name}"; fi
         fi
         break
       done
     done
   fi
 
+  uvm_findings="${findings}" uvm_problems="${problems}" uvm_advisories="${advisories}"
+}
+
+uvm_doctor() {
+  uvm_detect
+  local problems="${uvm_problems}" advisories="${uvm_advisories}" findings="${uvm_findings}"
+
   # A standing lock is advice, never a failure. Every rank sees one while any
-  # rank provisions, so a job prologue keyed on the exit status would fail
-  # beside a healthy provisioner, and a warm tree never consults the lock.
-  # The line reports what the lock records and judges nothing: the wrapper
-  # never asks whether a holder is alive. It can name the uvm command because
-  # this run resolved the same root that `uvm clean` will.
-  local lock="${uvm_root}/.install.lock" holder="" stray
-  if [[ -d "${lock}" ]]; then
+  # rank provisions or repairs, so a job prologue keyed on the exit status
+  # would fail beside a healthy holder, and a warm tree never consults the
+  # lock. The line reports what the lock records and judges nothing: the
+  # wrapper never asks whether a holder is alive. It can name the uvm command
+  # because this run resolved the same root that `uvm clean` will, and the
+  # caution names both kinds of work because that command removes both locks.
+  local kind lock holder stray
+  for kind in install repair; do
+    lock="${uvm_root}/.${kind}.lock"
+    [[ -d "${lock}" ]] || continue
+    holder=""
     read -r holder 2>/dev/null < "${lock}/owner" || true
-    findings+="WARN  provisioning lock standing: ${lock}"
+    if [[ "${kind}" == install ]]; then
+      findings+="WARN  provisioning lock standing: ${lock}"
+    else
+      findings+="WARN  repair lock standing: ${lock}"
+    fi
     findings+=" (owner: ${holder:-<none recorded>})."
-    findings+=" Its holder may still be running; once nothing is provisioning"
-    findings+=" this tree, remove it with uvm clean lock --yes."$'\n'
+    findings+=" Its holder may still be running; once nothing is provisioning or"
+    findings+=" repairing this tree, remove it with uvm clean lock --yes."$'\n'
     advisories=$(( advisories + 1 ))
-  fi
+  done
 
   # Staging copies, which every reader skips, so advice as well. One beside
   # the versions is left by an install killed before it published; one inside
@@ -963,6 +1126,37 @@ uvm_doctor() {
     findings+=" provisioning this tree, remove it with rm -rf '${stray}'."$'\n'
     advisories=$(( advisories + 1 ))
   done
+
+  # Failed repair outcomes, also advice: the tree may be fine and the failure
+  # about egress or a tool a human has to rebuild. One recorded under a value
+  # stands until the value changes, so each gets a line with its reason; the
+  # value is decoded from the record's name. One recorded under a Slurm job
+  # ended with its job, or with its task in an array, so those are counted on
+  # one line and never read: a read refreshes the record's atime and would
+  # keep it alive through the purge that is meant to take it. Repaired
+  # outcomes are not reported; each is one empty file.
+  local outcome value reason jobs=0
+  for outcome in "${uvm_root}/.repair"/value-*.failed; do
+    [[ -f "${outcome}" ]] || continue
+    value="${outcome##*/value-}"; value="$(uvm_repair_decode "${value%.failed}")"
+    reason=""
+    read -r reason 2>/dev/null < "${outcome}" || true
+    findings+="WARN  repair failed for UVM_REPAIR=${value}: ${reason:-<none recorded>}."
+    findings+=" Every call with that value fails the same way until the value"
+    findings+=" changes; remove the record with uvm clean outcomes --yes."$'\n'
+    advisories=$(( advisories + 1 ))
+  done
+  for outcome in "${uvm_root}/.repair"/job-*.failed; do
+    [[ -f "${outcome}" ]] || continue
+    jobs=$(( jobs + 1 ))
+  done
+  if (( jobs > 0 )); then
+    findings+="WARN  ${jobs} failed repair outcome(s) recorded under Slurm jobs in"
+    findings+=" ${uvm_root}/.repair. Each belongs to one job, or to one task of an"
+    findings+=" array, whose tasks share only a repaired record; a new job or task"
+    findings+=" checks the tree again. uvm clean outcomes --yes removes them."$'\n'
+    advisories=$(( advisories + 1 ))
+  fi
 
   # The delimiters below are unquoted because the findings and the counts
   # interpolate, so no body may contain an unescaped `$` of its own.
@@ -980,26 +1174,76 @@ EOF
     return 0
   fi
 
+  # The commands are the repair's own, one line per damaged install or tool,
+  # interpreters first. The python command names the damaged installs
+  # uvm_detect found, because with no target uv installs whatever Python
+  # request the reader's working directory, global pin or UV_PYTHON makes, and
+  # leaves the damaged interpreter as it was. It is printed only when an
+  # install is damaged. A shim whose interpreter cannot be keyed, its install
+  # and minor-version link both gone, gets no command, as a shim whose tool
+  # is gone gets none: nothing is left to reinstall, and the fallback line
+  # below says to remove it. A tool with no pyvenv.cfg gets no command; the
+  # paragraph below says why.
+  local commands="" pytext="" tooltext="" tool
+  if (( ${#uvm_damaged_pythons[@]} > 0 )); then
+    commands+="    uv python install --reinstall ${uvm_damaged_pythons[*]}"$'\n'
+    pytext="The python command names each damaged interpreter by its directory name under"$'\n'
+    pytext+="python/. With no name, uv installs whatever Python a .python-version here or"$'\n'
+    pytext+="above, the global pin or UV_PYTHON asks for, and leaves the damaged one as it"$'\n'
+    pytext+="was."$'\n\n'
+  fi
+  for tool in ${uvm_damaged_tools[@]+"${uvm_damaged_tools[@]}"}; do
+    [[ -f "${uvm_root}/tools/${tool}/pyvenv.cfg" ]] || continue
+    uvm_tool_pins "${tool}"
+    uvm_tool_receipt "${tool}"
+    if [[ -n "${uvm_unrestorable}" ]]; then
+      commands+="    # ${tool}: ${uvm_unrestorable} came from a URL, git or path source;"
+      commands+=" install ${tool} again from it"$'\n'
+    elif [[ -n "${uvm_receipt_source}" ]]; then
+      commands+="    # ${tool}: its receipt records ${uvm_receipt_source};"
+      commands+=" install ${tool} again from that source"$'\n'
+    elif (( ${#uvm_pins[@]} > 0 )); then
+      commands+="    uv pip install --python '${uvm_root}/tools/${tool}/bin/python'"
+      commands+=" --reinstall --no-cache ${uvm_pins[*]}"$'\n'
+    fi
+  done
+  if [[ "${commands}" == *"pip install"* || "${commands}" == *"again from"* ]]; then
+    tooltext="Each pip command reinstalls every distribution in one damaged tool's
+environment at the version its dist-info directory names, so the tool keeps its
+version, its --with packages and its receipt, and no other tool changes. It
+runs under uv.toml and the UV_ variables, so a configured index or mirror is in
+effect; an index given only on the tool's own install command line is not. A
+distribution installed from a URL, a git repository or a local path has no
+version an index can restore, so a tool whose direct_url.json or receipt
+records one gets no command; install that tool again from its source. With
+both of those gone the source cannot be known, and the command installs the
+index's release of that version.
+
+"
+  fi
+  if [[ -z "${commands}" ]]; then
+    commands="    # nothing above is repaired in place; remove a shim whose tool or interpreter is gone"$'\n'
+  fi
+
   cat <<EOF
 ${findings}
 ${problems} problem(s) found. A scratch purge removes files from under a tree uv still
 believes is intact, and uv re-checks nothing, so a repair has to bypass its cache:
 
-    uv tool upgrade --all --reinstall --no-cache
-    uv python install --reinstall
+${commands}
+Each command restores what is installed, interpreters first, since every tool
+runs on one.
+
+${pytext}${tooltext}Inside a Slurm job, UVM_REPAIR=1 on the uv or uvx call runs this repair before the
+command does, once per job.
 
 --no-cache carries the repair: uv runs no integrity check on its unpacked archive
-store, so a rebuild that reuses the cache reinstalls the same damage. The python
+store, so a reinstall that reuses the cache reinstalls the same damage. The python
 command needs network access; uv never caches interpreter tarballs. A missing uv
 binary needs no command at all — the next uv call re-provisions it and honors
 UVM_PIN.
 
-The first command exits 1 on a tool reported above as having no receipt, and says
-that tool is not installed. It repairs every other tool before it gets there, so the
-failure is about the orphan and not the repair. Deal with that tool the way its own
-line says, then run this again.
-
-Neither command repairs a tool whose pyvenv.cfg is gone, and neither is safe to run
+No command repairs a tool whose pyvenv.cfg is gone, and none is safe to run
 against one: uv falls back to the base interpreter and writes outside this tree.
 Remove that tool's directory and install the tool again, naming the version you
 want — the recorded requirement may not be the version that was installed.
@@ -1011,40 +1255,75 @@ EOF
 
 uvm_clean() {
   local what="${1:-cache}" confirm="${2:-}"
-  local target detail holder=""
+  local target detail="" holder standing=0 ok=0 failed=0 outcome
+  # lock is both locks: the provisioning lock and the repair lock, never the
+  # tree beneath them. outcomes is every recorded repair outcome at once.
+  # Removing one costs its scope a fresh check and never a false clean, so a
+  # form that removes one scope at a time would buy nothing.
+  local targets=()
   case "${what}" in
-    cache) target="${uvm_root}/cache" ;;
-    lock)  target="${uvm_root}/.install.lock" ;;
-    arch)  target="${uvm_root}" ;;
-    all)   target="${uvm_base}" ;;
-    *)     die "clean: expected one of: cache, lock, arch, all" ;;
+    cache)    targets=("${uvm_root}/cache") ;;
+    lock)     targets=("${uvm_root}/.install.lock" "${uvm_root}/.repair.lock") ;;
+    outcomes) targets=("${uvm_root}/.repair") ;;
+    arch)     targets=("${uvm_root}") ;;
+    all)      targets=("${uvm_base}") ;;
+    *)        die "clean: expected one of: cache, lock, outcomes, arch, all" ;;
   esac
   if [[ "${confirm}" != "--yes" ]]; then
-    # A lock's size says nothing; what it records and what removing it costs
-    # do. Clearing a lock is the one removal the wrapper leaves to a human,
-    # and against a live holder it does not stop at one extra call: each
-    # release removes whatever lock the next call took.
-    if [[ "${what}" == lock && -d "${target}" ]]; then
-      read -r holder 2>/dev/null < "${target}/owner" || true
-      detail="owner: ${holder:-<none recorded>}
-Its holder may still be running. If it is, removing its lock lets another
-call take the lock and provision beside it, and the holder's own release
-then removes that call's lock, and so on down the line of waiters. Remove
-it only once nothing is provisioning this tree."
-    else
-      detail="$(du -sh "${target}" 2>/dev/null || echo '(absent)')"
+    for target in "${targets[@]}"; do
+      detail+="Would remove: ${target}"$'\n'
+      if [[ ! -e "${target}" ]]; then
+        detail+="(absent)"$'\n'
+      elif [[ "${what}" == lock ]]; then
+        # A lock's size says nothing; what it records and what removing it
+        # costs do.
+        holder=""
+        read -r holder 2>/dev/null < "${target}/owner" || true
+        detail+="owner: ${holder:-<none recorded>}"$'\n'
+        standing=1
+      elif [[ "${what}" == outcomes ]]; then
+        # Counted by name and never opened, so a dry run refreshes no
+        # record's atime.
+        for outcome in "${target}"/*.ok; do
+          [[ -f "${outcome}" ]] || continue
+          ok=$(( ok + 1 ))
+        done
+        for outcome in "${target}"/*.failed; do
+          [[ -f "${outcome}" ]] || continue
+          failed=$(( failed + 1 ))
+        done
+        detail+="${ok} repaired and ${failed} failed repair outcome(s).
+Removing a repaired one costs its scope a fresh check, never a false clean,
+and removing a failed one lets its scope try the repair again. A call
+repairing now fails to record its outcome, and the next call in its scope
+repairs again, so remove them once nothing is repairing this tree.
+"
+      else
+        detail+="$(du -sh "${target}" 2>/dev/null || echo '(absent)')"$'\n'
+      fi
+    done
+    # Clearing a lock is the one removal the wrapper leaves to a human, and
+    # against a live holder it does not stop at one extra call: each release
+    # removes whatever lock the next call took.
+    if (( standing )); then
+      detail+="A holder may still be running. If one is, removing its lock lets another
+call take the lock and provision or repair beside it, and the holder's own
+release then removes that call's lock, and so on down the line of waiters.
+Remove a lock only once nothing is provisioning or repairing this tree.
+"
     fi
     # Heredoc rather than printfs, for the same reason as uvm_status: `cat`
     # dies quietly on SIGPIPE where bash's printf reports EPIPE.
     cat <<EOF
-Would remove: ${target}
-${detail}
-Re-run with --yes to proceed.
+${detail}Re-run with --yes to proceed.
 EOF
     return 0
   fi
-  note "removing ${target}"
-  rm -rf "${target}"
+  for target in "${targets[@]}"; do
+    [[ -e "${target}" ]] || continue
+    note "removing ${target}"
+    rm -rf "${target}"
+  done
 }
 
 uvm_help() {
@@ -1059,7 +1338,8 @@ Usage: uv-manager <command> [args]
   install [VERSION]   Select VERSION, downloading it if absent.
                       With no VERSION, re-resolve latest from the network.
   trampolines         Regenerate architecture-neutral executable shims
-  clean [WHAT] --yes  Remove cache (default), lock, arch tree, or all
+  clean [WHAT] --yes  Remove cache (default), lock (both locks), outcomes
+                      (recorded repair outcomes), arch tree, or all
   help                This message
 
 Environment:
@@ -1067,8 +1347,16 @@ Environment:
   UVM_PIN             uv version to provision and select
   UVM_PLATFORM        Override the architecture key (default: uname -m)
   UVM_INSTALL_URL     Installer base URL, for sites mirroring Astral
-  UVM_LOCK_TIMEOUT    Seconds to wait for the provisioning lock before
-                      installing without it (default: 180)
+  UVM_LOCK_TIMEOUT    Seconds to wait for a lock. Past it, provisioning installs
+                      without the lock and a repair fails (default: 180)
+  UVM_REPAIR          Repair what a scratch purge removed before running the
+                      command, once per Slurm job, else once per value. Off
+                      when unset, empty or 0; any other value, 00 and false
+                      included, is on. Outside a job, give a per-run value,
+                      at most 194 bytes, each byte outside a-z 0-9 . -,
+                      an uppercase letter included, counting as three.
+                      README.md, "Repairing inside a job", says what it
+                      repairs, what it needs and why.
 
 'uvm' is a short alias for 'uv-manager'. The same script is also installed as
 'uv' and 'uvx', which pass through to the real uv for this node's architecture.
@@ -1101,6 +1389,273 @@ uvm_manager_main() {
   esac
 }
 
+# ---- purge repair ----------------------------------------------------------
+#
+# UVM_REPAIR asks a uv or uvx call to repair what a scratch purge removed
+# before it runs the command. It fires here, inside the call, after uvm_init
+# has resolved the platform key on the node that will run the command, so it
+# repairs the tree that command uses. A step outside the job, a login-node
+# prologue say, repairs the login node's architecture instead.
+#
+# An outcome records that a check ran in a scope, never that the tree is
+# intact: the purge can take a file the moment after. Inside Slurm the scope
+# is the job. Every step of an allocation shares SLURM_JOB_ID, so a job checks
+# the tree once, and its record ends with the job. An array task, which Slurm
+# marks with SLURM_ARRAY_TASK_ID, shares a repaired record with the rest of its
+# array, keyed on SLURM_ARRAY_JOB_ID, so a large array
+# does not walk the tree once per task under the repair lock; the cost is
+# that a purge landing partway through the array goes unchecked by the tasks
+# that start after it. A failed record is the task's own, keyed on its
+# SLURM_JOB_ID: sharing it would buy nothing, and a failure on transient
+# egress would stop every later task, days later perhaps, without a try. So
+# the next task checks again. SLURM_CLUSTER_NAME is the job id's namespace:
+# two clusters sharing a filesystem and an architecture issue the same ids,
+# and without it one cluster's record would read as a check on the other's
+# job. Outside a job the scope is the knob's literal value. An outcome is only
+# ever tested, never read, so its atime is its creation time, and under a
+# constant value the purge can take older tool files while the record
+# survives, which reads as clean on a damaged tree. A per-run value avoids it.
+#
+# One call per scope detects and repairs, holding the repair lock; the rest
+# wait on it, and their predicate is the arrival test: is an outcome recorded
+# for this scope? The holder records before it releases, so a waiter that
+# sees the lock go also sees the outcome. A failed outcome ends the scope's
+# attempts: every call in it exits with the holder's reason, rather than each
+# waiter in turn winning the lock and repeating a deterministic failure until
+# its timeout. In an array the predicate tests the array's repaired record and
+# the task's own failed one, so a waiter passes on any task's repair, and
+# after another task's holder fails it takes the lock and tries itself. A
+# holder that dies records nothing, and its waiters fail at UVM_LOCK_TIMEOUT
+# naming the lock, which only a human removes.
+#
+# The record's name is the scope with every byte outside a-z, 0-9, . and -
+# written as _ and two hex digits, _ and every uppercase letter included, so
+# two values never share a name: run/1, run 1, run_1 and run:1 are four
+# scopes, and Run1 and run1 are two even where the filesystem ignores case,
+# as macOS's does by default. The class is
+# spelled out, not ranged: before bash 5.0 a range follows the locale's
+# collation, so a-z admits accented letters under UTF-8 on one version and
+# not on the next. The loop runs under LC_ALL=C, so that it walks bytes, not
+# a multibyte locale's characters, and puts the caller's locale back after.
+
+uvm_repair_ok=""
+uvm_repair_failed=""
+uvm_repair_reason=""
+uvm_repair_name=""
+
+# SCOPE: sets uvm_repair_name to SCOPE written as a record name. Builtins
+# only, since a call with the knob set and an outcome recorded runs this and
+# nothing else of note before its command. printf -v is one.
+uvm_repair_encode() {
+  local in="$1" out="" c n i lc_all="${LC_ALL-}" lc_set="${LC_ALL+1}"
+  LC_ALL=C
+  for (( i = 0; i < ${#in}; i++ )); do
+    c="${in:i:1}"
+    case "${c}" in
+      [abcdefghijklmnopqrstuvwxyz0123456789.-]) out+="${c}" ;;
+      *) printf -v n '%d' "'${c}"; printf -v c '_%02X' $(( n & 255 )); out+="${c}" ;;
+    esac
+  done
+  if [[ -n "${lc_set}" ]]; then LC_ALL="${lc_all}"; else unset LC_ALL; fi
+  uvm_repair_name="${out}"
+}
+
+# NAME: prints the scope a record name encodes, for doctor.
+uvm_repair_decode() {
+  local in="$1" out="" c
+  while [[ -n "${in}" ]]; do
+    c="${in%%_*}"; out+="${c}"; in="${in#"${c}"}"
+    [[ -n "${in}" ]] || break
+    printf -v c '%b' "\\x${in:1:2}"; out+="${c}"; in="${in:3}"
+  done
+  printf '%s' "${out}"
+}
+
+# The waiter's predicate, and the test a call makes on arrival.
+uvm_repair_recorded() {
+  [[ -e "${uvm_repair_ok}" || -e "${uvm_repair_failed}" ]]
+}
+
+# Detect, then run the arms the damage calls for, interpreters first. Sets
+# uvm_repair_reason on failure, and returns 0 either way, so that it runs
+# under errexit: a fault in the walk then ends the call, as a dead holder
+# does, rather than letting it go on to record an outcome. Everything goes to
+# stderr, uv's output included, because stdout belongs to the command the
+# user asked for.
+#
+# A repair restores what is installed and never applies the job's Python
+# request. The job may carry one in a .python-version in the working directory
+# or above it, in the global pin under XDG_CONFIG_HOME, or in UV_PYTHON, and
+# each arm names its targets so that none of the three reaches it (measured
+# with uv 0.13.6). The interpreter reinstall with no target installs what any
+# of the three asks for, exits 0 and leaves the damaged interpreter as it was;
+# a named install key overrides all three. The tool arm names the tool's own
+# interpreter with --python, which overrides UV_PYTHON, the only one of the
+# three a pip install reads.
+#
+# Nor does it apply the project configuration of the job's working directory.
+# uv reads [tool.uv] and [tool.uv.pip] in a pyproject.toml, and a uv.toml, from
+# the working directory and every directory above it, and a job usually starts
+# in its project: a pip target there sends the reinstall into the project, and
+# an exclude-newer there hides the versions the tool holds. So each arm runs
+# from /, in a subshell, leaving the command's own directory as it was. The
+# user's and the system's uv.toml and the UV_ variables still apply, which
+# --no-config would not allow. Every path an arm passes is under UVM_ROOT, so
+# a relative UVM_ROOT fails the repair here.
+uvm_repair_run() {
+  local line first tool rc=0
+  uvm_repair_reason=""
+  uvm_detect
+  while IFS= read -r line; do
+    [[ -z "${line}" ]] || note "${line}"
+  done <<< "${uvm_findings}"
+
+  # A tool directory without pyvenv.cfg is no longer a virtualenv, and uv
+  # resolves the base interpreter in its place. The tool arm then exits 0
+  # while it installs that tool into the base interpreter's site-packages and
+  # retargets its shim there, outside this tree, so uv gives no signal and
+  # this refusal is the only guard. It comes before every arm: the scope fails
+  # and nothing is rebuilt until a human removes the directory.
+  if [[ -n "${uvm_orphans}" ]]; then
+    first="${uvm_orphans%%$'\n'*}"
+    uvm_repair_reason="tool ${first} has no pyvenv.cfg, so no automated repair is safe;"
+    uvm_repair_reason+=" remove ${uvm_root}/tools/${first} and install the tool again"
+    return 0
+  fi
+
+  # Interpreters before tools: a tool environment runs on a managed
+  # interpreter, and the tool arm fails on one that cannot import its
+  # stdlib, repairing nothing.
+  if (( ${#uvm_damaged_pythons[@]} > 0 )); then
+    note "repairing the managed interpreters for ${arch}"
+    # Each target is an install key, the directory's name under python/,
+    # which carries the patch version, so uv reinstalls exactly that
+    # interpreter at exactly that version. It needs no --no-cache: uv does
+    # not cache interpreter downloads.
+    (cd / && exec "${real_uv}" python install --reinstall "${uvm_damaged_pythons[@]}") >&2 || rc=$?
+    if (( rc != 0 )); then
+      uvm_repair_reason="the managed interpreter repair failed (uv exited ${rc})"
+      return 0
+    fi
+  fi
+
+  # Each damaged tool, and no other, gets every distribution in its
+  # environment reinstalled at the version its dist-info directory names,
+  # into that environment. uv's tool commands cannot do this: an upgrade
+  # moves an unpinned tool, or any unpinned dependency or --with package, to
+  # the newest release, and moving a version means uninstalling the old one,
+  # which needs the RECORD a purge takes first; a reinstall from the receipt
+  # rewrites the receipt. Here the receipt is read only to refuse and never
+  # written, so a tool keeps its pin, its --with packages and its receipt
+  # byte for byte, and a healthy tool is never touched. Dependencies are resolved, not
+  # skipped: with every version pinned the resolver moves nothing, and it
+  # restores a dependency whose whole dist-info directory went with the
+  # purge. --no-cache carries the repair: uv runs no integrity check on its
+  # unpacked archive store, so a reinstall that reuses the cache reinstalls
+  # the same damage.
+  (( ${#uvm_damaged_tools[@]} > 0 )) || return 0
+  note "repairing the tool environments for ${arch}: ${uvm_damaged_tools[*]}"
+  for tool in "${uvm_damaged_tools[@]}"; do
+    # --python must name the tool's own environment. pyvenv.cfg is what makes
+    # bin/python that environment's interpreter rather than the base one, and
+    # the interpreter arm above has already restored what bin/python points
+    # at, so an interpreter that still does not run is gone for good.
+    if [[ ! -f "${uvm_root}/tools/${tool}/pyvenv.cfg" || ! -x "${uvm_root}/tools/${tool}/bin/python" ]]; then
+      uvm_repair_reason="tool ${tool} has no interpreter at bin/python, so no automated repair is safe;"
+      uvm_repair_reason+=" remove ${uvm_root}/tools/${tool} and install the tool again"
+      return 0
+    fi
+    uvm_tool_pins "${tool}"
+    if [[ -n "${uvm_unrestorable}" ]]; then
+      uvm_repair_reason="tool ${tool} has ${uvm_unrestorable} from a URL, git or path source, which no"
+      uvm_repair_reason+=" version on an index restores; install the tool again from that source"
+      return 0
+    fi
+    # The same refusal when the purge took direct_url.json too, read from the
+    # receipt.
+    uvm_tool_receipt "${tool}"
+    if [[ -n "${uvm_receipt_source}" ]]; then
+      uvm_repair_reason="tool ${tool} has ${uvm_receipt_source} in its receipt, which no version on"
+      uvm_repair_reason+=" an index restores; install the tool again from that source"
+      return 0
+    fi
+    if (( ${#uvm_pins[@]} == 0 )); then
+      uvm_repair_reason="tool ${tool} records no installed distribution to restore;"
+      uvm_repair_reason+=" remove ${uvm_root}/tools/${tool} and install the tool again"
+      return 0
+    fi
+    if ! (cd / && exec "${real_uv}" pip install --python "${uvm_root}/tools/${tool}/bin/python" \
+         --reinstall --no-cache "${uvm_pins[@]}") >&2; then
+      uvm_repair_reason="the tool environment repair failed for ${tool}"
+      return 0
+    fi
+  done
+  return 0
+}
+
+uvm_repair() {
+  local ok failed scope reason="no outcome was recorded" after dir="${uvm_root}/.repair"
+  if [[ -n "${SLURM_JOB_ID:-}" ]]; then
+    scope="Slurm job ${SLURM_JOB_ID}"
+    uvm_repair_encode "job-${SLURM_CLUSTER_NAME:+${SLURM_CLUSTER_NAME}-}${SLURM_JOB_ID}"
+    failed="${uvm_repair_name}" ok="${uvm_repair_name}"
+    after="Every call in this job fails the same way; the record ends with the job."
+    # An array's first task has SLURM_JOB_ID equal to SLURM_ARRAY_JOB_ID, so
+    # the task id, not a difference between the two, says this is an array.
+    if [[ -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
+      uvm_repair_encode "job-${SLURM_CLUSTER_NAME:+${SLURM_CLUSTER_NAME}-}${SLURM_ARRAY_JOB_ID:-${SLURM_JOB_ID}}"
+      ok="${uvm_repair_name}"
+      after="Every call in this array task fails the same way; the record ends with"
+      after+=" the task, and the array's next task checks again."
+    fi
+  else
+    scope="UVM_REPAIR=${UVM_REPAIR}"
+    uvm_repair_encode "value-${UVM_REPAIR}"
+    ok="${uvm_repair_name}" failed="${uvm_repair_name}"
+    after="Every call with this value fails the same way until the value changes."
+  fi
+  # NAME_MAX is 255 bytes and the record adds a suffix. Past it, every write
+  # of an outcome would fail after the repair had run, and each waiter in turn
+  # would run it again; truncating would let two long values share a scope.
+  # The prefix keeps the name from starting with - or being . or ..
+  (( ${#ok} <= 200 && ${#failed} <= 200 )) \
+    || die "UVM_REPAIR is too long: its record name would be ${#ok} bytes, and the limit is 200"
+  uvm_repair_ok="${dir}/${ok}.ok"
+  uvm_repair_failed="${dir}/${failed}.failed"
+
+  # The repaired path costs this one stat.
+  [[ -e "${uvm_repair_ok}" ]] && return 0
+
+  # uvm_install's shape: not recorded on arrival, not recorded by the holder
+  # this call waited on (the lock returns 1 when its predicate came true), and
+  # still not recorded once the lock is won, since the holder may have
+  # recorded and released between this call's last poll and its mkdir. The
+  # walk runs only past all three. A waiter at the timeout dies inside the
+  # lock and runs nothing.
+  if ! uvm_repair_recorded &&
+     uvm_acquire_lock repair fail uvm_repair_recorded &&
+     ! uvm_repair_recorded; then
+    (umask 077; mkdir -p "${dir}") || die "cannot create ${dir}"
+    uvm_repair_run
+    # The failed record is written whole under a temporary name and renamed,
+    # because a waiter reads its reason the moment the name appears. The
+    # repaired record is empty, so its existence is all there is to write.
+    if [[ -z "${uvm_repair_reason}" ]]; then
+      : > "${uvm_repair_ok}" || die "cannot record the repair outcome at ${uvm_repair_ok}"
+    else
+      { printf '%s\n' "${uvm_repair_reason}" > "${uvm_repair_failed}.$$" &&
+        mv -f "${uvm_repair_failed}.$$" "${uvm_repair_failed}"; } \
+        || die "cannot record the repair outcome at ${uvm_repair_failed}"
+    fi
+  fi
+  uvm_unlock
+
+  [[ -e "${uvm_repair_ok}" ]] && return 0
+  read -r reason 2>/dev/null < "${uvm_repair_failed}" || true
+  die "the repair for ${scope} failed: ${reason}
+    ${after}"
+}
+
 # ---- dispatch --------------------------------------------------------------
 
 if [[ "${mode}" == "manager" ]]; then
@@ -1118,6 +1673,11 @@ uvm_parse_command "$@"
 uvm_ensure_uv
 uvm_export_env
 
+# Off, the common case on every call, is this one builtin test and no fork.
+# It sits after uvm_export_env because the repair's uv inherits those paths,
+# and ahead of every branch, so the knob fires whatever the subcommand.
+if [[ -n "${UVM_REPAIR:-}" && "${UVM_REPAIR}" != 0 ]]; then uvm_repair; fi
+
 if [[ "${uvm_cmd}" == "self" && "${uvm_subcmd}" == "update" ]]; then
   uvm_self_update ${uvm_rest[@]+"${uvm_rest[@]}"}
 fi
@@ -1134,9 +1694,11 @@ if [[ "${uvm_cmd}" == "tool" || "${uvm_cmd}" == "python" ]]; then
 fi
 
 # None of the execs below can run the EXIT trap, so release ahead of all
-# three. Nothing acquires the lock this late in the dispatch path today; the
-# guard is what keeps the leak impossible when something does. The tool and
-# python path above returns normally and stays covered by the trap.
+# three. The repair above takes its lock this late in the path and releases
+# it before it returns, so this is a guard and not the release; it keeps a
+# lock from surviving the exec should that ever change, and on a path holding
+# none it is one builtin test and no fork. The tool and python path above
+# returns normally and stays covered by the trap.
 uvm_unlock
 
 case "${mode}" in

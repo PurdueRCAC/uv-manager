@@ -86,14 +86,14 @@ root at a temp directory, and removes it on exit.
 | `etc/uv-manager.conf.example` | Site settings, heavily commented. Every variable in it is real. |
 | `share/modulefiles/uv/main.lua` | Example Lmod modulefile. Exports only architecture-neutral paths. |
 | `README.md` | Design rationale + user and administrator documentation. |
-| `tests/` | Executable drives. Currently one: the provisioning-lock race. |
+| `tests/` | Executable drives: the provisioning-lock race, and the purge-repair race across nodes. |
 | `.agents/` | The spec-driven software factory (skills, methodology, templates, scripts). |
 | `spec/{slug}/` | Committed, dated per-feature design records. Retained on merge. |
 | `issues/{slug}.md`, `ROADMAP.md` | Deferred code work and its ordered index. |
 
 Inside `bin/uv-manager`, the sections are banner-commented in execution order: identity dispatch,
-diagnostics, state root, platform key, knobs, provisioning lock, fetching, install, storage layout,
-trampolines, argument inspection, `self update` interception, subcommands, dispatch.
+diagnostics, state root, platform key, knobs, locks, fetching, install, storage layout,
+trampolines, argument inspection, `self update` interception, subcommands, purge repair, dispatch.
 
 ## Execution model
 
@@ -106,6 +106,7 @@ argv[0] ──► mode (uv | uvx | manager)
                    uvm_parse_command         find the first positional argument
                    uvm_ensure_uv             provision if needed (locked)
                    uvm_export_env            export UV_* + prepend PATH
+                   uvm_repair                only with UVM_REPAIR on: once per scope (locked)
                    ├─ self update ──► intercepted, re-provisions, execs uv --version
                    ├─ tool | python ─► run to completion, resync trampolines, exit rc
                    └─ everything else ─► exec the real uv
@@ -143,9 +144,13 @@ and a pin is per process, so concurrent calls pinned to different versions race 
 the last swap wins: an earlier call can exec a later call's version at status 0. Calls sharing one
 pin, as the ranks of an `srun` job do, agree on `current` whichever swap lands last.
 
-**The provisioning lock is `mkdir`.** Atomic on Lustre, GPFS and NFS; needs no helper binary; does not
-depend on `flock`, which `uv` itself requires but which is not enabled on every parallel filesystem.
-It releases on `EXIT`, `INT` and `TERM`, not only on return, through `uvm_unlock`, which acts only
+**The locks are `mkdir`.** Atomic on Lustre, GPFS and NFS; needs no helper binary; does not depend
+on `flock`, which `uv` itself requires but which is not enabled on every parallel filesystem. There
+are two, side by side in the per-architecture root: `.install.lock` for provisioning and
+`.repair.lock` for the purge repair. They guard disjoint parts of the tree, and no call holds both,
+because `uvm_ensure_uv` has released before the repair begins; one `uvm_lock` global therefore
+names everything a process holds. A repair waiter fails at `UVM_LOCK_TIMEOUT`, so behind a shared
+lock it would fail on an unrelated slow download. Each lock releases on `EXIT`, `INT` and `TERM`, not only on return, through `uvm_unlock`, which acts only
 on `uvm_lock`: a process holds a lock exactly while `uvm_lock` names it, and removes only a lock it
 holds. `uvm_unlock` clears `uvm_lock` before removing anything, because in the opposite order a
 signal landing after the `rmdir` would make the trap remove the lock the next caller took in the
@@ -154,8 +159,8 @@ so a signal while the lock is being created, before `uvm_lock` names it, or bein
 `uvm_lock` is cleared, can leave the lock standing, empty or still carrying its owner line. No call
 removes it on its own: `uvm doctor` reports it and a human removes it with `uvm clean lock`. Until
 then a provisioning call whose request is not yet satisfied waits until it is or until
-`UVM_LOCK_TIMEOUT` passes, and a forced `uvm install` waits even on a warm tree. That is the accepted
-failure mode. The caller names the predicate a waiter runs once a second to ask whether its work is
+`UVM_LOCK_TIMEOUT` passes, a forced `uvm install` waits even on a warm tree, and a repair call with
+no outcome recorded for its scope fails at the timeout. That is the accepted failure mode. The caller names the predicate a waiter runs once a second to ask whether its work is
 already done, and provisioning's predicate tests **the version this call was asked for** — testing
 "is some uv present" hands a pinned caller whatever another process happened to be installing.
 
@@ -163,10 +168,14 @@ already done, and provisioning's predicate tests **the version this call was ask
 nothing but this process's own winning `mkdir` sets `uvm_lock`: no call removes or takes another
 call's lock, whatever its age or its owner line records, and the wrapper never asks whether a holder
 is alive, a question a shared filesystem cannot answer reliably. The one exception is a human, by
-hand or through `uvm clean lock`; clearing a lock whose holder is still running lets a second call
-provision beside it, which is why every message that points at the lock says its holder may still
-be running. `uvm doctor` reports a standing lock, with its owner line, as a WARN and never a FAIL,
-and reports every staging copy left under `versions/` the same way; it removes neither. `uvm_lock`
+hand or through `uvm clean lock`, which removes both lock directories and nothing else; clearing a
+lock whose holder is still running lets a second call provision or repair beside it, which is why
+every message that points at a lock says its holder may still be running. `uvm doctor` reports each
+standing lock, provisioning or repair, with its owner line, as a WARN and never a FAIL, and reports
+every staging copy left under `versions/` the same way; it removes neither. It also WARNs each
+failed repair outcome recorded under a value, with its reason and `uvm clean outcomes --yes`, and
+counts those under Slurm jobs on one line without opening them, since a read would refresh a
+record's atime and keep it alive through the purge. `uvm_lock`
 is set as soon as the winning `mkdir` returns, *before* the `host=<uname -n> pid=<pid>` line is
 written to `owner`, so a failed write — fatal, with `cannot record ownership` and the errno the
 shell's own diagnostic names — is cleaned up by the EXIT trap's release, entry and directory both.
@@ -174,9 +183,9 @@ The owner line is for a human; nothing in the wrapper decides anything from it.
 
 **No lock survives an `exec`.** `exec` replaces the process image and the EXIT trap never runs, so
 every `exec` of the real `uv` releases first — the three in the dispatch tail and the one in
-`uvm_self_update`. Nothing acquires the lock that late today; the guard is what keeps the leak
-impossible when something does, and on a path holding no lock it costs one builtin test and no fork.
-A new `exec` site owes the same call.
+`uvm_self_update`. The repair takes its lock that late in the dispatch path and releases it before
+it returns, so the pre-exec release is a guard that keeps a leak impossible if that changes; on a
+path holding no lock it costs one builtin test and no fork. A new `exec` site owes the same call.
 
 **Contention is told from failure by persistence, not by a second look.** A `mkdir` that failed
 `EEXIST` and a holder that released before the `[[ ! -d ]]` test look identical afterwards, so one
@@ -199,7 +208,9 @@ one notice naming the lock, the `owner` line it records, that the holder may sti
 empty` while `owner` is inside, and an absolute path rather than a `uvm` command, because a reader on
 another node, architecture or `UVM_ROOT` would otherwise clear a different lock and be told it
 succeeded. At `UVM_LOCK_TIMEOUT` a provisioning waiter (`proceed`) returns holding nothing and
-installs for itself; any other caller dies naming the lock and its owner line, and runs nothing.
+installs for itself; any other caller, the repair waiter among them, dies naming the lock and its
+owner line, and runs nothing. The words are the lock's own: a repair caller's messages say "repair
+lock" and "repairing", never "provisioning".
 
 **`current` is swapped atomically, and its target is relative** (`versions/<ver>`), so the tree stays
 relocatable. With GNU (`-T`) or BSD/macOS (`-h`) `mv`, a concurrent reader never observes a missing
@@ -219,6 +230,35 @@ the tarball comes from, which is legitimate site policy.
 asked for. `VER=$(uv --version)` on a cold node must not come back with installer chatter ahead of the
 answer, so installer output goes to stderr and multi-line wrapper output uses a heredoc (`cat` dies
 quietly on `SIGPIPE`; bash's `printf` builtin reports `write error: Broken pipe`).
+
+**`UVM_REPAIR` off forks nothing.** Unset, empty or `0` is a single `[[ ]]` in the dispatch tail,
+with no fork and no filesystem access; what the unset path does cost is bash parsing the added code,
+about 0.6 ms per call. On, a call whose scope already has an outcome costs one `stat` for a repaired
+one, and one read for a failed one's reason. The scope is the Slurm job, else the knob's value. A
+repaired record in an array task, which `SLURM_ARRAY_TASK_ID` marks, is keyed on
+`job-[<SLURM_CLUSTER_NAME>-]<SLURM_ARRAY_JOB_ID>`, so the array shares it; every other record, a
+failed one in an array included, on `job-[<SLURM_CLUSTER_NAME>-]<SLURM_JOB_ID>`, so the next task
+of an array tries again. The name is built by builtins: every byte outside a class that lists
+its characters rather than ranging them, `a-z 0-9 . -`, is written as `_` and two hex digits, so no
+two scopes share a name, on a filesystem that ignores case too. The holder records the outcome under `.repair/` before it releases, a failed one under a
+temporary name renamed into place, so a waiter that sees the lock go also sees a whole outcome. The
+walk is `uvm_detect`, the same one `uvm_doctor` runs, and only the call that won the lock runs it;
+it flags only damage the repair can act on. The interpreter arm names each damaged install by its
+key, an install whose binary is gone included. The tool arm runs once per damaged tool, `uv pip
+install --python <tool>/bin/python --reinstall --no-cache` with every distribution pinned at the
+version its dist-info directory name records, so it never writes a receipt, keeps every version,
+pinned or not, and touches no healthy tool; it refuses a tool without `pyvenv.cfg`, one whose
+`bin/python` does not run, one holding a distribution whose `direct_url.json` records a URL, git or
+path source, and one whose receipt records a requirement, constraint or override from such a
+source, the only use it makes of the receipt (`uvm_tool_receipt`). Its index options are not a
+refusal: uv writes a configured index into every receipt, and the repair runs under the same
+configuration. Both arms run from `/` in a subshell, so the user's and the system's `uv.toml` and the
+`UV_*` variables apply and the working directory's `pyproject.toml` and `uv.toml` do not. Both
+arms name their targets, so a repair never applies the job's Python request. The repair never calls
+`uvm_install`, so it cannot move `current`, and every byte it writes, uv's included, goes to stderr.
+No message on the `uv` and `uvx` path names `pip install` or `python install`: the offline fixture
+echoes its command line and the drives count those lines as repairs. Doctor's remediation block
+names both, and runs only under `uv-manager`.
 
 **Storage is ours; resolution is not.** The wrapper sets `UV_CACHE_DIR`, `UV_TOOL_DIR`,
 `UV_TOOL_BIN_DIR`, `UV_PYTHON_INSTALL_DIR`, `UV_PYTHON_BIN_DIR` and `PATH`. It deliberately leaves
@@ -263,6 +303,7 @@ sign-off gate at review:
 | `uvm_trampolines` | Writes into a directory on the user's `PATH`. Overwriting an unmarked file is destroying somebody's script. |
 | `uvm_export_env` / `uvm_set_paths` | Everything `uv` spawns inherits this environment. Nesting must stay idempotent. |
 | the dispatch tail | `exec` semantics, the `tool`/`python` non-exec path, `rc` propagation. |
+| `uvm_repair` / `uvm_detect` | Runs before every exec while `UVM_REPAIR` is on, on every rank of a job. An arrival test that misses repairs on every call; an outcome recorded after the release sends a waiter into a second repair; a byte on stdout lands in the user's command's output. |
 
 ## Verification
 
@@ -270,8 +311,8 @@ There is no test suite yet — building one is planned work, tracked in `ROADMAP
 proven by driving the real script in a sandbox, and the factory's `verify:` commands are written that
 way.
 
-`tests/` holds the drives that outgrew a `verify:` line. There is one so far, and it is there because
-its subject cannot be measured any other way: `tests/lock-race.sh` releases bursts of concurrent ranks
+`tests/` holds the drives that outgrew a `verify:` line. There are two, and each is there because its
+subject cannot be measured any other way. `tests/lock-race.sh` releases bursts of concurrent ranks
 at the provisioning lock and checks the tree and the answers they leave. Under `--plant held` a live
 holder never releases, so every rank waits out the timeout and then installs and publishes beside the
 others; a barrier spliced into the sandbox's fixture copy releases them to publish together. Under
@@ -286,6 +327,10 @@ rather than chosen, and the arithmetic is in the file. It needs no instrumentati
 `bin/uv-manager`. With `--launch srun` the same bursts run from every node of a Slurm allocation
 against one tree on the parallel filesystem that `LOCKRACE_SHARED` names, and `--summary` writes a
 result made only of counts and version numbers, so a cluster run can be committed as evidence.
+`tests/repair-race.sh` releases ranks once with `UVM_REPAIR=1` at a tree it has damaged, checks that
+exactly one repairs it under the repair lock while the rest wait and then run, and under `--scenario
+kill` kills that holder to check the waiters' timeout, `uvm doctor`, `uvm clean lock --yes` and a
+clean pass, with the same `--launch srun` and counts-only `--summary`.
 
 `.agents/factory/bin/temp_root.sh` is the substrate. It scrubs the inherited environment (every
 `UV_*` and `UVM_*` variable, and every scratch candidate `uvm_resolve_root` consults), points

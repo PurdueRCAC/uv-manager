@@ -1,5 +1,5 @@
 ---
-status: shaped
+status: adopted:purge-tree-repair
 kind: feature
 appetite: big
 lane: public
