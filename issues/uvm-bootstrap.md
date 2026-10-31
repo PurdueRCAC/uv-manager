@@ -28,7 +28,7 @@ in writing; one that puts nothing on `PATH` is useless to the person who ran it.
 tension is the substance of this cycle, not an implementation detail of it.
 
 An up-to-date check has a source of truth to work from: the version is single-sourced at
-`bin/uv-manager:21` and `uvm --version` prints it (`:1086`).
+`bin/uv-manager:21` and `uvm --version` prints it (`:1374`).
 
 ## Why it was deferred
 
@@ -70,11 +70,11 @@ Open questions for shaping, each with a real trade-off:
   what makes the collision above dangerous: nobody is surprised by a path they named. Two questions
   come with it. How does it relate to `UVM_ROOT` — the same scratch tree keeps everything in one place
   and costs no second decision, but then a purge that removes the wrapper removes the thing that would
-  have repaired the tree, which is exactly the failure `issues/purge-tree-repair.md` is about. And
+  have repaired the tree, which is exactly the failure `purge-tree-repair` is about. And
   what is the default when it is unset, given `~/.local/bin/uv` is forbidden. — the maintainer,
   2026-08-09.
-- **The `curl | sh` posture.** The project already fetches uv this way (`uvm_fetch`, `:340`, and the
-  piped `sh` at `:457-459`), so the precedent is uv's own. Decide whether a tag pin, a published checksum,
+- **The `curl | sh` posture.** The project already fetches uv this way (`uvm_fetch`, `:357`, and the
+  piped `sh` at `:474-476`), so the precedent is uv's own. Decide whether a tag pin, a published checksum,
   and a documented download-inspect-run path are required rather than optional, given this is
   potentially load-bearing infrastructure for a computing center.
 - **What "up to date" means, and how often it is checked.** A version check per invocation adds a
@@ -87,7 +87,7 @@ Open questions for shaping, each with a real trade-off:
 - **Where it is served from.** The repository is `PurdueRCAC/uv-manager`. A raw-content URL pins to a
   branch and changes under users; a release asset pins to a tag and needs the release process to
   publish it. `/uvm-release` would grow a step either way.
-- Related: [`issues/purge-tree-repair.md`](purge-tree-repair.md). The two are one story for
+- Related: [`spec/purge-tree-repair/`](../spec/purge-tree-repair/GOAL.md), landed. The two are one story for
   automation — the Anvil MEP endpoint may need to bootstrap the wrapper *and* face a tree purged since
   the user's last run, thirty days earlier, in the same invocation.
 - **Same-commit rule.** A new top-level script is user-facing surface, so `README.md` and the

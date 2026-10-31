@@ -34,8 +34,8 @@ defect 2, and `PLAN.md` §5, ruling 2.
 
 The fix the planning brief named is to let a waiter accept a repaired outcome written after its own
 arrival, from any scope. That amends the waiter predicate that `purge-tree-repair`'s GOAL settled:
-one existence test for the waiter's own scope. A change of that kind needs its own shaping. It is
-**introduced** by `purge-tree-repair`; `main` has no repair to queue on.
+one existence test for the waiter's own scope. A change of that kind needs its own shaping. It was
+**introduced** by `purge-tree-repair`; before that cycle landed, `main` had no repair to queue on.
 
 ## Outcome / vision
 

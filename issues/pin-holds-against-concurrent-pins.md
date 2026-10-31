@@ -15,8 +15,8 @@ lane: public
 `current` is one link per root, and a pin is per process. Two calls on one root that are pinned to
 *different* versions each select their own, through `uvm_install`'s one selection step, and the
 later swap wins. Every run of `uv` then goes through `current`: `real_uv` is `${uvm_current}/uv`
-(`bin/uv-manager:154-156`), the dispatch tail execs it (`:1145-1151`), `uv self update` execs it
-(`:765`), and the `tool`/`python` path runs it without exec (`:1129`). So the earlier call, having
+(`bin/uv-manager:154-156`), the dispatch tail execs it (`:1707-1713`), `uv self update` execs it
+(`:782`), and the `tool`/`python` path runs it without exec (`:1689`). So the earlier call, having
 selected its pin correctly, runs the later call's version at rc 0 with nothing on stderr.
 
 Measured by `lock-simplification` review cycle 3 (finding C3-F1), under

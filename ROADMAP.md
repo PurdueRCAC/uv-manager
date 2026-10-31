@@ -17,22 +17,6 @@ See `AGENTS.md` for why.
 
 ## Queued
 
-### `uv run` rehydrates a purged tree, gated by `UVM_REPAIR`
-**Seed:** [`issues/purge-tree-repair.md`](issues/purge-tree-repair.md) · `feature` · appetite big ·
-**adopted** as [`spec/purge-tree-repair/`](spec/purge-tree-repair/GOAL.md)
-
-Shaped around the claim it has to support: under `srun` with `UVM_REPAIR` set on a damaged tree, one
-rank takes a lock, repairs once and records it, and the rest wait, see the record and exec, with a
-fault failing clearly for a human to clear. The knob fires on every `uv` and `uvx` invocation after
-the platform key is resolved on the executing node. Shaping measured that the two forms a user
-types depend on different damage: `uv run <script>` on a managed interpreter (and on uv's cache,
-which the GOAL concedes), `uvx <tool>` on an installed tool. `uvx <script>.py` is not a
-uv form. A cross-node Slurm drive carries the claim, spelled `UVM_REPAIR=1`. Settled at the gate:
-repair takes a lock of its own and reuses `UVM_LOCK_TIMEOUT`; the scope is the scheduler's job id,
-else the knob's literal value; a failed repair is recorded for the scope so the waiting ranks fail
-with its reason rather than retry; cache damage is conceded and deferred to
-`uv-cache-purge-damage`.
-
 ### Separately submitted jobs queue to check one tree under the repair lock
 **Seed:** [`issues/repair-scope-queueing.md`](issues/repair-scope-queueing.md) · `feature` · appetite
 small
@@ -42,8 +26,8 @@ only its own scope's outcome. Many separately submitted jobs that start together
 therefore walk it in turn, and any job past `UVM_LOCK_TIMEOUT` divided by the walk time fails on a
 tree that may be healthy. `purge-tree-repair` keys array tasks on the array's job id, which removes
 the commonest case. The fix to shape is a waiter that accepts a repaired outcome recorded after its
-own arrival. It amends the predicate that cycle settled. It follows `purge-tree-repair`, which
-introduces the repair.
+own arrival. It amends the predicate that cycle settled. `purge-tree-repair`, which introduced the
+repair, has landed.
 
 ### A pinned call can run another call's pin, when two pins race for `current`
 **Seed:** [`issues/pin-holds-against-concurrent-pins.md`](issues/pin-holds-against-concurrent-pins.md) ·
@@ -111,8 +95,8 @@ checks turned out unfireable. The `{prefix}`-placeholder form is preserved at `3
 module and for automation that cannot presume Lmod. Installs when absent, execs when present, and
 checks the wrapper is current without putting a network round trip in the hot path. The sharp
 constraint is already written at `bin/uv-manager:9-12`: never land on `~/.local/bin/uv`, and stay
-opt-in rather than on default `PATH`. Follows `purge-tree-repair` because it completes the automation
-story that cycle starts.
+opt-in rather than on default `PATH`. It completes the automation story `purge-tree-repair` started;
+that cycle has landed.
 
 ### A purge that damages uv's cache breaks `uv run`
 **Seed:** [`issues/uv-cache-purge-damage.md`](issues/uv-cache-purge-damage.md) · `feature` ·
@@ -122,8 +106,8 @@ The class `purge-tree-repair` conceded at its gate. A script's environment and t
 it links from live in `UV_CACHE_DIR`, inside the purged tree, and uv runs no integrity check on the
 archives. Unmeasured: the first criterion is constructing the failure. Repairing it means clearing a shared cache and then
 having every rank rebuild at once under a `flock` that not every parallel filesystem honours, which
-is why it is its own cycle. Follows `purge-tree-repair`, whose lock, scope and outcome contract it
-reuses.
+is why it is its own cycle. It reuses the lock, scope and outcome contract of `purge-tree-repair`,
+which has landed.
 
 ### A real test harness
 **Seed:** [`issues/test-harness.md`](issues/test-harness.md) · `feature` · appetite big

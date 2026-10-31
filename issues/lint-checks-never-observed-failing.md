@@ -66,7 +66,7 @@ adopting. Two were run; the third is the cycle's own work and is left for it.
    asks a `lint.sh` check to demonstrate it can go red. The asymmetry is exactly as described.
 2. **No live instances found by inspection, and the check that matters was not run.** Step 3's two
    named failure modes are absent: `lint.sh` uses no GNU-only escapes, and its single `git ls-files`
-   (`:96`) names three specific files rather than taking a census, so the tracked-only blindness
+   (`:100`) names three specific files rather than taking a census, so the tracked-only blindness
    cannot bite. This agrees with the Notes below. **Step 2 — breaking the tree once per check and
    confirming each goes red — was not run**, and it is the only one of the three that can find a
    check that is unfireable for a reason nobody predicted. Whoever takes this owes it first, as the
@@ -74,7 +74,7 @@ adopting. Two were run; the third is the cycle's own work and is left for it.
 3. **The shape that is live here is an *absent* census, not a broken one.** None of the six checks
    enumerates — every one targets named files, which is why step 3's two heuristics find nothing. But
    `lint.sh` hardcodes the list of `.agents/` shell scripts **twice**, at `:46-47` for `bash -n` and
-   `:74-76` for shellcheck, and it is complete today only because all three files predate it. A
+   `:75-77` for shellcheck, and it is complete today only because all three files predate it. A
    fourth script added under `.agents/` would go unchecked by both, with `lint.sh` green throughout.
    That is the same silence this seed is about, reached by omission rather than by a census that
    matches nothing, and step 3's heuristics do not look for it.

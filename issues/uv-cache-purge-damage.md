@@ -54,6 +54,6 @@ under the same one-repairs-the-rest-wait contract `purge-tree-repair` ships.
 
 ## Notes
 
-- Related: [`issues/purge-tree-repair.md`](purge-tree-repair.md), whose GOAL concedes this class and
-  names this seed.
+- Related: [`spec/purge-tree-repair/`](../spec/purge-tree-repair/GOAL.md), landed, whose GOAL concedes
+  this class and names this seed.
 - Found by: `purge-tree-repair` shaping, 2026-10-29.
