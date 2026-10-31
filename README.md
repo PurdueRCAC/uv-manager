@@ -452,10 +452,12 @@ other value means on, `00` and `false` included. Off forks nothing and touches n
 costs is bash parsing the added code, about 0.6 ms per call.
 
 **One check per scope.** Inside a Slurm job the scope is the job: every step of an allocation shares
-`SLURM_JOB_ID`, so the first call checks and every later call in every step costs one `stat`. An
-array shares what a successful check records: it is keyed on `SLURM_ARRAY_JOB_ID`, so one task's
-check covers every task. A failed check is the task's own, keyed on its `SLURM_JOB_ID`, so the next
-task checks again rather than inheriting a failure that may have been transient. The shared record
+`SLURM_JOB_ID`, so the first call checks and every later call in every step costs one `stat`. That
+holds across nodes: an `srun` over many nodes is one job, so one rank on one node repairs and
+the ranks on every node wait for it, then run. An array shares what a successful check records:
+it is keyed on `SLURM_ARRAY_JOB_ID`, so one task's check covers every task. A failed check is the
+task's own, keyed on its `SLURM_JOB_ID`, so the next task checks again rather than inheriting a
+failure that may have been transient. The shared record
 outlives a purge that lands partway through an array: tasks that start after it trust the earlier
 check and do not see the new damage. `SLURM_CLUSTER_NAME` qualifies the id, because two clusters
 sharing a filesystem issue the same job ids. Outside a job the scope is the value itself, so give a
