@@ -17,6 +17,21 @@ See `AGENTS.md` for why.
 
 ## Queued
 
+### A tool run by its own name gets none of the guarantees `uvx` gets
+**Seed:** [`issues/installed-tool-parity.md`](issues/installed-tool-parity.md) · `feature` · appetite
+big
+
+`purge-tree-repair` made `srun uvx <tool>` repair once and run on every rank. `uv tool install` on a
+login node followed by `srun <tool>` gets none of that: the trampoline execs the shim without
+entering the wrapper, and the only record of what was installed is the receipt inside the purged
+tree. A whole tool directory, a receipt, a git source or a purged shim (which takes its trampoline
+with it at the next sync) is beyond repair on 0.7.0. The direction, agreed with the maintainer on
+2026-11-01, keeps what the user asked for in home as plain-file records with every distribution
+pinned, moves the trampolines beside them, routes a trampoline through the wrapper's scope check when
+`UVM_REPAIR` is set, and restores a missing tool by replaying its record. It contradicts the README's
+"none under $HOME" claim, which is why it needs shaping rather than a fix. First in the queue
+because it closes the gap between the workflow the repair was built for and the one users take.
+
 ### Separately submitted jobs queue to check one tree under the repair lock
 **Seed:** [`issues/repair-scope-queueing.md`](issues/repair-scope-queueing.md) · `feature` · appetite
 small
