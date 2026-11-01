@@ -20,15 +20,16 @@ own `pyvenv.cfg` and `bin/`, while `tools/` was empty. uv runs no integrity chec
 (`spec/purge-resilient-run/research/00-digest.md` D3). So a per-file atime purge can leave `uv run
 <script>` or `uvx <tool>` failing on a cache that `UVM_REPAIR` never touches.
 
-The second of those is the route `README.md` § *Repairing inside a job* recommends. Its *Reach*
-paragraph tells a job script to call `uvx <tool>` rather than the tool's own name, so that the
-scope check runs. For a tool not installed with `uv tool install`, `uvx` runs it from the cache, and
-the check walks `tools/` and `python/` only, so `srun uvx <tool>` gets the check and not the repair.
+The second of those is a supported job-script route, and the one `README.md` § *Repairing inside a
+job* recommends today. Its *Reach* paragraph tells a job script to call `uvx <tool>` rather than the
+tool's own name, so that the scope check runs. For a tool not installed with `uv tool install`, `uvx`
+runs it from the cache, and the check walks `tools/` and `python/` only, so `srun uvx <tool>` gets the
+check and not the repair.
 An installed tool is out of reach of cache damage: the module sets `UV_LINK_MODE=copy`, so
 `tools/<name>/` holds its own copies of every file, and the tool arm reinstalls with `--no-cache`.
 
 Who it hurts is a user inside a batch job, the same user `purge-tree-repair` serves, and in
-particular the one who followed the README's advice.
+particular the one who took the `srun uvx <tool>` route.
 
 `README.md` § *Scratch purges* records that losing the cache **entirely** is fine, since uv
 re-downloads. Partial loss inside an environment or an unpacked archive is the case nobody has
@@ -49,9 +50,12 @@ directly*). That is a concurrency design of its own, not a fourth arm on a whole
 ## Outcome / vision
 
 A job whose cache a purge has damaged sets `UVM_REPAIR`, calls `uv run <script>` or `uvx <tool>`,
-and proceeds, under the same one-repairs-the-rest-wait contract `purge-tree-repair` ships. Until
-then, the documentation says plainly that `srun uvx <tool>` is repaired only for an installed tool,
-and that `uv cache clean` is the manual remedy.
+and proceeds, under the same one-repairs-the-rest-wait contract `purge-tree-repair` ships. This is
+the `uvx` route's half of a two-route contract: `srun uvx <spec>` and, after
+[`installed-tool-parity`](installed-tool-parity.md), `uv tool install` then `srun <tool>` both carry
+it, and neither replaces the other. Until this cycle lands, the documentation says plainly that
+`srun uvx <tool>` is repaired only for an installed tool, and that `uv cache clean` is the manual
+remedy.
 
 ## Sketch of the acceptance criteria
 
@@ -70,9 +74,9 @@ and that `uv cache clean` is the manual remedy.
 ## Notes
 
 - Related: [`spec/purge-tree-repair/`](../spec/purge-tree-repair/GOAL.md), landed, whose GOAL concedes
-  this class and names this seed; [`installed-tool-parity`](installed-tool-parity.md), which moves
-  the recommended job pattern to installed tools, out of this class's reach, and drops the README's
-  `uvx <tool>` advice.
+  this class and names this seed; [`installed-tool-parity`](installed-tool-parity.md), which gives the
+  installed route the same contract from durable records under `UVM_DATA`. An installed tool is out
+  of this class's reach either way; this cycle is what completes the `uvx` route.
 - A direction to measure, not a decision: under the repair lock, `mv` a damaged entry aside rather
   than delete it. A rename within one filesystem is atomic, a process with the entry open keeps its
   files, and the next call misses and rebuilds with one rank holding the lock. It still leaves R3.
