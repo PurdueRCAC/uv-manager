@@ -18,7 +18,7 @@ none of the guarantees.
 **The trampoline never enters the wrapper.** The generated trampoline (`bin/uv-manager:626-675`)
 resolves `$d/$a/bin/shims/$n` and execs it, so no scope check runs. `README.md` § *Repairing inside a
 job*, *Reach* (line 553), says so and tells the user to write `uvx <tool>` in the job script instead.
-Confirmed against the deployed `uv/0.7.0` module on Gautschi on 2026-11-01.
+Confirmed against the deployed `uv/0.7.0` module on a production cluster on 2026-11-01.
 
 **Even a call that enters the wrapper can only repair what survives in the tree.** The only record of
 what the user asked for is `uv-receipt.toml`, inside `tools/<name>/`, on the filesystem the purge
@@ -43,7 +43,7 @@ takes the shim itself, the next `uv tool` or `uv python` call deletes the trampo
 leaves `PATH`. A dangling shim survives the sync, but then the trampoline prints "it exists for
 another architecture", which is false after a purge.
 
-**The `uvx` route pays for its guarantee on every call.** Measured on Gautschi, 2026-11-01:
+**The `uvx` route pays for its guarantee on every call.** Measured on a production cluster, 2026-11-01:
 `uvx --from git+https://github.com/glentner/progressbar pb` prints `Updating ... (HEAD)` and fetches
 on every call, warm runs included, and fails under `UV_OFFLINE=1`. Pinned to a commit it runs offline,
 0.21 s warm against 0.29 s unpinned. That is a trade the `uvx` route's users can make by pinning, not
@@ -53,9 +53,9 @@ a defect in it; it is one reason the installed route is worth a contract of its 
 
 ## Why it was deferred
 
-It was not deferred by a pass. The maintainer found it dogfooding the deployed module on Gautschi on
-2026-11-01, installing personal CLI tools with `uv tool install` and asking what a job would see after
-a purge. `purge-tree-repair` scoped itself to the `uvx` route and conceded the whole-directory class
+It was not deferred by a pass. The maintainer found it dogfooding the deployed module on a production
+cluster on 2026-11-01, installing personal CLI tools with `uv tool install` and asking what a job
+would see after a purge. `purge-tree-repair` scoped itself to the `uvx` route and conceded the whole-directory class
 and the trampoline's reach in its own documentation.
 
 The fix needs state outside `UVM_ROOT`, which contradicts a claim the README makes in two places
@@ -98,8 +98,8 @@ defaults it to `${XDG_DATA_HOME:-$HOME/.local/share}/uvm`. Not `.../share/uv`: t
 default tool directory, and the README's verification step expects it absent (line 300). It is a
 `UVM_*` name for the reason the README's design notes give: it is the wrapper's knob, not uv's. The
 repository's bias against new knobs is answered by what this one carries, a second storage tree that
-has to be visible where `UVM_ROOT` is. Home on Gautschi and Gilbreth is ZFS with snapshots, so there
-the records are backed up as well as purge-proof.
+has to be visible where `UVM_ROOT` is. Where home is snapshotted, as it
+commonly is, the records are backed up as well as purge-proof.
 
 The layout:
 
@@ -237,4 +237,4 @@ installed now, and regenerates missing trampolines.
   `uvx` route's half of the same contract; [`test-harness`](test-harness.md), whose R7 budget the
   knob-set trampoline path spends against; [`uvm-bootstrap`](uvm-bootstrap.md), since moving
   trampolines to `UVM_DATA` changes what a bootstrap puts on `PATH`.
-- Found by: the maintainer, dogfooding the deployed `uv/0.7.0` module on Gautschi, 2026-11-01.
+- Found by: the maintainer, dogfooding the deployed `uv/0.7.0` module on a production cluster, 2026-11-01.

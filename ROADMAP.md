@@ -123,7 +123,7 @@ The class `purge-tree-repair` conceded at its gate. A script's environment, an e
 environment and the unpacked archives they come from all live in `UV_CACHE_DIR`, inside the purged
 tree, and uv runs no integrity check on the archives. So `srun uvx <tool>`, the route the README
 recommends for job scripts, gets the scope check but no repair unless the tool is installed (found
-on Gautschi, 2026-11-01). Unmeasured: the first criterion is constructing the failure. Repairing it
+on a production cluster, 2026-11-01). Unmeasured: the first criterion is constructing the failure. Repairing it
 means clearing a shared cache and then
 having every rank rebuild at once under a `flock` that not every parallel filesystem honours, which
 is why it is its own cycle. It reuses the lock, scope and outcome contract of `purge-tree-repair`,

@@ -13,7 +13,7 @@ The wrapper points `UV_CACHE_DIR` at `${uvm_root}/cache`, inside the tree a scra
 PEP 723 script's environment lives there, under `environments-v2/`: measured during
 `purge-tree-repair` shaping with uv 0.13.6, `uv run --no-project s.py` for a script declaring one
 dependency built its environment at `${UV_CACHE_DIR}/environments-v2/s-<hash>`. An ephemeral `uvx`
-environment lives in the archive store itself: on Gautschi on 2026-11-01, under the deployed
+environment lives in the archive store itself: on a production cluster on 2026-11-01, under the deployed
 `uv/0.7.0` module, every tool run that day with `uvx` and never installed (`pb` from a git source,
 `tqdm`, `httpie` among them) had its environment at `${UV_CACHE_DIR}/archive-v0/<hash>/`, with its
 own `pyvenv.cfg` and `bin/`, while `tools/` was empty. uv runs no integrity check on that store
@@ -81,4 +81,4 @@ remedy.
   than delete it. A rename within one filesystem is atomic, a process with the entry open keeps its
   files, and the next call misses and rebuilds with one rank holding the lock. It still leaves R3.
 - Found by: `purge-tree-repair` shaping, 2026-10-29. Widened to `uvx` on 2026-11-01, from the
-  maintainer dogfooding the deployed module on Gautschi.
+  maintainer dogfooding the deployed module on a production cluster.
