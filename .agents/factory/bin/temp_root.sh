@@ -78,6 +78,9 @@ for name in $(env | sed -n 's/^\(UVM\{0,1\}_[A-Za-z0-9_]*\)=.*/\1/p'); do
     unset "$name"
 done
 unset CLUSTER_SCRATCH RCAC_SCRATCH SCRATCH PSCRATCH WORK PROJECT 2>/dev/null || true
+# An activated environment steers uv: a gate run through `uv run` inherits its
+# VIRTUAL_ENV, and uv inside the sandbox would build on that interpreter.
+unset VIRTUAL_ENV 2>/dev/null || true
 
 # Redirected rather than unset: the wrapper deliberately leaves XDG_CONFIG_HOME alone
 # (invariant §8), so a drive must still see a valid one — just not the developer's,

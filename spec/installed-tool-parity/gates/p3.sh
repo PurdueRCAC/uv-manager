@@ -108,16 +108,16 @@ r10="$UVM_SANDBOX/r10"; mkdir -p "$r10"; d10="$UVM_SANDBOX/d10"
 run r10 env UVM_ROOT="$r10" UVM_DATA="$d10" SLURM_JOB_ID=200 UVM_REPAIR=1 uvx pycowsay==0.0.0.2
 test -e "$r10/$a/.repair/job-200.ok" || fail "R10: no repaired outcome for job 200"
 if [ -d "$d10" ] && [ -n "$(find "$d10" -type f)" ]; then fail "R10: uvx wrote under UVM_DATA"; fi
-# R8: a tree the release/0.8.0 wrapper built; doctor backfills, writes nothing under UVM_ROOT.
+# R8: a tree the 0.7.0 wrapper built; doctor backfills, writes nothing under UVM_ROOT.
 r8="$UVM_SANDBOX/r8"; d8="$UVM_SANDBOX/d8"; mkdir -p "$r8" "$o/old/bin"
-git -C "$REPO" show release/0.8.0:bin/uv-manager > "$o/old/bin/uv-manager"; chmod +x "$o/old/bin/uv-manager"
+git -C "$REPO" show 0.7.0:bin/uv-manager > "$o/old/bin/uv-manager"; chmod +x "$o/old/bin/uv-manager"
 for l in uv uvx uvm; do ln -s uv-manager "$o/old/bin/$l"; done
 (UVM_ROOT="$r8"; seed "$a")
 for spec in "pyflakes==3.2.0 --with tomli==2.0.1" "pycodestyle==2.11.1 --with six==1.16.0" "pycodestyle --with six" "git+https://github.com/glentner/progressbar"; do
     # shellcheck disable=SC2086
     run old env UVM_ROOT="$r8" UVM_DATA="$d8" PATH="$o/old/bin:$PATH" uv tool install -p 3.12 $spec
 done
-[ ! -d "$d8/tools" ] || fail "R8: the release/0.8.0 wrapper wrote records"
+[ ! -d "$d8/tools" ] || fail "R8: the 0.7.0 wrapper wrote records"
 for t in $tools; do (UVM_ROOT="$r8"; frozen "$t") > "$o/f8.$t"; done
 (cd "$r8" && find . -type f -exec cksum {} + | LC_ALL=C sort) > "$o/r8.before"
 env UVM_ROOT="$r8" UVM_DATA="$d8" uvm doctor > "$o/doc8.out" 2>&1 || { cat "$o/doc8.out" >&2; fail "R8: doctor on a healthy tree exited non-zero"; }
@@ -140,7 +140,7 @@ grep -q '^WARN  tool ghost is recorded but not installed' "$o/doc8b.out" && grep
 rj="$UVM_SANDBOX/rj" dj="$UVM_SANDBOX/dj"; mkdir -p "$rj"
 (UVM_ROOT="$rj"; seed "$a")
 run oldj env UVM_ROOT="$rj" PATH="$o/old/bin:$PATH" uv tool install -p 3.12 pycodestyle==2.11.1
-test -x "$rj/bin/pycodestyle" && [ ! -d "$dj" ] || fail "jobs-only: could not build the release/0.8.0 tree"
+test -x "$rj/bin/pycodestyle" && [ ! -d "$dj" ] || fail "jobs-only: could not build the 0.7.0 tree"
 run j1 env UVM_ROOT="$rj" UVM_DATA="$dj" SLURM_JOB_ID=401 UVM_REPAIR=1 uv --version
 test -f "$dj/tools/pycodestyle/request" || fail "R8: the walk's holder wrote no record"
 test -x "$dj/bin/pycodestyle" || fail "R7: the walk's holder wrote the record without its trampoline"

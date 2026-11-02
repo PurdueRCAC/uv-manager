@@ -43,23 +43,23 @@ for v in unset '' 0; do
     if [ "$v" = unset ]; then env -u UVM_REPAIR PATH="$o/fake:$PATH" fx > "$o/r6.out" 2>&1; else env UVM_REPAIR="$v" PATH="$o/fake:$PATH" fx > "$o/r6.out" 2>&1; fi
     [ "$(cat "$o/r6.out")" = fx-ran ] && [ ! -e "$o/entered" ] || fail "R6: UVM_REPAIR=$v started the wrapper or did not run the shim"
 done
-# R6: the unset path costs no more than release/0.8.0's trampoline.
+# R6: the unset path costs no more than 0.7.0's trampoline.
 printf '#!/bin/sh\nexit 0\n' > "$root/bin/shims/noop"; chmod +x "$root/bin/shims/noop"; run sync2 uvm trampolines
-mkdir -p "$o/old/bin" "$o/oldroot/$a/bin/shims"; git -C "$REPO" show release/0.8.0:bin/uv-manager > "$o/old/bin/uv-manager"
+mkdir -p "$o/old/bin" "$o/oldroot/$a/bin/shims"; git -C "$REPO" show 0.7.0:bin/uv-manager > "$o/old/bin/uv-manager"
 chmod +x "$o/old/bin/uv-manager"; ln -s uv-manager "$o/old/bin/uvm"; ln -s uv-manager "$o/old/bin/uv"; cp "$root/bin/shims/noop" "$o/oldroot/$a/bin/shims/noop"
-env UVM_ROOT="$o/oldroot" "$o/old/bin/uvm" trampolines > /dev/null 2>&1; test -x "$o/oldroot/bin/noop" || fail "R6: could not build release/0.8.0's trampoline"
+env UVM_ROOT="$o/oldroot" "$o/old/bin/uvm" trampolines > /dev/null 2>&1; test -x "$o/oldroot/bin/noop" || fail "R6: could not build 0.7.0's trampoline"
 loop() { _i=0; _s=$(date +%s); while [ "$_i" -lt 600 ]; do "$1"; _i=$((_i + 1)); done; echo $(( $(date +%s) - _s )); }
 old=0 new=0
 for r in 1 2; do old=$((old + $(loop "$o/oldroot/bin/noop"))); new=$((new + $(loop "$UVM_ROOT/bin/noop"))); done
-echo "R6 timing: 1200 calls, release/0.8.0 ${old}s, this tree ${new}s" >&2
-[ "$new" -le $((old + 1)) ] || fail "R6: the unset path costs more than release/0.8.0's (${new}s against ${old}s)"
-# Upgrade path: a tree release/0.8.0 built, the 0.8.x module's PATH ($UVM_DATA/bin, then
+echo "R6 timing: 1200 calls, 0.7.0 ${old}s, this tree ${new}s" >&2
+[ "$new" -le $((old + 1)) ] || fail "R6: the unset path costs more than 0.7.0's (${new}s against ${old}s)"
+# Upgrade path: a tree 0.7.0 built, the 0.8.x module's PATH ($UVM_DATA/bin, then
 # $UVM_ROOT/bin), no uv call yet. Ranks run the tool by name through its 0.7.0 trampoline.
 m="$UVM_SANDBOX/mig" md="$UVM_SANDBOX/migdata"; mkdir -p "$m"
 run mwarm env UVM_ROOT="$m" PATH="$o/old/bin:$PATH" uv --version
 mkdir -p "$m/$a/bin/shims"; printf '#!/bin/sh\necho mig-ran\n' > "$m/$a/bin/shims/mig"; chmod +x "$m/$a/bin/shims/mig"
 run msync env UVM_ROOT="$m" "$o/old/bin/uvm" trampolines
-test -x "$m/bin/mig" && [ ! -e "$md" ] || fail "upgrade path: could not build the release/0.8.0 tree"
+test -x "$m/bin/mig" && [ ! -e "$md" ] || fail "upgrade path: could not build the 0.7.0 tree"
 mp="$md/bin:$m/bin:$PATH"
 _i=1 _p=''; while [ "$_i" -le 8 ]; do ( env UVM_ROOT="$m" UVM_DATA="$md" PATH="$mp" mig > "$o/mig.out.$_i" 2>&1; echo $? > "$o/mig.rc.$_i" ) & _p="$_p $!"; _i=$((_i + 1)); done; wait $_p
 _i=1; while [ "$_i" -le 8 ]; do
