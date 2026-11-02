@@ -20,8 +20,19 @@
 --
 --   PATH               <prefix>/bin          the wrapper itself
 --   UVM_ROOT           <scratch>/.uv         base of the per-user state tree
---   PATH               <scratch>/.uv/bin     trampolines that re-resolve the
---                                            platform key at exec time
+--   PATH               <scratch>/.uv/bin     this root's trampolines, from its
+--                                            shims: managed interpreters and
+--                                            tools without a record; after the
+--                                            entry below
+--   UVM_DATA           <home>/.local/share/uvm
+--                                            durable records of installed
+--                                            tools, one per tool, none keyed
+--                                            by architecture
+--   PATH               <home>/.local/share/uvm/bin
+--                                            the recorded tools' trampolines,
+--                                            first on PATH of the three
+--
+-- Every trampoline re-resolves the platform key at exec time.
 --
 -- The architecture is appended by the wrapper at exec time, on the executing
 -- node. Do not inline $UV_CACHE_DIR, $UV_TOOL_BIN_DIR or any other
@@ -59,6 +70,10 @@ binaries.
 
 Each user gets their own uv and their own environments. Nothing is shared
 between users, and you may upgrade or pin your uv independently of the site.
+
+What you asked uv tool install for, a few KB per tool, and the commands that
+run each installed tool by name live under UVM_DATA, by default
+~/.local/share/uvm, off scratch, so a purge cannot take them.
 ]]
 
 whatis("Name: " .. pkg_name)
@@ -89,13 +104,16 @@ Run `uv-manager status` to see the exact locations in use. Scratch
 filesystems are periodically purged. A uv installation that goes untouched
 past the purge window is reprovisioned on next use, but a tool environment
 or managed interpreter that is only partly purged is not detected by uv.
-Run `uv-manager doctor` if something that used to work stops importing.
-In a batch job, `UVM_REPAIR=1 uv run ...` or `UVM_REPAIR=1 uvx <tool>`
-repairs a purged tool environment or managed interpreter before the
-command runs, once per Slurm job (keyed on SLURM_JOB_ID). Unset, empty
-or 0 is off; any other value is on. An array shares a successful repair
-(keyed on SLURM_ARRAY_JOB_ID); a failed one stops only its own task, and
-the next task tries again. It needs pypi.org, files.pythonhosted.org and
+Run `uv-manager doctor` if something that used to work stops importing,
+and once after upgrading from a release that kept no records: it writes a
+record for every tool installed before and the trampolines for them.
+In a batch job, `UVM_REPAIR=1 uv run ...`, `UVM_REPAIR=1 uvx <tool>` or
+`UVM_REPAIR=1 <tool>` repairs a purged tool environment or managed
+interpreter before the command runs, and restores an installed tool from
+its record under UVM_DATA, once per Slurm job (keyed on SLURM_JOB_ID).
+Unset, empty or 0 is off; any other value is on. An array shares a
+successful repair (keyed on SLURM_ARRAY_JOB_ID); a failed one stops only
+its own task, and the next task tries again. It needs pypi.org, files.pythonhosted.org and
 releases.astral.sh. Outside a job, give UVM_REPAIR a value of its own
 for each run, at most 194 bytes, each byte outside a-z 0-9 . -, an
 uppercase letter included, counting as three. The README's "Repairing
@@ -131,10 +149,35 @@ if scratch ~= nil then
     local root = pathJoin(scratch, ".uv")
     setenv("UVM_ROOT", root)
 
-    -- Architecture-neutral trampolines for anything `uv tool install` or
-    -- `uv python install` puts on PATH. Each one re-resolves the platform key
-    -- when executed, so this single entry is correct on every node type.
+    -- This root's trampolines, one per shim name: the managed interpreters
+    -- and any tool without a record, which only this root's shims name. It
+    -- stays behind the entry below. An earlier release wrote every trampoline
+    -- here; the wrapper's first uv call on this root rewrites each in place,
+    -- once, so a job that already ran one keeps running it.
     prepend_path("PATH", pathJoin(root, "bin"))
+end
+
+-- The durable tree: a record of what each installed tool was installed from,
+-- a few KB per tool, kept off scratch so a purge cannot take it with the
+-- environments it describes. It names no architecture. The wrapper resolves
+-- the same default when this is unset; setting it here makes it visible in
+-- `module show uv` and fixes it for contexts that change XDG_DATA_HOME.
+local data_home = os.getenv("XDG_DATA_HOME")
+if data_home == nil or data_home == "" then
+    local home = os.getenv("HOME")
+    if home ~= nil and home ~= "" then
+        data_home = pathJoin(home, ".local/share")
+    end
+end
+if data_home ~= nil then
+    setenv("UVM_DATA", pathJoin(data_home, "uvm"))
+
+    -- Architecture-neutral trampolines for every executable a record names,
+    -- so a purge that takes a tool's shim leaves the trampoline that restores
+    -- it. Each one re-resolves the platform key when executed, so this entry
+    -- is correct on every node type. Prepended after the scratch entry above,
+    -- so it comes first on PATH.
+    prepend_path("PATH", pathJoin(data_home, "uvm/bin"))
 end
 
 -- Pin the uv version this module provides. Strongly recommended for anything

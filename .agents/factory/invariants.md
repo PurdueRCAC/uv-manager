@@ -22,8 +22,9 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
 ## High-blast-radius regions (any CONFIRMED finding here → mandatory human gate)
 
 `uvm_acquire_lock` · `uvm_unlock` · `uvm_install` · `uvm_point_current` · `uvm_resolve_root` ·
-`uvm_init` · `uvm_trampolines` · `uvm_export_env` · `uvm_set_paths` · `uvm_repair` · the dispatch
-tail (everything below the `# ---- dispatch` banner)
+`uvm_init` · `uvm_trampolines` · `uvm_export_env` · `uvm_set_paths` · `uvm_repair` ·
+`uvm_tool_entry` (an `exec` site that runs the repair; with it `uvm_restore`, whose request reading
+stays at three token classes) · the dispatch tail (everything below the `# ---- dispatch` banner)
 
 ---
 
@@ -32,8 +33,9 @@ tail (everything below the `# ---- dispatch` banner)
 - The platform key is resolved **at exec time, on the executing node** (`uvm_init`), never earlier.
 - `UVM_ROOT` is architecture-**neutral**. The wrapper appends `<arch>`; nothing outside the
   wrapper may export an architecture-bearing path.
-- The two paths a modulefile may put on `PATH` are the deployment `bin/` and `$UVM_ROOT/bin`
-  (trampolines). Both are neutral by construction. `UV_CACHE_DIR`, `UV_TOOL_BIN_DIR` and the rest are
+- The paths a modulefile may put on `PATH` are the deployment `bin/`, `$UVM_DATA/bin` (the record
+  trampolines) and `$UVM_ROOT/bin` after it (this root's trampolines, from its shims: the managed
+  interpreters and any tool without a record). All three are neutral by construction. `UV_CACHE_DIR`, `UV_TOOL_BIN_DIR` and the rest are
   **not** — they are set by the wrapper, on the node.
 - Failure mode when violated: `Exec format error` inside a job, after the allocation is charged. It is
   silent at load time and does not reproduce on the login node.
@@ -158,7 +160,15 @@ tail (everything below the `# ---- dispatch` banner)
   Provisioning (`uvm_install`) passes `uvm_have "${want}"`, or `false` when forced, so its early-out
   tests **the version this call was asked for** — testing "is some uv present" silently hands a pinned
   caller whatever another process was installing. Any other caller passes its own test and never
-  early-outs on the provisioning question. A missing predicate dies on an explicit `(( $# >= 3 ))`:
+  early-outs on the provisioning question. There are three callers: provisioning, the scope's
+  repair (`uvm_repair_recorded`: an outcome recorded for the scope), and the restore by name
+  (`uvm_restore_by_name`, predicate `uvm_ondemand_done`: the shim the call runs is executable, or a
+  failed record `<scope>+tool-<tool>.failed` is present). The restore by name runs only with the
+  knob set, after `uvm_repair` has returned, and only when that shim is still missing; it tests its
+  predicate on arrival, while waiting and once the lock is won, as `uvm_repair` does. Success
+  records nothing, because the shim is the evidence and the path is entered only when it is
+  missing; a failure is written under a temporary name and renamed, so its waiters fail at once with
+  the reason rather than at `UVM_LOCK_TIMEOUT`. A missing predicate dies on an explicit `(( $# >= 3 ))`:
   an empty `"$@"` is a successful no-op, and `${1:?}` exits 0 under the EXIT trap on bash 3.2. A
   predicate runs with errexit suspended, so its status must be the deciding test's, and it never
   touches `uvm_lock`.
@@ -181,7 +191,8 @@ tail (everything below the `# ---- dispatch` banner)
   removes that call's lock; only `--yes` removes them.
 - **Doctor reports a failed repair outcome and never reads one under a job.** A failed outcome
   recorded under a value is a WARN with its reason and `uvm clean outcomes --yes`, since it stands
-  until the value changes. Failed outcomes under Slurm jobs are counted on one WARN by name and
+  until the value changes; a failed restore by name under a value, a name carrying `+tool-`, is a
+  WARN of its own naming the tool. Failed outcomes under Slurm jobs, both kinds, are counted on one WARN by name and
   never opened: each ended with its job, and a read would refresh its atime and keep it alive
   through the purge that is meant to take it. Repaired outcomes are not reported. `uvm clean
   outcomes` removes `.repair/` whole; its dry run counts the records by name, never opening one.
@@ -238,7 +249,11 @@ tail (everything below the `# ---- dispatch` banner)
 ## 8. Environment the wrapper sets — and does not
 
 - Sets, all under `$UVM_ROOT/<arch>/`: `UV_CACHE_DIR`, `UV_TOOL_DIR`, `UV_TOOL_BIN_DIR`,
-  `UV_PYTHON_INSTALL_DIR`, `UV_PYTHON_BIN_DIR`, plus three `PATH` prepends.
+  `UV_PYTHON_INSTALL_DIR`, `UV_PYTHON_BIN_DIR`, plus three `PATH` prepends (the two shim directories
+  and `$UVM_DATA/bin`, the last only when `UVM_DATA` resolved).
+- Exports `UVM_ROOT=${uvm_base}`, the root whether it came from the environment or the cascade, and
+  `UVM_DATA` when it resolved, to everything it runs. A trampoline finds the shims through
+  `UVM_ROOT`, and a child that re-enters the wrapper resolves the same trees. Both are neutral (§1).
 - **Deliberately does not set:** `XDG_CONFIG_HOME`, `UV_CONFIG_FILE`, `UV_PROJECT_ENVIRONMENT`,
   `UV_DEFAULT_INDEX`, `UV_INDEX`, `UV_PYTHON_PREFERENCE`, `UV_PYTHON_DOWNLOADS`, `UV_LINK_MODE`,
   `UV_COMPILE_BYTECODE`, `TMPDIR`. The first two would change dependency **resolution**, not just
@@ -261,13 +276,78 @@ tail (everything below the `# ---- dispatch` banner)
   `target` would send the reinstall into the job's project and an `exclude-newer` would hide the
   installed versions. `--no-config` is not the fix; it drops the user's and the system's `uv.toml`
   too.
+- **The restore sits beside the repair and replays a record.** The arms run interpreters, then the
+  restore, then the in-place tool arm; each that fails sets `uvm_repair_reason` and returns.
+  `uvm_detect_records` lists a recorded tool with a trace here that lost its directory,
+  `pyvenv.cfg`, interpreter link, an executable or its receipt, and `uvm_detect`'s other passes skip
+  it; a damaged recorded tool the tool arm would refuse (`uvm_tool_refusal`) joins it. A recorded
+  tool with no trace is never restored by the walk. `uvm_restore` runs `uv tool install --force -c
+  <record>/constraints <request>` from `/` in a subshell, with `UV_PYTHON` the recorded minor (a
+  request's own `--python` wins) and `UV_NO_CACHE=1`, everything to stderr. Resolution stays the
+  user's: the pins are constraints, and `uv.toml` and the `UV_*` variables apply. The restore is
+  the one place the wrapper writes a receipt, and it writes uv's own: the record's byte copy goes
+  back over the replay's pinned receipt only when every `install-path` line names this
+  `UV_TOOL_BIN_DIR` (a fixed-string count, never a parse), else `.uvm-restored` marks the tool
+  pinned by a restore for doctor. It never writes the record. The in-place arm stays first choice
+  for every other damaged tool, recorded or not, because it keeps the receipt byte for byte.
+- **Doctor writes under `UVM_DATA` and nothing under `UVM_ROOT`.** It backfills records
+  (`uvm_backfill`: only a tool with a receipt, `pyvenv.cfg` and no record, from `uv tool list` run
+  from `/` with `UV_NO_CACHE=1`, never a rewrite) only where uv's `tools/.lock` already exists,
+  since the list creates that file and a purge takes it, and otherwise reports each tool with no
+  record and `uv tool list` as what writes one. It syncs `$UVM_DATA/bin` alone (`uvm_trampolines
+  records`), and its interpreter probe runs with `PYTHONDONTWRITEBYTECODE=1`. The repair's holder
+  and the `uv tool` intercept on `rc == 0` run the same backfill, `|| true`.
+- **A record and its trampolines are one step.** Wherever a record is written its `$UVM_DATA/bin`
+  trampolines are written with it: the intercept syncs both directories after its backfill, doctor
+  syncs `$UVM_DATA/bin` after its own, and the repair's holder syncs `$UVM_DATA/bin` once per scope
+  right after its backfill, whether or not that wrote anything. The restore by name syncs it after
+  its restore.
+- **A backfilled record pins what a 0.7.0 receipt can say.** The request is `uv tool list`'s
+  rendering (a requirement it ends in a newline joined to its line; a `--with` it renders as a name
+  and a URL recorded as `name @ URL`), plus the receipt's `[tool.options]` lines uv writes on one
+  line: `index-url`, `extra-index-url`, `index` (each inline table as `--index URL`, or
+  `--default-index URL` for `default = true`, carried only when it holds nothing but `url`, `name`,
+  `default` and uv's defaults for `explicit`, `format` and `authenticate`, and an array only whole)
+  and `index-strategy`, the only receipt lines read; anything else replays under the configuration
+  in effect. A tool gets no record (`uvm_unpinnable`) when a requirement its receipt records from a
+  git, URL or local source, the tool or a `--with` package, has no `direct_url.json` in its own
+  dist-info directory, matched by name (case aside, `-` and `.` as `_`, under `nocasematch` restored
+  after); a transitive dependency's cannot stand in for it. Pinned by version alone, its restore
+  would fetch a branch head or an index's release. It keeps the in-place arm's refusal, and doctor names it. A VCS or URL constraint carries
+  the `subdirectory` its `direct_url.json` records.
+- **The durable tree.** `UVM_DATA` resolves in `uvm_init` from `UVM_DATA`, else
+  `${XDG_DATA_HOME}/uvm`, else `${HOME}/.local/share/uvm`, by builtin tests only; with none of the
+  three set it is empty and every writer there skips, and no call fails for it. The wrapper writes
+  under it records and trampolines (§9) and nothing else: after a `uv tool install|upgrade|uninstall` that exits 0,
+  `uvm_records_update` writes, rewrites or deletes `$UVM_DATA/tools/<name>/` (`request`,
+  `constraints`, `python`, `entrypoints`, `uv-receipt.toml`) for each tool whose `uvm_tool_marks`
+  line the command changed. A non-zero exit writes nothing there. A record is staged as
+  `.<name>.<host>.<pid>.<random>`, the old one moved aside, the stage renamed in, so a reader sees the old record,
+  none, or the new one. URL userinfo is stripped from the request and from every source URL; a
+  password-less ssh login is kept. The receipt is copied only when no URL in it, under any scheme,
+  carries userinfo that rule would strip (`uvm_carries_userinfo`). Every writer returns 0 and the dispatch tail calls it `|| true`:
+  a record never changes `rc` (§2). No path under `UVM_DATA` names an architecture.
 - `uvm_set_paths` is **pure** — it sets variables and touches no filesystem — so read-only subcommands
   (`status`, `doctor`) can call it without provisioning anything.
 - `PATH` prepending is **idempotent**. The exported `PATH` is inherited by everything `uv` spawns, and
   anything that re-enters the wrapper would otherwise add the same three entries at every nesting
   level.
-- `mkdir -p` runs behind a six-way `[[ -d ]]` guard, and the guard sits **outside** the `umask 077`
-  subshell. Unconditionally it cost a fork, an exec and — under GNU coreutils — one `EEXIST`-failing
+- `mkdir -p` runs behind a five-way `[[ -d ]]` guard over the per-architecture directories, and the
+  guard sits **outside** the `umask 077` subshell. Neither trampoline directory is among them: only a
+  trampoline sync creates those. The dispatch tail's self-heal, right after `uvm_export_env`, runs
+  `uvm_trampolines` when this root has no `$UVM_ROOT/bin/.uv-manager-synced` (`uvm_heal_marker`), so
+  the first `uv` or `uvx` call after an upgrade syncs the trampolines once per root; while the marker
+  exists it is one `[[ -e ]]`, one `stat` and no fork. The call creates the marker (and, on a tree
+  without one, `$UVM_ROOT/bin` under `umask 077`) **before** it syncs, and only it and a sync of
+  `$UVM_ROOT/bin` write the marker, so doctor (which never writes under `UVM_ROOT`) and another root
+  sharing `UVM_DATA` can neither set it nor stand in for it, and an unwritable `UVM_DATA` costs the
+  one attempt. A marker that cannot be created — a `$UVM_ROOT/bin` that cannot be created or
+  written, or an inode quota — skips the sync rather than retry it on every call. A sync that fails
+  to write `$UVM_ROOT/bin` removes the marker, so the next call tries again, one attempt per call
+  while it fails. A call killed mid-sync leaves its marker; the old trampolines it did not reach
+  still run their tools until the next `uv tool` command or `uvm trampolines`. On a tree with no
+  installed tool it creates the two directories and the marker. `uvm_export_trees` is the exports without the guard, for the knob-off trampoline entry, which
+  creates nothing. Unconditionally it cost a fork, an exec and — under GNU coreutils — one `EEXIST`-failing
   `mkdir(2)` per path component of every operand, to resolve six directories that already existed; the
   count therefore grows with the depth of `UVM_ROOT`. Moved inside the subshell, the guard keeps the
   fork and loses a third of the saving. A missing directory is still created, under
@@ -277,8 +357,43 @@ tail (everything below the `# ---- dispatch` banner)
 
 ## 9. Trampolines
 
-- Generated for the **union of names across all architectures**, so invoking a tool on an architecture
-  where it is not installed reports that instead of failing with `Exec format error`.
+- They live in **two directories, each under its own rule** (`uvm_trampoline_dir DIR NAMES`):
+  - **`$UVM_DATA/bin`**: one for every line of every record's `entrypoints`. A marked one is removed
+    only when no record names it, so a record keeps its trampoline past a purge of the shim. Roots
+    sharing `UVM_DATA` share the records, so each root's sync writes the same set.
+  - **`$UVM_ROOT/bin`**: one for every shim name under this root's `*/bin/{shims,python-shims}`,
+    dangling or not: the managed interpreters and any tool without a record. A marked one is removed
+    when no shim of this root names it, 0.7.0's rule. A sync never touches another root's.
+  - Each is created under `umask 077` by the sync, `$UVM_ROOT/bin` also by the self-heal ahead of
+    its sync (§8), and by nothing on the hot path. One that cannot be created or written (`-d` and
+    `-w`: `mkdir -p` succeeds on a read-only directory) is left as it is, nothing written and
+    nothing removed.
+  - A write, `chmod` or rename that fails inside a writable directory (a block quota, a full
+    filesystem) removes its temporary file and stops that directory's sync: the trampoline it was
+    replacing stays, nothing is removed, and the directory is not added to `uvm_synced`. An empty
+    file renamed into place would exit 0 and run nothing.
+- The body has three paths. `UVM_REPAIR` off (`case ${UVM_REPAIR:-0} in 0)`: unset, empty, `0`),
+  `UVM_ROOT` set and the shim executable: `exec` the shim, no wrapper, no lock. Otherwise: `exec
+  uv-manager _trampoline NAME`, the `uv-manager` on `PATH` first, else the generating wrapper's own
+  directory baked in (not baked when the path holds a `'`). The root is never baked in.
+- `uvm_tool_entry` (`_trampoline`, dispatched beside `help` before `uvm_init`): knob on, it runs
+  `uvm_ensure_uv`, `uvm_export_env` and `uvm_repair`, the same scope check, lock, outcome and failure
+  contract a `uv` call runs; then the shim under `UV_TOOL_BIN_DIR`, else `UV_PYTHON_BIN_DIR`, after
+  `uvm_export_trees` and `uvm_unlock` (an exec site, §2, §5). Knob on and the shim still missing after
+  `uvm_repair`: `uvm_restore_by_name` first (§5). No shim: exit 127 naming the tool, and,
+  with a record naming it, that it is recorded but not installed here and the remedy; without one,
+  0.7.0's text. The knob-off path provisions nothing, takes no lock and creates nothing.
+- **0.7.0's trampolines are rewritten in place.** A marked file in `$UVM_ROOT/bin` that a shim names
+  gets the new body under the same path, by temp file and rename, and is never removed for being
+  old: a job script's shell that ran the tool before the first sync has hashed that path, and its
+  next call must find a file there. Every sync (the `uv tool`/`uv python` intercept, `uvm
+  trampolines`, `uvm install`, the self-heal) writes both directories; doctor's, the repair
+  holder's and the restore by name's write `$UVM_DATA/bin` alone, the first because the other is
+  under `UVM_ROOT`. `uvm trampolines` reports only the directories the sync wrote
+  (`uvm_synced`), and names one it left.
+- Generated for the **union of names across all architectures** in each directory, so invoking a
+  tool on an architecture where it is not installed reports that instead of failing with `Exec format
+  error`.
 - Every trampoline we own is **rewritten**, never skipped on mere existence — one truncated by a purge
   or written by an older version has to be repaired.
 - A file that is non-empty, executable and **lacks `uvm_tramp_marker`** is somebody's own script that
@@ -288,6 +403,9 @@ tail (everything below the `# ---- dispatch` banner)
   purge is 0 bytes and unmarked, and the bullet above requires it be repaired. The `-x` term is a real
   gap against the property `AGENTS.md` states, seeded in `issues/invariant-audit-gaps.md`.
 - Written to a temp name and `mv -f`'d into place, so a concurrent exec never sees a partial script.
+  The temp name is `.<name>.<host>.<pid>.<random>`: writers on two nodes of a shared filesystem can
+  share a pid, and `HOSTNAME` can be inherited from a login node, so `$RANDOM` goes in too; none of
+  the three forks.
 - The trampoline body is `/bin/sh`, not bash, and re-resolves the architecture at exec time.
 
 ## 10. Portability floor
@@ -323,6 +441,12 @@ tail (everything below the `# ---- dispatch` banner)
   Guard on the count (`(( $# >= 2 ))`) or a trailing value-taking flag spins the loop forever.
 - The parser recognizes only `self update`, `tool` and `python`. Everything else passes through
   untouched. Do not grow it into a `uv` CLI model.
+- One bend, on purpose: `uvm_restore_request` reads a tool's own recorded request for three token
+  classes and no others, `--force` (dropped, since the replay adds its own and uv refuses a repeated
+  flag), `<name>[extras]@latest` (`@latest` dropped, since it conflicts with the pins) and the
+  local-file options `-e`, `--editable`, `--with-editable`, `--with-requirements`, `-c`,
+  `--constraints`, `--overrides`, `-b`, `--build-constraints` (refused). Every other token passes
+  through as recorded. A miss fails the restore loudly; it never restores wrong.
 
 ## 12. Project conventions (violations are HIGH, not auto-CRITICAL)
 

@@ -5,7 +5,7 @@
 # Release concurrent ranks at a damaged tree with UVM_REPAIR=1, and check that
 # exactly one repairs it under the repair lock while the rest wait and then run.
 #
-#   tests/repair-race.sh --scenario F|T|P|kill [--ranks N] [--timeout S]
+#   tests/repair-race.sh --scenario F|T|P|kill|I|ikill [--ranks N] [--timeout S]
 #                        [--launch local|srun] [--summary FILE]
 #                        [--uv-bin PATH] [--uv-version VER]
 #
@@ -31,8 +31,35 @@
 #         the lock, and no outcome may be recorded. `uvm doctor` must then
 #         report the lock, `uvm clean lock --yes` removes it, and a clean pass
 #         in the same scope must repair once with every rank exiting 0.
+#   I     Real uv, a managed cpython 3.12, and five tools installed through the
+#         wrapper, so each has a record under UVM_DATA, which lives in the
+#         sandbox with its bin/ first on PATH, as the module puts it. Each tool
+#         is damaged in one of the shapes a purge leaves:
+#           pyflakes 3.2.0 with tomli 2.0.1      its directory moved out
+#           pycodestyle, as under T              every file removed
+#           pygments 2.18.0                      its receipt moved out
+#           wheel 0.45.1                         its shim moved out
+#           progressbar from git, no revision    every file removed
+#         Rank i runs tool i mod 5 by its own name (pyflakes, pycodestyle,
+#         pygmentize, wheel, pb), which must resolve to its trampoline under
+#         $UVM_DATA/bin. Exactly one rank must restore all five from their
+#         records, each at the versions, interpreter minor, git commit and
+#         receipt it had, with every record unchanged; then `uv tool upgrade
+#         pycodestyle` must move the restored unpinned tool, as it would move
+#         one never purged.
+#   ikill As I, and the rank whose own wrapper holds the repair lock kills it,
+#         as under kill. The trampoline execs the wrapper, so the rank's $! is
+#         still the pid the owner line records. The waiters' timeout must name
+#         the lock and its owner line, then doctor, `uvm clean lock --yes` and
+#         a clean pass that restores once.
 #
-# --timeout S     the ranks' UVM_LOCK_TIMEOUT: 180 by default, 20 under kill.
+# --timeout S     the ranks' UVM_LOCK_TIMEOUT: 180 by default, 20 under kill
+#                 and ikill. Under ikill it holds for the killed pass only,
+#                 whose waiters run it out; the clean pass keeps the wrapper's
+#                 own 180, because its holder restores five tools with no
+#                 cache, one built from git, and that was measured past 20 s.
+#                 The clean pass's subject is one restore and every rank
+#                 exiting 0, not the timeout.
 # --uv-bin PATH   seeds versions/<ver> and `current` from a local uv binary and
 #                 the uvx beside it, for a host where the installer cannot run.
 #                 Without it, the job sets UVM_PIN to --uv-version (default
@@ -50,8 +77,9 @@
 #
 # The real scenarios need egress: astral.sh and its binary host for uv unless
 # --uv-bin is given, releases.astral.sh for the interpreter, and pypi.org and
-# files.pythonhosted.org for the tool. A host that is missing shows as a
-# preparation failure (exit 4) or as a failed outcome.
+# files.pythonhosted.org for the tool. I and ikill also need git and
+# github.com for the git tool. A host that is missing shows as a preparation
+# failure (exit 4) or as a failed outcome.
 #
 # The kill. Each rank starts its wrapper call directly in the background, so $!
 # is the wrapper's own pid, which is the pid its owner line records; started
@@ -93,8 +121,26 @@
 #   second_dist_info   distributions with more than one dist-info directory
 #   receipts_kept      tools whose uv-receipt.toml is byte-identical to before
 #
-# Under kill the killed pass reports those keys, then doctor_warn_repair_lock,
-# then the clean pass's keys prefixed clean_.
+# I and ikill count restores where the others count repairs, and add, of the
+# five tools:
+#
+#   restores, restore_lines   in place of repairs and repair_lines, for the
+#                  announcement `uv-manager: restoring the `
+#   timeout_named_owner   ranks whose timeout line is followed by the owner
+#                  line, `held by: host=`
+#   frozen_identical   tools whose sorted dist-info listing is the one before
+#                  the damage
+#   manifests_kept   tools whose every dist-info directory has its RECORD; the
+#                  listing alone cannot see a shape that keeps directories
+#   minor_kept     tools whose pyvenv.cfg names 3.12
+#   records_identical   tools whose record under UVM_DATA is unchanged
+#   receipts_kept  tools whose uv-receipt.toml is byte-identical to before
+#   commit_kept    1 when the git tool's commit is the one it was installed at
+#   unpinned_upgrade   under I only: moved, kept or failed, for what `uv tool
+#                  upgrade pycodestyle` did to the restored unpinned tool
+#
+# Under kill and ikill the killed pass reports those keys, then
+# doctor_warn_repair_lock, then the clean pass's keys prefixed clean_.
 #
 # Exit 0  every check of the scenario held.
 # Exit 1  a correctness defect; stderr names the key that caught it.
@@ -141,16 +187,32 @@ killwatch() {
 rank() {
     _i="$1"
     _d="$REPAIRRACE_COLLECT/$REPAIRRACE_PASS"
-    if [ "$(command -v uv)" = "$repo/bin/uv" ]; then
-        case "$REPAIRRACE_SCENARIO" in
-            F) set -- uv --version ;;
-            T) set -- uvx pyflakes --version ;;
-            *) set -- uv run --no-project -p 3.12 "$REPAIRRACE_COLLECT/t.py" ;;
-        esac
+    case "$REPAIRRACE_SCENARIO" in
+        F) set -- uv --version ;;
+        T) set -- uvx pyflakes --version ;;
+        I|ikill)
+            case "$((_i % 5))" in
+                0) set -- pyflakes --version ;;
+                1) set -- pycodestyle --version ;;
+                2) set -- pygmentize -V ;;
+                3) set -- wheel version ;;
+                *) set -- pb --version ;;
+            esac ;;
+        *) set -- uv run --no-project -p 3.12 "$REPAIRRACE_COLLECT/t.py" ;;
+    esac
+    # A tool run by its own name must reach the trampoline the wrapper wrote,
+    # and that trampoline the wrapper under test.
+    _w=wrapper
+    [ "$(command -v uv)" = "$repo/bin/uv" ] || _w=other
+    case "$1" in
+        uv|uvx) ;;
+        *) [ "$(command -v "$1")" = "$UVM_DATA/bin/$1" ] || _w=other ;;
+    esac
+    if [ "$_w" = wrapper ]; then
         UVM_REPAIR=1 UVM_LOCK_TIMEOUT="$REPAIRRACE_TIMEOUT"
         export UVM_REPAIR UVM_LOCK_TIMEOUT
         _kill=''
-        [ "$REPAIRRACE_SCENARIO" != kill ] || [ "$REPAIRRACE_PASS" != main ] || _kill=1
+        case "$REPAIRRACE_SCENARIO.$REPAIRRACE_PASS" in kill.main|ikill.main) _kill=1 ;; esac
         # Job control only for the call the kill may take: it puts the wrapper
         # in a process group of its own, whose id is the wrapper's pid.
         [ -z "$_kill" ] || set -m
@@ -172,10 +234,8 @@ rank() {
         fi
         echo "$_rc" > "$_d/rc.$_i"
         echo "$((_s1 - _s0))" > "$_d/el.$_i"
-        _w=wrapper
     else
         echo nowrapper > "$_d/rc.$_i"
-        _w=other
     fi
     # Recorded after the call, so these forks do not spread the ranks' arrival.
     # shellcheck disable=SC2016  # expanded by the inner bash, not this shell
@@ -218,6 +278,16 @@ restored() {
             if [ -f "$_sp/pyflakes/checker.py" ] && ls "$_sp"/pyflakes-*.dist-info/RECORD > /dev/null 2>&1 &&
                [ -f "$_sq/pycodestyle.py" ] && ls "$_sq"/pycodestyle-*.dist-info/RECORD "$_sq"/six-*.dist-info/RECORD > /dev/null 2>&1
             then echo 1; else echo 0; fi ;;
+        I|ikill)
+            # Every tool has its pyvenv.cfg and every executable its record
+            # names, under the shim directory.
+            for _t in $itools; do
+                [ -f "$root/tools/$_t/pyvenv.cfg" ] || { echo 0; return; }
+                while IFS= read -r _e; do
+                    [ -x "$root/bin/shims/$_e" ] || { echo 0; return; }
+                done < "$c/rec0/$_t/entrypoints"
+            done
+            echo 1 ;;
         *)
             _base=$(interp)
             if [ -n "$_base" ] && "$_base/bin/python3" -c 'import json, os, ssl' > /dev/null 2>&1
@@ -290,6 +360,38 @@ prepare_real() {
             if uvx pyflakes --version > /dev/null 2>&1; then
                 noprep "the damage did not break the command"
             fi ;;
+        I|ikill)
+            { uv tool install -p 3.12 pyflakes==3.2.0 --with tomli==2.0.1 &&
+              uv tool install -p 3.12 pycodestyle==2.11.1 --with six==1.16.0 &&
+              uv tool install -p 3.12 pycodestyle --with six &&
+              uv tool install -p 3.12 pygments==2.18.0 &&
+              uv tool install -p 3.12 wheel==0.45.1 &&
+              uv tool install -p 3.12 git+https://github.com/glentner/progressbar; } >> "$c/prep.err" 2>&1 \
+                || noprep "the tool install failed"
+            if [ "$(unpinned)" != "2.11.1 1.16.0" ] ||
+               ! grep -q '{ name = "pycodestyle" }' "$root/tools/pycodestyle/uv-receipt.toml"; then
+                noprep "the unpinned tool is not at its older release"
+            fi
+            for _t in $itools; do
+                [ -s "$UVM_DATA/tools/$_t/entrypoints" ] || noprep "a tool has no record"
+                frozen "$_t" > "$c/frozen.$_t"
+                cp "$root/tools/$_t/uv-receipt.toml" "$c/receipt.$_t" 2>> "$c/prep.err" || noprep "the receipts could not be kept"
+            done
+            commit > "$c/commit"
+            [ -s "$c/commit" ] || noprep "no commit recorded for the git tool"
+            cp -R "$UVM_DATA/tools" "$c/rec0" 2>> "$c/prep.err" || noprep "the records could not be kept"
+            _tt="$root/tools"
+            { mv "$_tt/pyflakes" "$trash/W.pyflakes" &&
+              find "$_tt/pycodestyle" -type f -delete &&
+              mv "$_tt/pygments/uv-receipt.toml" "$trash/R.pygments" &&
+              mv "$root/bin/shims/wheel" "$trash/S.wheel" &&
+              find "$_tt/progressbar" -type f -delete; } 2>> "$c/prep.err" \
+                || noprep "the damage could not be made"
+            # With the knob off a trampoline runs the shim or says why it
+            # cannot; these two must not run, or the shapes were not built.
+            if pyflakes --version > /dev/null 2>&1 || wheel version > /dev/null 2>&1; then
+                noprep "the damage did not break the command"
+            fi ;;
         *)
             _base=$(interp)
             [ -n "$_base" ] || noprep "no managed interpreter directory"
@@ -329,6 +431,45 @@ receipts_kept() {
         ! cmp -s "$c/receipt.$_t" "$root/tools/$_t/uv-receipt.toml" || _n=$((_n + 1))
     done
     echo "$_n"
+}
+
+# TOOL: its dist-info directory names, sorted.
+frozen() {
+    for _e in "$root/tools/$1"/lib/*/site-packages/*.dist-info; do
+        [ -d "$_e" ] || continue
+        _e="${_e##*/}"; echo "${_e%.dist-info}"
+    done | sort
+}
+# TOOL: true when it has a dist-info directory and each has its RECORD.
+manifests() {
+    _m=''
+    for _e in "$root/tools/$1"/lib/*/site-packages/*.dist-info; do
+        [ -d "$_e" ] || continue
+        [ -f "$_e/RECORD" ] || return 1
+        _m=1
+    done
+    [ -n "$_m" ]
+}
+# The git tool's commit, from the one-line direct_url.json uv writes.
+commit() {
+    sed -n 's/.*"commit_id":"\([0-9a-f]*\)".*/\1/p' \
+        "$root/tools/progressbar"/lib/*/site-packages/progressbar-*.dist-info/direct_url.json 2>/dev/null
+}
+# R1's equalities over the five tools, as counts, appended to FILE.
+ifacts() {
+    _fi=0 _mk=0 _mn=0 _ri=0 _rk=0 _ck=0
+    for _t in $itools; do
+        # Not _e: frozen and manifests loop over it, and sh has no locals.
+        _td="$root/tools/$_t"
+        ! frozen "$_t" | cmp -s "$c/frozen.$_t" - || _fi=$((_fi + 1))
+        ! manifests "$_t" || _mk=$((_mk + 1))
+        ! grep -q '^version_info = 3\.12\.' "$_td/pyvenv.cfg" 2>/dev/null || _mn=$((_mn + 1))
+        ! diff -r "$c/rec0/$_t" "$UVM_DATA/tools/$_t" > /dev/null 2>&1 || _ri=$((_ri + 1))
+        ! cmp -s "$c/receipt.$_t" "$_td/uv-receipt.toml" || _rk=$((_rk + 1))
+    done
+    [ "$(commit)" != "$(cat "$c/commit")" ] || _ck=1
+    printf '%s\n' "frozen_identical=$_fi" "manifests_kept=$_mk" "minor_kept=$_mn" \
+        "records_identical=$_ri" "receipts_kept=$_rk" "commit_kept=$_ck" >> "$1"
 }
 
 # NAME: release every rank once, then record what the pass left.
@@ -383,11 +524,12 @@ run_pass() {
         printf '%s\n' "unpinned_version=$1" "unpinned_with=$2" \
             "second_dist_info=$(second_dist_info)" "receipts_kept=$(receipts_kept)" >> "$_pd/facts"
     fi
+    case "$REPAIRRACE_SCENARIO" in I|ikill) ifacts "$_pd/facts" ;; esac
 }
 
 if [ "${REPAIRRACE_ROLE:-}" = job ]; then
     : "${UVM_ROOT:?}" "${UVM_SANDBOX:?}" "${REPAIRRACE_COLLECT:?}" "${REPAIRRACE_SCENARIO:?}"
-    : "${REPAIRRACE_RANKS:?}" "${REPAIRRACE_TIMEOUT:?}" "${REPAIRRACE_LAUNCH:?}"
+    : "${REPAIRRACE_RANKS:?}" "${REPAIRRACE_TIMEOUT:?}" "${REPAIRRACE_CLEAN_TIMEOUT:?}" "${REPAIRRACE_LAUNCH:?}"
     : "${REPAIRRACE_UV_VERSION:?}" "${REPAIRRACE_UV_BIN=}"
     c="$REPAIRRACE_COLLECT"
     root="$UVM_ROOT/${UVM_PLATFORM:-$(uname -m)}"
@@ -397,6 +539,16 @@ if [ "${REPAIRRACE_ROLE:-}" = job ]; then
     mkdir -p "$trash"
     REPAIRRACE_OWNER="$root/.repair.lock/owner"
     export REPAIRRACE_OWNER
+    itools="pyflakes pycodestyle pygments wheel progressbar"
+    case "$REPAIRRACE_SCENARIO" in
+        I|ikill)
+            # The records and the trampolines live beside the tree under test,
+            # and $UVM_DATA/bin comes first on PATH, as the module puts it.
+            # Under srun every rank inherits both.
+            UVM_DATA="$UVM_SANDBOX/data/uvm"
+            PATH="$UVM_DATA/bin:$PATH"
+            export UVM_DATA PATH ;;
+    esac
     p0=$(date +%s)
     case "$REPAIRRACE_SCENARIO" in
         F) prepare_fixture ;;
@@ -405,12 +557,25 @@ if [ "${REPAIRRACE_ROLE:-}" = job ]; then
     fact prep_s "$(($(date +%s) - p0))"
     fact prep ok
     run_pass main
-    if [ "$REPAIRRACE_SCENARIO" = kill ]; then
-        uvm doctor > "$c/doctor.out" 2>&1
-        fact doctor_warn_repair_lock "$(grep -c '^WARN  repair lock standing' "$c/doctor.out")"
-        uvm clean lock --yes > /dev/null 2>&1 || fact clean_lock failed
-        run_pass clean
+    if [ "$REPAIRRACE_SCENARIO" = I ]; then
+        # The restored unpinned tool must still upgrade, as one never purged
+        # does: a replay that pinned its receipt would hold it at 2.11.1.
+        if uv tool upgrade pycodestyle >> "$c/upgrade.err" 2>&1; then
+            if frozen pycodestyle | grep -qx 'pycodestyle-2\.11\.1'; then u=kept; else u=moved; fi
+        else
+            u=failed
+        fi
+        echo "unpinned_upgrade=$u" >> "$c/main/facts"
     fi
+    case "$REPAIRRACE_SCENARIO" in
+        kill|ikill)
+            uvm doctor > "$c/doctor.out" 2>&1
+            fact doctor_warn_repair_lock "$(grep -c '^WARN  repair lock standing' "$c/doctor.out")"
+            uvm clean lock --yes > /dev/null 2>&1 || fact clean_lock failed
+            REPAIRRACE_TIMEOUT="$REPAIRRACE_CLEAN_TIMEOUT"
+            export REPAIRRACE_TIMEOUT
+            run_pass clean ;;
+    esac
     exit 0
 fi
 
@@ -422,7 +587,7 @@ usage() { echo "repair-race.sh: $*" >&2; exit 2; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --scenario)   scenario="${2:?--scenario needs F, T, P or kill}"; shift 2 ;;
+        --scenario)   scenario="${2:?--scenario needs F, T, P, kill, I or ikill}"; shift 2 ;;
         --ranks)      ranks="${2:?--ranks needs a count}"; shift 2 ;;
         --timeout)    timeout="${2:?--timeout needs seconds}"; shift 2 ;;
         --launch)     launch="${2:?--launch needs local|srun}"; shift 2 ;;
@@ -432,16 +597,17 @@ while [ $# -gt 0 ]; do
         *) usage "unknown option: $1" ;;
     esac
 done
-case "$scenario" in F|T|P|kill) ;; *) usage "--scenario must be F, T, P or kill" ;; esac
+case "$scenario" in F|T|P|kill|I|ikill) ;; *) usage "--scenario must be F, T, P, kill, I or ikill" ;; esac
 case "$launch" in local|srun) ;; *) usage "bad --launch: $launch (local or srun)" ;; esac
 case "$ranks" in ''|*[!0-9]*|0) usage "bad --ranks: $ranks (a positive count)" ;; esac
 if [ -z "$timeout" ]; then
-    if [ "$scenario" = kill ]; then timeout=20; else timeout=180; fi
+    case "$scenario" in kill|ikill) timeout=20 ;; *) timeout=180 ;; esac
 fi
 case "$timeout" in ''|*[!0-9]*) usage "bad --timeout: $timeout (whole seconds)" ;; esac
+if [ "$scenario" = ikill ]; then clean_timeout=180; else clean_timeout="$timeout"; fi
 case "$uv_version" in ''|*[!0-9.]*|.*|*.) usage "bad --uv-version: $uv_version (a version such as 0.13.6)" ;; esac
 if [ -n "$uv_bin" ]; then
-    [ "$scenario" != F ] || usage "--uv-bin applies to T, P and kill; F uses the fixture"
+    [ "$scenario" != F ] || usage "--uv-bin applies to T, P, kill, I and ikill; F uses the fixture"
     case "$uv_bin" in /*) ;; *) uv_bin="$(pwd -P)/$uv_bin" ;; esac
     [ -x "$uv_bin" ] && [ -x "$(dirname -- "$uv_bin")/uvx" ] \
         || usage "--uv-bin must name an executable uv with uvx beside it: $uv_bin"
@@ -475,7 +641,8 @@ runjob() {
     if [ "$scenario" = F ]; then "$temp_root" --offline "$@"; else "$temp_root" "$@"; fi
 }
 REPAIRRACE_ROLE=job REPAIRRACE_COLLECT="$c" REPAIRRACE_SCENARIO="$scenario" \
-REPAIRRACE_RANKS="$ranks" REPAIRRACE_TIMEOUT="$timeout" REPAIRRACE_LAUNCH="$launch" \
+REPAIRRACE_RANKS="$ranks" REPAIRRACE_TIMEOUT="$timeout" REPAIRRACE_CLEAN_TIMEOUT="$clean_timeout" \
+REPAIRRACE_LAUNCH="$launch" \
 REPAIRRACE_UV_BIN="$uv_bin" REPAIRRACE_UV_VERSION="$uv_version" \
     runjob bash "$self" > "$c/job.log" 2>&1
 jrc=$?
@@ -491,15 +658,28 @@ case "$scenario" in
     T) want=3.2.0 ;;
     *) want=expected ;;
 esac
+# I and ikill restore installed tools from their records; the rest repair in
+# place. The announcement and the keys that count it follow.
+case "$scenario" in
+    I|ikill) word=restore announce='uv-manager: restoring the ' ;;
+    *) word=repair announce='uv-manager: repairing the ' ;;
+esac
 
-# A rank's stdout, as one word: the version it printed, `expected` for the
-# script's line, `none` when empty, and `other` for anything else, so a uv that
-# is not the wrapper under test cannot pass for it.
+# FILE RANK: a rank's stdout, as one word: the version it printed, `expected`
+# for the script's line or the rank's tool's own version line, `none` when
+# empty, and `other` for anything else, so a uv that is not the wrapper under
+# test cannot pass for it.
 classify() {
     _o=$(cat "$1" 2>/dev/null)
     if [ -z "$_o" ]; then echo none; return; fi
     [ "$(printf '%s\n' "$_o" | wc -l | tr -d ' ')" = 1 ] || { echo other; return; }
     case "$scenario" in
+        I|ikill)
+            case "$(($2 % 5)).$_o" in
+                0."3.2.0 Python 3.12."*|1.2.11.1|2."Pygments version 2.18.0, "*|3."wheel 0.45.1"|4."pb v1.2.1")
+                    _o=expected ;;
+                *) _o='' ;;
+            esac ;;
         F)
             case "$_o" in
                 "uv "*" (fixture)") _o="${_o#uv }"; _o="${_o% (fixture)}" ;;
@@ -516,19 +696,21 @@ classify() {
     case "$_o" in ''|*[!0-9a-z.]*) echo other ;; *) echo "$_o" ;; esac
 }
 
-# PASS PREFIX: the pass's keys, each prefixed.
+# PASS PREFIX TIMEOUT: the pass's keys, each prefixed; TIMEOUT is the ranks'
+# UVM_LOCK_TIMEOUT in that pass.
 reduce() {
     _d="$c/$1"
     _p="$2"
+    _to="$3"
     for _h in rc out node bash path wait took; do : > "$c/h.$_h"; done
-    _rep=0 _lines=0 _notice=0 _tnl=0 _killed=0 _holder=''
+    _rep=0 _lines=0 _notice=0 _tnl=0 _tno=0 _killed=0 _holder=''
     _i=1
     while [ "$_i" -le "$ranks" ]; do
         _r=$(cat "$_d/rc.$_i" 2>/dev/null)
         echo "${_r:-none}" >> "$c/h.rc"
-        classify "$_d/out.$_i" >> "$c/h.out"
+        classify "$_d/out.$_i" "$_i" >> "$c/h.out"
         _e="$_d/err.$_i"
-        _a=$(nz "$(grep -c 'uv-manager: repairing the ' "$_e" 2>/dev/null)")
+        _a=$(nz "$(grep -c "$announce" "$_e" 2>/dev/null)")
         _lines=$((_lines + _a))
         _k=0
         if [ -e "$_d/killed.$_i" ]; then
@@ -538,8 +720,14 @@ reduce() {
         fi
         if [ "$_a" -gt 0 ] && [ "$_k" -eq 0 ]; then _rep=$((_rep + 1)); _holder="$_i"; fi
         _notice=$((_notice + $(nz "$(grep -c 'uv-manager: waiting for the repair lock' "$_e" 2>/dev/null)")))
-        if grep -q "timed out after ${timeout}s waiting for the repair lock" "$_e" 2>/dev/null; then
+        if grep -q "timed out after ${_to}s waiting for the repair lock" "$_e" 2>/dev/null; then
             _tnl=$((_tnl + 1))
+        fi
+        # The owner line follows the timeout line; the wait notice carries one
+        # too, so the pair is what counts.
+        if awk -v t="timed out after ${_to}s waiting for the repair lock" \
+               'f && index($0, "held by: host=") { n = 1 } { f = index($0, t) } END { exit !n }' "$_e" 2>/dev/null; then
+            _tno=$((_tno + 1))
         fi
         # node, bash version, wrapper|other: three words, split on purpose.
         _who=$(cat "$_d/who.$_i" 2>/dev/null) || _who=''
@@ -575,7 +763,7 @@ reduce() {
         "uv_resolved=$(hist < "$c/h.path")" \
         "nodes=$(grep -v -x none "$c/h.node" | sort -u | wc -l | tr -d ' ')" \
         "bash=$(grep -v -x none "$c/h.bash" | sort -u | paste -s -d , -)" \
-        "repairs=$_rep" "repair_lines=$_lines" \
+        "${word}s=$_rep" "${word}_lines=$_lines" \
         "hold_s=$_hold" "wait_max_s=$_wmax" "wait_p50_s=$_wp50" \
         "notice_lines=$_notice" "timeout_named_lock=$_tnl" "killed=$_killed" \
         "kill_took=${_took:-none}" \
@@ -588,6 +776,14 @@ reduce() {
             "second_dist_info=$(val second_dist_info "$_f" none)" \
             "receipts_kept=$(val receipts_kept "$_f" none)" | sed "s/^/$_p/"
     fi
+    case "$scenario" in
+        I|ikill)
+            echo "timeout_named_owner=$_tno" | sed "s/^/$_p/"
+            for _k in frozen_identical manifests_kept minor_kept records_identical receipts_kept commit_kept; do
+                echo "$_p$_k=$(val "$_k" "$_f" none)"
+            done
+            [ "$scenario" != I ] || echo "${_p}unpinned_upgrade=$(val unpinned_upgrade "$_f" none)" ;;
+    esac
 }
 
 prep=$(val prep "$c/facts" "did not finish")
@@ -595,11 +791,13 @@ prep=$(val prep "$c/facts" "did not finish")
     printf '%s\n' "scenario=$scenario" "launch=$launch" "ranks=$ranks" "timeout=$timeout" \
         "uv=$(val uv "$c/facts" none)" "prep_s=$(val prep_s "$c/facts" none)"
     if [ "$prep" = ok ]; then
-        reduce main ''
-        if [ "$scenario" = kill ]; then
-            echo "doctor_warn_repair_lock=$(val doctor_warn_repair_lock "$c/facts" none)"
-            reduce clean clean_
-        fi
+        reduce main '' "$timeout"
+        case "$scenario" in
+            kill|ikill)
+                echo "doctor_warn_repair_lock=$(val doctor_warn_repair_lock "$c/facts" none)"
+                [ "$scenario" != ikill ] || echo "clean_timeout=$clean_timeout"
+                reduce clean clean_ "$clean_timeout" ;;
+        esac
     fi
 } > "$c/result"
 
@@ -612,7 +810,7 @@ elif [ "$prep" != ok ]; then
     progress="preparation failed: $prep"
 elif [ "$(key launch_failures)" != 0 ] || [ "$(key clean_launch_failures)" = 1 ]; then
     progress="srun failed to launch the ranks"
-elif [ "$scenario" = kill ] && [ "$(key killed)" != 1 ]; then
+elif { [ "$scenario" = kill ] || [ "$scenario" = ikill ]; } && [ "$(key killed)" != 1 ]; then
     progress="$(key killed) ranks killed their own wrapper holding the repair lock, so the fault was not constructed"
 fi
 echo "progress=$progress" >> "$c/result"
@@ -638,7 +836,7 @@ repaired() {
     [ "$(key "${1}rc_hist")" = "0:$ranks" ]          || bad "${1}rc_hist=$(key "${1}rc_hist"): not every rank exited 0"
     [ "$(key "${1}stdout_hist")" = "$want:$ranks" ]  || bad "${1}stdout_hist=$(key "${1}stdout_hist"): expected $want:$ranks"
     [ "$(key "${1}uv_resolved")" = "wrapper:$ranks" ] || bad "${1}uv_resolved=$(key "${1}uv_resolved"): a rank ran another uv"
-    [ "$(key "${1}repairs")" = 1 ]                   || bad "${1}repairs=$(key "${1}repairs"): expected exactly 1"
+    [ "$(key "${1}${word}s")" = 1 ]                  || bad "${1}${word}s=$(key "${1}${word}s"): expected exactly 1"
     [ "$(key "${1}outcomes")" = 1 ] && [ "$(key "${1}outcome_kind")" = ok ] \
         || bad "${1}outcomes=$(key "${1}outcomes") ${1}outcome_kind=$(key "${1}outcome_kind"): expected one repaired outcome"
     [ "$(key "${1}locks_left")" = 0 ]                || bad "${1}locks_left=$(key "${1}locks_left"): a lock was left standing"
@@ -649,18 +847,31 @@ repaired() {
         [ "$(key "${1}second_dist_info")" = 0 ]      || bad "${1}second_dist_info=$(key "${1}second_dist_info"): a second dist-info was left"
         [ "$(key "${1}receipts_kept")" = 2 ]         || bad "${1}receipts_kept=$(key "${1}receipts_kept"): a receipt changed"
     fi
+    case "$scenario" in
+        I|ikill)
+            for _k in frozen_identical manifests_kept minor_kept records_identical receipts_kept; do
+                [ "$(key "${1}$_k")" = 5 ] || bad "${1}$_k=$(key "${1}$_k"): expected all 5 tools"
+            done
+            [ "$(key "${1}commit_kept")" = 1 ] || bad "${1}commit_kept=$(key "${1}commit_kept"): the git tool's commit moved" ;;
+    esac
 }
-if [ "$scenario" = kill ]; then
+if [ "$scenario" = kill ] || [ "$scenario" = ikill ]; then
     w=$((ranks - 1))
     if [ "$w" -gt 0 ]; then want_rc="1:$w,137:1"; else want_rc="137:1"; fi
     [ "$(key rc_hist)" = "$want_rc" ]          || bad "rc_hist=$(key rc_hist): expected $want_rc"
     [ "$(key timeout_named_lock)" = "$w" ]     || bad "timeout_named_lock=$(key timeout_named_lock): expected $w"
-    [ "$(key repairs)" = 0 ]                   || bad "repairs=$(key repairs): a waiter repaired"
+    [ "$(key "${word}s")" = 0 ]                || bad "${word}s=$(key "${word}s"): a waiter took over"
+    if [ "$scenario" = ikill ]; then
+        [ "$(key timeout_named_owner)" = "$w" ] || bad "timeout_named_owner=$(key timeout_named_owner): expected $w"
+    fi
     [ "$(key outcomes)" = 0 ]                  || bad "outcomes=$(key outcomes): the killed holder recorded an outcome"
     [ "$(key locks_left)" = 1 ]                || bad "locks_left=$(key locks_left): expected the killed holder's lock"
     [ "$(key doctor_warn_repair_lock)" = 1 ]   || bad "doctor_warn_repair_lock=$(key doctor_warn_repair_lock): expected 1"
     repaired clean_
 else
     repaired ''
+    if [ "$scenario" = I ]; then
+        [ "$(key unpinned_upgrade)" = moved ] || bad "unpinned_upgrade=$(key unpinned_upgrade): the restored unpinned tool did not upgrade"
+    fi
 fi
 exit "$rc"

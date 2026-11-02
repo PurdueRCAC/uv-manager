@@ -12,7 +12,8 @@
 # it opt-in (module load / explicit PATH addition), never default PATH.
 #
 # Real uv payload (binary, cache, tool venvs, managed pythons) never touches
-# home quota — it lives under $UVM_ROOT/<arch>/ instead.
+# home quota — it lives under $UVM_ROOT/<arch>/ instead. What lives under
+# home is $UVM_DATA: a record of each installed tool, a few KB apiece.
 #
 # See README.md for the design rationale.
 
@@ -143,8 +144,9 @@ uvm_base_origin=""
 # The generated trampolines resolve this same expression in their own /bin/sh
 # body (see uvm_trampolines); the two languages share no code, so it is
 # written twice on purpose. Both copies must move together — when they
-# disagree, a tool is installed under one key and looked for under another,
-# and every trampoline exits 127 naming a key the wrapper never used.
+# disagree, a tool is installed under one key and looked for under another:
+# every trampoline misses its shim and enters the wrapper on every call, so
+# the knob-off path silently pays for a bash start it exists to avoid.
 
 uvm_init() {
   uvm_resolve_root
@@ -154,10 +156,40 @@ uvm_init() {
   uvm_current="${uvm_root}/current"
   real_uv="${uvm_current}/uv"
   real_uvx="${uvm_current}/uvx"
-  # Architecture-neutral trampoline directory. Safe for a modulefile to put on
-  # PATH because it has no architecture in its path; see uvm_trampolines.
-  uvm_neutral_bin="${uvm_base}/bin"
+  # This root's trampolines, one per shim name: the managed interpreters and
+  # any tool without a record. The module keeps it on PATH behind the record
+  # trampolines below; see uvm_trampolines.
+  uvm_root_bin="${uvm_base}/bin"
+  uvm_heal_marker="${uvm_root_bin}/.uv-manager-synced"
+
+  # The durable tree: what the user asked for, kept off scratch so a purge
+  # cannot take it with the environments it describes. It is a few KB per
+  # tool, so home quota is the right place for it, and it names no
+  # architecture, because one record serves every key. Builtin tests only:
+  # this runs on every call. With nothing to resolve from, it stays empty and
+  # whatever would write there skips; no call fails for it.
+  if [[ -n "${UVM_DATA:-}" ]]; then
+    uvm_data="${UVM_DATA}" uvm_data_origin="UVM_DATA"
+  elif [[ -n "${XDG_DATA_HOME:-}" ]]; then
+    uvm_data="${XDG_DATA_HOME}/uvm" uvm_data_origin="\$XDG_DATA_HOME"
+  elif [[ -n "${HOME:-}" ]]; then
+    uvm_data="${HOME}/.local/share/uvm" uvm_data_origin="\$HOME"
+  else
+    uvm_data="" uvm_data_origin="nothing: set UVM_DATA"
+  fi
+  uvm_records="${uvm_data:+${uvm_data}/tools}"
+  # The record trampolines, one per executable a record names. Safe for a
+  # modulefile to put on PATH because it has no architecture in its path, and
+  # durable, so a record keeps its trampoline through a purge; see
+  # uvm_trampolines.
+  uvm_neutral_bin="${uvm_data:+${uvm_data}/bin}"
 }
+
+uvm_data=""
+uvm_data_origin=""
+uvm_records=""
+uvm_neutral_bin=""
+uvm_root_bin=""
 
 # ---- knobs -----------------------------------------------------------------
 
@@ -565,7 +597,7 @@ uvm_export_env() {
   # with the depth of UVM_ROOT and a scratch path is deep. Measured at 2 ms of
   # a 12 ms invocation, on the path `uv run` takes inside loops that call it
   # thousands of times, issued by every rank of a job at once against a single
-  # metadata server. Six builtin tests cost 15 us and spawn nothing.
+  # metadata server. Five builtin tests cost microseconds and spawn nothing.
   #
   # The test stays outside the subshell. Moved inside, the fork survives and a
   # third of the saving goes with it.
@@ -575,24 +607,41 @@ uvm_export_env() {
   # a tree a scratch purge has partially removed. It does not repair modes:
   # mkdir -p never chmods a directory that already exists, so the property is
   # "directories we create are 0700", not "our directories are 0700".
+  #
+  # Neither trampoline directory is among them. Only a trampoline sync creates
+  # those, so no plain uv or uvx call writes under UVM_DATA.
   if [[ ! -d "${UV_CACHE_DIR}" || ! -d "${UV_TOOL_DIR}" || ! -d "${UV_TOOL_BIN_DIR}" \
-     || ! -d "${UV_PYTHON_INSTALL_DIR}" || ! -d "${UV_PYTHON_BIN_DIR}" \
-     || ! -d "${uvm_neutral_bin}" ]]; then
+     || ! -d "${UV_PYTHON_INSTALL_DIR}" || ! -d "${UV_PYTHON_BIN_DIR}" ]]; then
     (
       umask 077
       mkdir -p "${UV_CACHE_DIR}" "${UV_TOOL_DIR}" "${UV_TOOL_BIN_DIR}" \
-               "${UV_PYTHON_INSTALL_DIR}" "${UV_PYTHON_BIN_DIR}" "${uvm_neutral_bin}"
+               "${UV_PYTHON_INSTALL_DIR}" "${UV_PYTHON_BIN_DIR}"
     )
   fi
+  uvm_export_trees
+}
+
+# The exports alone, after uvm_set_paths. Creates nothing, so the knob-off
+# trampoline entry runs this and not the guard above: a call that only execs a
+# shim leaves the tree exactly as it found it.
+uvm_export_trees() {
+  # The two trees, for everything the wrapper runs. A trampoline finds the
+  # shims through UVM_ROOT, and a child that re-enters the wrapper then
+  # resolves the trees this call did, even when the root came from the
+  # cascade rather than the environment. Both name no architecture, so they
+  # are as safe to inherit across node types as the modulefile's own.
+  export UVM_ROOT="${uvm_base}"
+  if [[ -n "${uvm_data}" ]]; then export UVM_DATA="${uvm_data}"; fi
 
   # Both the arch-specific shim dirs (correct for this node, for anything we
-  # exec) and the arch-neutral trampoline dir (correct everywhere, and what
-  # the modulefile puts on PATH).
+  # exec) and the record trampolines (correct everywhere, and what the
+  # modulefile puts first on PATH). The root's own trampolines are not added:
+  # the shim directories ahead of them reach the same executables.
   #
   # Prepended idempotently: the exported PATH is inherited by everything uv
   # spawns, and anything that re-enters the wrapper would otherwise add the
   # same three entries again at every level of nesting.
-  uvm_path_prepend "${uvm_neutral_bin}"
+  if [[ -n "${uvm_neutral_bin}" ]]; then uvm_path_prepend "${uvm_neutral_bin}"; fi
   uvm_path_prepend "${UV_PYTHON_BIN_DIR}"
   uvm_path_prepend "${UV_TOOL_BIN_DIR}"
   export PATH
@@ -610,78 +659,629 @@ uvm_path_prepend() {
 # `uv tool install ruff` drops an executable in a per-architecture directory.
 # That directory cannot go on PATH from a modulefile, because a modulefile is
 # evaluated on the login node and inherited by compute nodes of a different
-# architecture. So instead we maintain one neutral directory of tiny shell
+# architecture. So instead we maintain neutral directories of tiny shell
 # trampolines that re-resolve the platform key at exec time.
 #
-# The body resolves that key the way uvm_init does, on the executing node and
-# from the invoker's environment. See the platform-key banner: the expression
-# is duplicated across two languages and both copies must move together.
+# There are two, and a sync keeps each to its own rule:
 #
-# Trampolines are generated for the union of names across all architectures,
-# so invoking a tool on an architecture where it is not installed reports
-# that, instead of failing with "Exec format error".
+#   $UVM_DATA/bin   one per executable a record names, off scratch, so a purge
+#                   that takes the shim leaves the trampoline that can restore
+#                   it. One is removed only when no record names it, which in
+#                   practice is a `uv tool uninstall`. Records are shared by
+#                   every root that shares UVM_DATA, so every root's sync
+#                   writes the same set here.
+#   $UVM_ROOT/bin   one per shim name in this root, under any architecture,
+#                   dangling or not: the managed interpreters and any tool
+#                   without a record, which no record can name. One is removed
+#                   when no shim in this root names it, as 0.7.0 did. A sync
+#                   never touches another root's.
+#
+# The module puts the first ahead of the second on PATH. A tool on an
+# architecture where it is not installed reports that, instead of failing
+# with "Exec format error".
+#
+# 0.7.0 wrote its trampolines to $UVM_ROOT/bin with a body that never enters
+# the wrapper. A sync rewrites each marked one a shim names in place, under
+# the same path, and never removes it for being old: a job script's shell
+# that has already run the tool has hashed that path, and its next call must
+# still find a file there.
+#
+# The body has three paths. With UVM_REPAIR off, UVM_ROOT set and the shim
+# executable, it execs the shim and nothing else: no bash, no lock, the cost
+# of one `sh` start, cheaper than 0.7.0's body, which located the tree from
+# $0 with two command substitutions and a dirname. With the knob on, or the
+# shim missing, or UVM_ROOT unset, it execs `uv-manager _trampoline NAME`,
+# which runs the scope check a uv call runs, resolves the root by the same
+# cascade, and runs the shim or says why it cannot. The root is never baked
+# in: two clusters sharing UVM_DATA have a root each. The knob reads as the
+# wrapper reads it: unset, empty and 0 are off, everything else on.
+#
+# The wrapper it enters is the uv-manager on PATH, which is what the user's
+# uv resolves, so the check a trampoline runs and the check a uv call runs
+# are one version's. The generating wrapper's own directory is baked in
+# behind it for a context that runs the wrapper by absolute path with no
+# module; a path containing a single quote is not baked, and a trampoline
+# that finds neither says so.
+#
+# The body resolves the platform key the way uvm_init does, on the executing
+# node and from the invoker's environment. See the platform-key banner: the
+# expression is duplicated across two languages and both copies must move
+# together.
 
 readonly uvm_tramp_marker="# uv-manager-trampoline"
 
-uvm_trampolines() {
-  local names name f tmp
+# The self-heal's marker, in this root's trampoline directory. A sync of that
+# directory writes it, and the dispatch tail syncs both directories when it is
+# missing; see the self-heal there. A dot name, so it is never on PATH as a
+# command and no removal loop sees it.
+uvm_heal_marker=""
 
-  [[ -d "${uvm_base}" ]] || return 0
-  mkdir -p "${uvm_neutral_bin}" 2>/dev/null || return 0
+# The directories the last sync wrote, for `uvm trampolines` to report.
+uvm_synced=()
+
+# [records]: syncs both directories, or with `records` the record trampolines
+# alone, which is all doctor may write: the other directory is under UVM_ROOT.
+# A sync of this root's directory ends by writing the self-heal's marker, and
+# one that did not write that directory removes it, so the next call retries.
+# Doctor, which passes `records`, can neither set it nor clear it.
+uvm_trampolines() {
+  local names="" f d self hit=""
+  uvm_synced=()
+  self="$(abspath "$0")"; self="${self%/*}/uv-manager"
+  case "${self}" in *"'"*) self="" ;; esac
+
+  # Every branch ends in a zero status, so the substitution cannot trip
+  # errexit under pipefail.
+  if [[ -n "${uvm_records}" ]]; then
+    names="$(
+      for f in "${uvm_records}"/*/entrypoints; do
+        if [[ -f "${f}" ]]; then cat -- "${f}"; fi
+      done | sort -u
+    )"
+  fi
+  uvm_trampoline_dir "${uvm_neutral_bin}" "${names}" "${self}"
+  [[ "${1:-}" != records && -d "${uvm_base}" ]] || return 0
 
   names="$(
     for d in "${uvm_base}"/*/bin/shims "${uvm_base}"/*/bin/python-shims; do
       [[ -d "${d}" ]] || continue
       for f in "${d}"/*; do
         [[ -e "${f}" || -L "${f}" ]] || continue
-        basename -- "${f}"
+        printf '%s\n' "${f##*/}"
       done
     done | sort -u
   )"
+  uvm_trampoline_dir "${uvm_root_bin}" "${names}" "${self}"
+  for d in ${uvm_synced[@]+"${uvm_synced[@]}"}; do
+    if [[ "${d}" == "${uvm_root_bin}" ]]; then hit=1; fi
+  done
+  if [[ -n "${hit}" ]]; then
+    : 2>/dev/null > "${uvm_heal_marker}" || true
+  elif [[ -e "${uvm_heal_marker}" ]]; then
+    rm -f "${uvm_heal_marker}" 2>/dev/null || true
+  fi
+  return 0
+}
+
+# Says which directories the last sync wrote, and why any other was left as
+# it was, for `uvm trampolines`.
+uvm_trampolines_report() {
+  local d s hit wrote="" left=""
+  for d in ${uvm_neutral_bin:+"${uvm_neutral_bin}"} "${uvm_root_bin}"; do
+    hit=0
+    for s in ${uvm_synced[@]+"${uvm_synced[@]}"}; do
+      if [[ "${s}" == "${d}" ]]; then hit=1; fi
+    done
+    if (( hit )); then wrote+="${wrote:+ and }${d}"; else left+="${left:+ and }${d}"; fi
+  done
+  if [[ -n "${wrote}" ]]; then note "trampolines synced in ${wrote}"; fi
+  if [[ -n "${left}" ]]; then note "left ${left} as it was: it cannot be created or written"; fi
+  if [[ -z "${uvm_neutral_bin}" ]]; then
+    note "no trampolines for the records: UVM_DATA, XDG_DATA_HOME and HOME are all unset"
+  fi
+  return 0
+}
+
+# DIR NAMES WRAPPER: writes a trampoline in DIR for each line of NAMES, then
+# removes each marked file in DIR that NAMES does not list, and adds DIR to
+# uvm_synced. A DIR that cannot be created or written is left exactly as it
+# is, nothing written and nothing removed: mkdir -p succeeds on a directory
+# that exists read-only, so the guard tests -w as well. Returns 0.
+#
+# A write can still fail inside a writable DIR, on a block quota or a full
+# filesystem, after creating the temporary file. Renamed into place, that
+# empty file would replace a working trampoline with one that exits 0 and
+# runs nothing. So a failed write, chmod or rename removes the temporary file
+# and stops the sync there: the trampoline it was replacing stays, nothing is
+# removed, and DIR is not added to uvm_synced.
+#
+# The temporary name carries the host as well as the pid: writers on two
+# nodes of a shared filesystem can share a pid, and the self-heal and the
+# repair's holder sync from ranks on every node of a job. HOSTNAME can be
+# inherited from a login node (see uvm_acquire_lock), so $RANDOM goes in
+# too. All three cost no fork.
+uvm_trampoline_dir() {
+  local dir="$1" names="$2" self="$3" name dest tmp f tag="${HOSTNAME:-}.$$.${RANDOM}"
+  [[ -n "${dir}" ]] || return 0
+  (umask 077; mkdir -p "${dir}") 2>/dev/null || return 0
+  [[ -d "${dir}" && -w "${dir}" ]] || return 0
 
   # Rewrite every trampoline we own rather than skipping any name that already
   # exists: one truncated by a purge, or written by an older uv-manager, has to
-  # be repaired, and skipping on mere existence means it never is. A file that
-  # is non-empty, executable and unmarked is somebody's own script that happens
-  # to share the name; leave it, and say so.
-  local dest
+  # be repaired, and skipping on mere existence means it never is. The new
+  # file is renamed over the old, so a path a shell has hashed keeps naming a
+  # trampoline. A file that is non-empty, executable and unmarked is somebody's
+  # own script that happens to share the name; leave it, and say so.
   while IFS= read -r name; do
-    [[ -n "${name}" ]] || continue
-    dest="${uvm_neutral_bin}/${name}"
+    [[ -n "${name}" && "${name}" != */* && "${name}" != .* ]] || continue
+    dest="${dir}/${name}"
     if [[ -e "${dest}" || -L "${dest}" ]] \
        && ! grep -q "${uvm_tramp_marker}" "${dest}" 2>/dev/null \
        && [[ -s "${dest}" && -x "${dest}" ]]; then
       note "not overwriting ${dest} (not generated by uv-manager)"
       continue
     fi
-    tmp="${uvm_neutral_bin}/.${name}.$$"
-    cat > "${tmp}" <<TRAMPOLINE
+    tmp="${dir}/.${name}.${tag}"
+    if cat > "${tmp}" <<TRAMPOLINE && chmod 0755 "${tmp}" && mv -f "${tmp}" "${dest}"
 #!/bin/sh
 ${uvm_tramp_marker} — generated; edits will be lost.
 n=\${0##*/}
-d=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd -P)
-a=\${UVM_PLATFORM:-\$(uname -m)}
-for s in shims python-shims; do
-    t="\$d/\$a/bin/\$s/\$n"
-    if [ -x "\$t" ]; then exec "\$t" "\$@"; fi
-done
-echo "uv-manager: '\$n' is not installed for architecture '\$a'." >&2
-echo "uv-manager: it exists for another architecture; install it here with" >&2
-echo "uv-manager:     uv tool install <package>" >&2
-exit 127
+case \${UVM_REPAIR:-0} in
+0)  if [ -n "\${UVM_ROOT:-}" ]; then
+        a=\${UVM_PLATFORM:-\$(uname -m)}
+        for s in shims python-shims; do
+            if [ -x "\$UVM_ROOT/\$a/bin/\$s/\$n" ]; then exec "\$UVM_ROOT/\$a/bin/\$s/\$n" "\$@"; fi
+        done
+    fi ;;
+esac
+w=\$(command -v uv-manager) || w='${self}'
+if [ ! -x "\$w" ]; then
+    echo "uv-manager: '\$n' needs uv-manager on PATH; load the uv module." >&2
+    exit 127
+fi
+exec "\$w" _trampoline "\$n" "\$@"
 TRAMPOLINE
-    chmod 0755 "${tmp}"
-    mv -f "${tmp}" "${uvm_neutral_bin}/${name}"
+    then
+      continue
+    fi
+    rm -f "${tmp}" 2>/dev/null || true
+    return 0
   done <<< "${names}"
 
-  # Remove trampolines whose target no longer exists anywhere. Only ever
-  # touch files we generated.
-  for f in "${uvm_neutral_bin}"/*; do
+  # Only ever remove files we generated.
+  for f in "${dir}"/*; do
     [[ -f "${f}" ]] || continue
     grep -q "${uvm_tramp_marker}" "${f}" 2>/dev/null || continue
-    name="$(basename -- "${f}")"
-    printf '%s\n' "${names}" | grep -qxF "${name}" || rm -f "${f}"
+    printf '%s\n' "${names}" | grep -qxF -- "${f##*/}" || rm -f "${f}"
   done
+  uvm_synced+=("${dir}")
+  return 0
+}
+
+# NAME: exits 127 for a command whose shim is not here, saying why. Builtins
+# up to the message: it runs with the knob off, and takes no lock and writes
+# nothing.
+uvm_tool_missing() {
+  local f ep
+  for f in ${uvm_records:+"${uvm_records}"/*/entrypoints}; do
+    [[ -f "${f}" ]] || continue
+    while IFS= read -r ep || [[ -n "${ep}" ]]; do
+      [[ "${ep}" == "$1" ]] || continue
+      cat >&2 <<EOF
+uv-manager: '$1' is recorded but not installed for architecture '${arch}'.
+uv-manager: With UVM_REPAIR set, running it restores it here; uv-manager doctor says more.
+EOF
+      exit 127
+    done < "${f}"
+  done
+  cat >&2 <<EOF
+uv-manager: '$1' is not installed for architecture '${arch}'.
+uv-manager: it exists for another architecture; install it here with
+uv-manager:     uv tool install <package>
+EOF
+  exit 127
+}
+
+# NAME [ARG...]: what a trampoline runs when it cannot exec the shim itself,
+# reached as `uv-manager _trampoline NAME`. With the knob on it runs the same
+# scope check, lock, outcome and failure contract a uv call runs, then, when
+# the shim is still missing, restores the recorded tool that provides it,
+# then the shim. With it off it runs the shim, or says why it cannot without
+# provisioning, locking or creating anything. The shim is an exec site, so it
+# releases first, and its exit status and signals are the tool's own.
+uvm_tool_entry() {
+  local name="${1:-}" d
+  [[ -n "${name}" && "${name}" != */* ]] || die "_trampoline needs a command name"
+  shift
+  uvm_init
+  uvm_set_paths
+  if [[ -n "${UVM_REPAIR:-}" && "${UVM_REPAIR}" != 0 ]]; then
+    uvm_ensure_uv
+    uvm_export_env
+    uvm_repair
+    if [[ ! -x "${UV_TOOL_BIN_DIR}/${name}" && ! -x "${UV_PYTHON_BIN_DIR}/${name}" ]]; then
+      uvm_restore_by_name "${name}"
+    fi
+  fi
+  for d in "${UV_TOOL_BIN_DIR}" "${UV_PYTHON_BIN_DIR}"; do
+    [[ -x "${d}/${name}" ]] || continue
+    uvm_export_trees
+    uvm_unlock
+    exec "${d}/${name}" "$@"
+  done
+  uvm_tool_missing "${name}"
+}
+
+# ---- tool records ----------------------------------------------------------
+#
+# A purge takes a tool environment and leaves nothing that says what the user
+# asked for: the receipt goes with the rest of the tree. So every `uv tool
+# install`, `upgrade` and `uninstall` that exits 0 through the wrapper keeps a
+# record of each tool it changed, under $UVM_DATA/tools/<name>/, off scratch:
+#
+#   request          the arguments after `uv tool install`, one per line
+#   constraints      name==version, or name @ <source>, one per distribution;
+#                    a file uv reads with -c as it stands
+#   python           the interpreter's major.minor
+#   entrypoints      the executables uv linked into UV_TOOL_BIN_DIR
+#   uv-receipt.toml  uv's receipt, byte for byte, copied and never parsed
+#
+# Plain files, one item per line, so nothing here parses TOML or JSON beyond
+# four fields of direct_url.json, which uv writes on one line. A record names
+# no architecture: the dist-info names and the request are the same on every
+# key, and one record serves them all.
+#
+# No credential reaches the record. A URL's userinfo is stripped from every
+# argument and from every source URL; uv already strips it from its receipt,
+# and the copy is skipped should one ever carry it under any scheme. A
+# password-less ssh login is kept: it is not a secret, and the source cannot
+# be fetched without it.
+#
+# A record is staged whole under a name of this process's own, carrying its
+# host, pid and a $RANDOM as a trampoline's temporary name does, the old one
+# moved aside and the stage renamed in, so a reader sees the old record, none,
+# or the new one, never half of one. No primitive renames a directory over a
+# non-empty one, and mv onto an existing directory moves the source inside it.
+# A rival's record landing between the two renames therefore swallows this
+# stage, which is removed as the installer's publisher removes its own.
+#
+# None of it may change the status of the command that ran. Every writer here
+# returns 0; a record that cannot be written leaves a note on stderr.
+
+uvm_stripped=""
+
+# STRING: sets uvm_stripped to STRING with the userinfo of every URL in it
+# removed. Builtins only.
+uvm_strip_userinfo() {
+  local s="$1" pre user post re='^(.*://)([^/@]*)@(.*)$'
+  while [[ "${s}" =~ ${re} ]]; do
+    pre="${BASH_REMATCH[1]}" user="${BASH_REMATCH[2]}" post="${BASH_REMATCH[3]}"
+    if [[ "${pre}" == *ssh:// && "${user}" != *:* ]]; then break; fi
+    s="${pre}${post}"
+  done
+  uvm_stripped="${s}"
+}
+
+# FILE: true when a URL in FILE, under any scheme, carries userinfo that
+# uvm_strip_userinfo would remove, which is all of it but a password-less ssh
+# login. The receipt is copied whole or not at all, so this decides the copy.
+uvm_carries_userinfo() {
+  local line user re='([A-Za-z][A-Za-z0-9+.-]*)://([^/@"[:space:]]*)@(.*)$'
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    while [[ "${line}" =~ ${re} ]]; do
+      user="${BASH_REMATCH[2]}"
+      if [[ "${BASH_REMATCH[1]}" != *ssh || "${user}" == *:* ]]; then return 0; fi
+      line="${BASH_REMATCH[3]}"
+    done
+  done < "$1"
+  return 1
+}
+
+# TOOLDIR: prints one constraint per distribution in the environment. A
+# distribution with no direct_url.json came from an index and is pinned by
+# version; one with it is pinned to its source, a VCS one to its commit, and
+# either within the subdirectory it was built from, which uv matches against
+# the request as part of the URL. Returns 1 when a direct_url.json names no
+# URL, rather than pin such a distribution to an index it never came from.
+uvm_record_constraints() {
+  local di dist json line url vcs commit sub
+  local re_url='"url":"([^"]*)"' re_vcs='"vcs":"([a-z]+)"' re_commit='"commit_id":"([0-9a-f]+)"'
+  local re_sub='"subdirectory":"([^"]*)"'
+  for di in "$1"/lib/*/site-packages/*.dist-info; do
+    [[ -d "${di}" ]] || continue
+    dist="${di##*/}"; dist="${dist%.dist-info}"
+    if [[ ! -f "${di}/direct_url.json" ]]; then
+      printf '%s==%s\n' "${dist%-*}" "${dist##*-}"
+      continue
+    fi
+    json=""
+    while IFS= read -r line || [[ -n "${line}" ]]; do json+="${line}"; done < "${di}/direct_url.json"
+    [[ "${json}" =~ ${re_url} ]] || return 1
+    uvm_strip_userinfo "${BASH_REMATCH[1]}"; url="${uvm_stripped}"
+    vcs="" commit="" sub=""
+    if [[ "${json}" =~ ${re_vcs} ]]; then vcs="${BASH_REMATCH[1]}"; fi
+    if [[ "${json}" =~ ${re_commit} ]]; then commit="${BASH_REMATCH[1]}"; fi
+    if [[ "${json}" =~ ${re_sub} ]]; then sub="#subdirectory=${BASH_REMATCH[1]}"; fi
+    if [[ -n "${vcs}" ]]; then
+      printf '%s @ %s+%s%s%s\n' "${dist%-*}" "${vcs}" "${url}" "${commit:+@${commit}}" "${sub}"
+    else
+      printf '%s @ %s%s\n' "${dist%-*}" "${url}" "${sub}"
+    fi
+  done
+}
+
+# TOOL [ARG...]: writes the record of TOOL from its environment under
+# UV_TOOL_DIR. ARGs are its request; with none, the existing record's request
+# is kept. A tool with neither has nothing to say what was asked for and is
+# skipped here. Returns 0 on every path.
+uvm_record_write() {
+  local tool="$1" dir rec stage old
+  shift
+  [[ -n "${uvm_records}" ]] || return 0
+  dir="${UV_TOOL_DIR}/${tool}" rec="${uvm_records}/${tool}"
+  stage="${uvm_records}/.${tool}.${HOSTNAME:-}.$$.${RANDOM}" old="${stage}.old"
+  if (( $# == 0 )) && [[ ! -f "${rec}/request" ]]; then return 0; fi
+  if ! (
+    umask 077
+    local a f line py="" re_py='^version(_info)?[[:space:]]*=[[:space:]]*([0-9]+\.[0-9]+)'
+    [[ -f "${dir}/uv-receipt.toml" && -f "${dir}/pyvenv.cfg" ]] || exit 1
+    mkdir -p "${uvm_records}" || exit 1
+    rm -rf "${stage}" && mkdir "${stage}" || exit 1
+    if (( $# )); then
+      for a in "$@"; do uvm_strip_userinfo "${a}"; printf '%s\n' "${uvm_stripped}"; done \
+        > "${stage}/request" || exit 1
+    else
+      cp "${rec}/request" "${stage}/request" || exit 1
+    fi
+    uvm_record_constraints "${dir}" > "${stage}/constraints" || exit 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+      if [[ "${line}" =~ ${re_py} ]]; then py="${BASH_REMATCH[2]}"; break; fi
+    done < "${dir}/pyvenv.cfg"
+    [[ -n "${py}" ]] || exit 1
+    printf '%s\n' "${py}" > "${stage}/python" || exit 1
+    # uv links each entrypoint into UV_TOOL_BIN_DIR; python and the activate
+    # scripts have no link there, so -ef tells them apart without a fork.
+    for f in "${dir}"/bin/*; do
+      if [[ "${UV_TOOL_BIN_DIR}/${f##*/}" -ef "${f}" ]]; then printf '%s\n' "${f##*/}"; fi
+    done > "${stage}/entrypoints" || exit 1
+    if ! uvm_carries_userinfo "${dir}/uv-receipt.toml"; then
+      cp "${dir}/uv-receipt.toml" "${stage}/uv-receipt.toml" || exit 1
+    fi
+    if [[ -e "${rec}" ]]; then mv "${rec}" "${old}" || exit 1; fi
+    mv "${stage}" "${rec}" || exit 1
+    rm -rf "${rec:?}/${stage##*/}" "${old}"
+  ); then
+    rm -rf "${stage}" 2>/dev/null || true
+    note "could not write the record of tool '${tool}' under ${uvm_records}"
+  fi
+  return 0
+}
+
+# Prints one line per tool under UV_TOOL_DIR: its name, its receipt's cksum
+# and inode, and its dist-info names. A uv tool command changed exactly the
+# tools whose line it changed. The inode is the part that catches a forced
+# reinstall of the same versions, which writes a new receipt with the same
+# bytes. One cksum and one ls for every receipt; this runs only around the
+# commands that change what is installed.
+uvm_tool_marks() {
+  local d tool c s p i di sum ino dists sums="" inodes="" receipts=()
+  for d in "${UV_TOOL_DIR}"/*/; do
+    if [[ -f "${d}uv-receipt.toml" ]]; then receipts+=("${d}uv-receipt.toml"); fi
+  done
+  if (( ${#receipts[@]} )); then
+    sums="$(cksum "${receipts[@]}" 2>/dev/null)" || true
+    inodes="$(ls -i "${receipts[@]}" 2>/dev/null)" || true
+  fi
+  for d in "${UV_TOOL_DIR}"/*/; do
+    [[ -d "${d}" ]] || continue
+    tool="${d%/}"; tool="${tool##*/}"
+    sum="-" ino="-" dists=""
+    while read -r c s p; do
+      if [[ "${p}" == "${d}uv-receipt.toml" ]]; then sum="${c}:${s}"; fi
+    done <<< "${sums}"
+    while read -r i p; do
+      if [[ "${p}" == "${d}uv-receipt.toml" ]]; then ino="${i}"; fi
+    done <<< "${inodes}"
+    for di in "${d}"lib/*/site-packages/*.dist-info; do
+      if [[ -d "${di}" ]]; then dists+=" ${di##*/}"; fi
+    done
+    printf '%s %s %s%s\n' "${tool}" "${sum}" "${ino}" "${dists}"
+  done
+}
+
+# SUBCMD BEFORE [ARG...]: after a `uv tool SUBCMD` that exited 0, brings the
+# records in line with what it changed, BEFORE being uvm_tool_marks from just
+# ahead of it. An install that changed one tool records the arguments as
+# typed; one that changed several (a --with of another tool's name, say)
+# cannot tell whose arguments they were, so each keeps the request it had.
+# An upgrade keeps every request and moves the pins. An uninstall deletes the
+# record of each tool that is gone.
+uvm_records_update() {
+  local sub="$1" before="$2" after line tool old nl=$'\n' changed=()
+  shift 2
+  [[ -n "${uvm_records}" ]] || return 0
+  after="$(uvm_tool_marks)" || return 0
+  case "${sub}" in
+    uninstall)
+      while IFS= read -r line; do
+        tool="${line%% *}"
+        [[ -n "${tool}" && -d "${uvm_records}/${tool}" ]] || continue
+        case "${nl}${after}" in *"${nl}${tool} "*) continue ;; esac
+        old="${uvm_records}/.${tool}.${HOSTNAME:-}.$$.${RANDOM}.old"
+        { mv "${uvm_records}/${tool}" "${old}" && rm -rf "${old}"; } \
+          || note "could not delete the record of tool '${tool}' under ${uvm_records}"
+      done <<< "${before}"
+      ;;
+    install|upgrade)
+      while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        case "${nl}${before}${nl}" in *"${nl}${line}${nl}"*) continue ;; esac
+        changed+=("${line%% *}")
+      done <<< "${after}"
+      if [[ "${sub}" == install ]] && (( ${#changed[@]} == 1 )); then
+        uvm_record_write "${changed[0]}" ${1+"$@"}
+      else
+        for tool in ${changed[@]+"${changed[@]}"}; do uvm_record_write "${tool}"; done
+      fi
+      ;;
+  esac
+  return 0
+}
+
+# NAME: true when NAME has a record.
+uvm_recorded() {
+  [[ -n "${uvm_records}" && -f "${uvm_records}/$1/request" ]]
+}
+
+# TOOL: sets uvm_unpinned to the source a backfill cannot pin TOOL to, or to
+# nothing. A requirement uv installed from a git, URL or local source is
+# pinned by its distribution's direct_url.json. A purge can take that file and
+# leave the receipt, and a record written then would pin the distribution by
+# version alone: its restore would fetch a branch head, or an index's release,
+# in its place. Such a tool gets no record, keeps the in-place arm's refusal,
+# and doctor names it.
+#
+# The test is per requirement: each one the receipt names with a source, the
+# tool and each such --with package, must have a direct_url.json in its own
+# dist-info directory. A count would not do, since a dependency installed from
+# a direct URL keeps a direct_url.json of its own and would stand in for the
+# tool's. Names compare as wheel names do, case aside and with - and . as _.
+# An entry that names no distribution cannot be matched, and refuses.
+uvm_unpinnable() {
+  local i want di dist found nocase=0
+  uvm_unpinned=""
+  uvm_tool_receipt "$1"
+  (( uvm_receipt_sources > 0 )) || return 0
+  if shopt -q nocasematch; then nocase=1; fi
+  shopt -s nocasematch
+  for (( i = 0; i < uvm_receipt_sources; i++ )); do
+    want="${uvm_receipt_reqs[i]//[-.]/_}" found=0
+    for di in ${want:+"${UV_TOOL_DIR}/$1"/lib/*/site-packages/*.dist-info}; do
+      [[ -f "${di}/direct_url.json" ]] || continue
+      dist="${di##*/}"; dist="${dist%.dist-info}"; dist="${dist%-*}"
+      if [[ "${dist//[-.]/_}" == "${want}" ]]; then found=1; break; fi
+    done
+    if (( ! found )); then uvm_unpinned="${uvm_receipt_reqs_from[i]}"; break; fi
+  done
+  if (( ! nocase )); then shopt -u nocasematch; fi
+  return 0
+}
+
+# TOOL: sets uvm_index_args to the index options TOOL's receipt records under
+# [tool.options], in the forms uv 0.13.6 writes on one line: index-url as a
+# quoted string, extra-index-url as an array of them, index as an array of
+# inline tables, one --index URL each or --default-index URL for the one with
+# default = true, and index-strategy as a quoted string. An index entry is
+# carried when it holds a url and nothing but a name, default, and uv's own
+# defaults for explicit, format and authenticate; any other key or value
+# there, or an array not read to its end, carries none of that array, since
+# half of one would drop an index silently. Anything else is not read, and a
+# backfilled record replays under the configuration in effect at the restore
+# instead. The record's writer strips userinfo from every URL.
+uvm_receipt_indexes() {
+  local f="${UV_TOOL_DIR}/$1/uv-receipt.toml" line table="" rest entry url dflt ok extra=()
+  local header='^\[([^]]*)\]$' re_index='^index-url = "([^"\\]*)"$'
+  local re_extra='^extra-index-url = \[(.*)\]$' re_item='^[[:space:]]*"([^"\\]*)"[[:space:]]*,?(.*)$'
+  local re_tables='^index = \[(.*)\]$' re_table='^[[:space:]]*\{([^{}]*)\}[[:space:]]*,?(.*)$'
+  local re_pair='^[[:space:]]*([a-z-]+)[[:space:]]*=[[:space:]]*("[^"\\]*"|true|false)[[:space:]]*,?(.*)$'
+  local re_strategy='^index-strategy = "([a-z-]+)"$'
+  uvm_index_args=()
+  [[ -f "${f}" ]] || return 0
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    if [[ "${line}" =~ ${header} ]]; then table="${BASH_REMATCH[1]}"; continue; fi
+    [[ "${table}" == tool.options ]] || continue
+    if [[ "${line}" =~ ${re_index} ]]; then
+      uvm_index_args+=(--index-url "${BASH_REMATCH[1]}")
+    elif [[ "${line}" =~ ${re_strategy} ]]; then
+      uvm_index_args+=(--index-strategy "${BASH_REMATCH[1]}")
+    elif [[ "${line}" =~ ${re_extra} ]]; then
+      rest="${BASH_REMATCH[1]}" extra=()
+      while [[ "${rest}" =~ ${re_item} ]]; do
+        extra+=(--extra-index-url "${BASH_REMATCH[1]}"); rest="${BASH_REMATCH[2]}"
+      done
+      if [[ -z "${rest//[[:space:]]/}" ]]; then uvm_index_args+=(${extra[@]+"${extra[@]}"}); fi
+    elif [[ "${line}" =~ ${re_tables} ]]; then
+      rest="${BASH_REMATCH[1]}" extra=() ok=1
+      while (( ok )) && [[ "${rest}" =~ ${re_table} ]]; do
+        entry="${BASH_REMATCH[1]}" rest="${BASH_REMATCH[2]}" url="" dflt=false
+        while [[ "${entry}" =~ ${re_pair} ]]; do
+          entry="${BASH_REMATCH[3]}"
+          case "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}" in
+            url=\"*)        url="${BASH_REMATCH[2]}"; url="${url:1:${#url}-2}" ;;
+            default=true)   dflt=true ;;
+            name=\"*|default=false|explicit=false|format=\"simple\"|authenticate=\"auto\") ;;
+            *)              ok=0 ;;
+          esac
+        done
+        if [[ -z "${url}" || -n "${entry//[[:space:]]/}" ]]; then ok=0; fi
+        if [[ "${dflt}" == true ]]; then extra+=(--default-index "${url}"); else extra+=(--index "${url}"); fi
+      done
+      if (( ok )) && [[ -z "${rest//[[:space:]]/}" ]]; then uvm_index_args+=(${extra[@]+"${extra[@]}"}); fi
+    fi
+  done < "${f}"
+}
+
+# Writes a record for each installed tool that has none and still has its
+# receipt and pyvenv.cfg, pinned to what is installed now, and never rewrites
+# one. A tool installed before records existed, or by a uv the wrapper did not
+# run, gets one this way: doctor, every `uv tool` command and the repair's
+# holder each call it. The request is uv's own rendering of what was asked
+# for, from one `uv tool list` made only when some tool lacks a record, so no
+# receipt is parsed for it. A URL in [required: ] is the request; otherwise it
+# is the name with its extras and specifier. Each [with: ] item is a --with,
+# and one uv renders as a name and a URL becomes `name @ URL`, the form uv
+# reads. A URL archive renders no requirement and is recorded by name, which
+# its constraint pins to the URL. uv ends a VCS requirement with a
+# subdirectory in a newline, so a line whose bracket is still open is joined
+# to the next. The indexes come from the receipt (uvm_receipt_indexes). A tool
+# uvm_unpinnable refuses is skipped. The list runs from / without the cache,
+# so it reads no project configuration and writes nothing under UVM_ROOT but
+# uv's lock file, tools/.lock, which it creates when missing (doctor runs it
+# only where that file exists). Its output is captured, never printed.
+# Returns 0 on every path.
+uvm_backfill() {
+  local d n missing=0 list line acc="" spec extras with w args
+  local re_req='\[required: +([^]]*)\]' re_extras='\[extras: ([^]]*)\]' re_with='\[with: ([^]]*)\]'
+  local re_open='\[[^]]*$' re_named='^([A-Za-z0-9._-]+(\[[^]]*\])?) +([A-Za-z][A-Za-z0-9+.-]*://.*)$'
+  [[ -n "${uvm_records}" && -d "${UV_TOOL_DIR}" && -x "${real_uv}" ]] || return 0
+  for d in "${UV_TOOL_DIR}"/*/; do
+    n="${d%/}"; n="${n##*/}"
+    if [[ -f "${d}uv-receipt.toml" && -f "${d}pyvenv.cfg" ]] && ! uvm_recorded "${n}"; then missing=1; fi
+  done
+  (( missing )) || return 0
+  list="$(cd / && UV_NO_CACHE=1 exec "${real_uv}" tool list \
+          --show-version-specifiers --show-with --show-extras 2>/dev/null)" || return 0
+  while IFS= read -r line; do
+    if [[ -n "${acc}" ]]; then
+      acc+="${line}"
+    else
+      [[ -n "${line}" && "${line}" != "- "* ]] || continue
+      acc="${line}"
+    fi
+    if [[ "${acc}" =~ ${re_open} ]]; then continue; fi
+    line="${acc}" acc=""
+    n="${line%% *}"
+    if [[ ! -f "${UV_TOOL_DIR}/${n}/uv-receipt.toml" ]] || uvm_recorded "${n}"; then continue; fi
+    uvm_unpinnable "${n}"
+    [[ -z "${uvm_unpinned}" ]] || continue
+    spec="" extras="" with="" args=()
+    if [[ "${line}" =~ ${re_req} ]]; then spec="${BASH_REMATCH[1]}"; fi
+    if [[ "${line}" =~ ${re_extras} ]]; then extras="${BASH_REMATCH[1]// /}"; fi
+    if [[ "${line}" =~ ${re_with} ]]; then with="${BASH_REMATCH[1]}"; fi
+    case "${spec}" in
+      *://*) args+=("${spec}") ;;
+      *)     args+=("${n}${extras:+[${extras}]}${spec}") ;;
+    esac
+    while [[ -n "${with}" ]]; do
+      w="${with%%, *}"
+      if [[ "${w}" =~ ${re_named} ]]; then w="${BASH_REMATCH[1]} @ ${BASH_REMATCH[3]}"; fi
+      args+=(--with "${w}")
+      if [[ "${with}" == *", "* ]]; then with="${with#*, }"; else with=""; fi
+    done
+    uvm_receipt_indexes "${n}"
+    uvm_record_write "${n}" "${args[@]}" ${uvm_index_args[@]+"${uvm_index_args[@]}"}
+  done <<< "${list}"
+  return 0
 }
 
 # ---- argument inspection ---------------------------------------------------
@@ -808,7 +1408,8 @@ UV_TOOL_DIR:           ${UV_TOOL_DIR}
 UV_TOOL_BIN_DIR:       ${UV_TOOL_BIN_DIR}
 UV_PYTHON_INSTALL_DIR: ${UV_PYTHON_INSTALL_DIR}
 UV_PYTHON_BIN_DIR:     ${UV_PYTHON_BIN_DIR}
-trampoline dir:        ${uvm_neutral_bin}
+trampoline dirs:       ${uvm_neutral_bin:-<none>}  ${uvm_root_bin}
+UVM_DATA:              ${uvm_data:-<none>}  (from ${uvm_data_origin})
 XDG_CONFIG_HOME:       ${XDG_CONFIG_HOME:-<unset — user default: ~/.config>}
 pin:                   ${pin:-<none — tracks latest>}
 EOF
@@ -849,8 +1450,11 @@ uvm_list_versions() {
 # for the repair what each finding calls for: uvm_damaged_tools (an array of
 # the damaged tools' directory names), uvm_damaged_pythons (an array of the
 # damaged interpreters' install keys) and uvm_orphans (tool names missing
-# pyvenv.cfg, one per line). A finding the repair cannot act on sets none of
-# them. It prints nothing; doctor adds its own advisories and the report.
+# pyvenv.cfg, one per line); through uvm_detect_records, which runs first,
+# uvm_restore_tools (recorded tools a restore rebuilds, which the other passes
+# skip) and uvm_absent_tools (recorded tools with no trace here). A finding
+# the repair cannot act on sets none of them. It prints nothing; doctor adds
+# its own advisories and the report.
 uvm_damaged_python() {  # KEY: add an install key once
   case " ${uvm_damaged_pythons[*]-} " in *" $1 "*) return 0 ;; esac
   uvm_damaged_pythons+=("$1")
@@ -903,14 +1507,20 @@ uvm_tool_pins() {
 # constraints or overrides array of [tool], and a source is one of the five
 # keys inside that table. An entrypoint's install-path and a requirement's
 # marker are not, so string values are blanked before the keys are matched.
+#
+# uvm_receipt_sources counts the requirements with a source, the tool and its
+# --with packages, each of which uv installed from that source and recorded in
+# a direct_url.json. uvm_receipt_reqs holds each one's name, empty where the
+# entry names none, and uvm_receipt_reqs_from what to call it; the backfill
+# looks for each one's own direct_url.json (uvm_unpinnable).
 uvm_tool_receipt() {
-  local receipt="${uvm_root}/tools/$1/uv-receipt.toml" line name table="" list=0
+  local receipt="${uvm_root}/tools/$1/uv-receipt.toml" line name table="" list=""
   local quoted='^([^"]*)"([^"\\]|\\.)*"(.*)$'
   local named='\{[[:space:]]*name[[:space:]]*=[[:space:]]*"([^"]*)"'
   local header='^[[:space:]]*\[([^]]*)\][[:space:]]*$'
   local start='^[[:space:]]*(requirements|constraints|overrides)[[:space:]]*='
   local source='[{,][[:space:]]*(directory|path|editable|git|url)[[:space:]]*='
-  uvm_receipt_source=""
+  uvm_receipt_source="" uvm_receipt_sources=0 uvm_receipt_reqs=() uvm_receipt_reqs_from=()
   [[ -f "${receipt}" ]] || return 0
   while IFS= read -r line || [[ -n "${line}" ]]; do
     name=""
@@ -918,23 +1528,91 @@ uvm_tool_receipt() {
     while [[ "${line}" =~ ${quoted} ]]; do line="${BASH_REMATCH[1]}S${BASH_REMATCH[3]}"; done
     line="${line%%#*}"
     if [[ "${line}" =~ ${header} ]]; then
-      table="${BASH_REMATCH[1]}" list=0
+      table="${BASH_REMATCH[1]}" list=""
       continue
     fi
     [[ "${table}" == tool ]] || continue
-    if [[ "${line}" =~ ${start} ]]; then list=1; fi
-    (( list )) || continue
+    if [[ "${line}" =~ ${start} ]]; then list="${BASH_REMATCH[1]}"; fi
+    [[ -n "${list}" ]] || continue
     if [[ "${line}" =~ ${source} ]]; then
-      uvm_receipt_source="${name:-an entry} from its ${BASH_REMATCH[1]} source"
-      return 0
+      if [[ -z "${uvm_receipt_source}" ]]; then
+        uvm_receipt_source="${name:-an entry} from its ${BASH_REMATCH[1]} source"
+      fi
+      if [[ "${list}" == requirements ]]; then
+        uvm_receipt_sources=$(( uvm_receipt_sources + 1 ))
+        uvm_receipt_reqs+=("${name}")
+        uvm_receipt_reqs_from+=("${name:-an entry} from its ${BASH_REMATCH[1]} source")
+      fi
     fi
-    if [[ "${line}" == *"]" ]]; then list=0; fi
+    if [[ "${line}" == *"]" ]]; then list=""; fi
   done < "${receipt}"
+}
+
+# NAME: true when NAME is on uvm_restore_tools.
+uvm_restoring() {
+  case " ${uvm_restore_tools[*]-} " in *" $1 "*) return 0 ;; esac
+  return 1
+}
+
+# The records, read against this architecture's tree. A recorded tool has a
+# trace here when its directory or a shim its record names exists, dangling
+# or not. One with a trace that lost what only its record rebuilds, its
+# directory, its pyvenv.cfg, its interpreter link, an executable or its
+# receipt, goes on uvm_restore_tools, and the passes in uvm_detect leave it
+# alone, so none of 0.7.0's refusals reaches a tool that has a record. One
+# that lost only files inside its environment is not listed: the in-place arm
+# repairs it and keeps its receipt byte for byte, which a restore cannot
+# promise. A recorded tool with no trace goes on uvm_absent_tools, one name
+# per line, for doctor. The walk never restores one: it was installed for
+# another architecture or a cluster sharing UVM_DATA, or removed by hand, and
+# restoring every such tool in every job's walk would install each on every
+# node type, every download under the lock. Builtins only.
+uvm_detect_records() {
+  local r name t ep f need trace
+  uvm_restore_tools=() uvm_absent_tools="" uvm_record_findings=""
+  uvm_record_problems=0 uvm_record_advisories=0
+  [[ -n "${uvm_records}" && -d "${uvm_records}" ]] || return 0
+  for r in "${uvm_records}"/*/; do
+    [[ -f "${r}request" && -f "${r}entrypoints" ]] || continue
+    name="${r%/}"; name="${name##*/}"; t="${uvm_root}/tools/${name}"
+    trace=0 need=""
+    if [[ -d "${t}" ]]; then trace=1; fi
+    while IFS= read -r ep || [[ -n "${ep}" ]]; do
+      [[ -n "${ep}" ]] || continue
+      f="${uvm_root}/bin/shims/${ep}"
+      if [[ -e "${f}" || -L "${f}" ]]; then trace=1; fi
+      if [[ ! -x "${f}" ]]; then need="its executable ${ep} is missing"; fi
+    done < "${r}entrypoints"
+    if (( ! trace )); then
+      uvm_absent_tools+="${name}"$'\n'
+      continue
+    fi
+    if [[ ! -d "${t}" ]]; then
+      need="its directory is gone"
+    elif [[ ! -f "${t}/pyvenv.cfg" ]]; then
+      need="it has no pyvenv.cfg"
+    elif [[ -e "${t}/bin/python" || -L "${t}/bin/python" ]] && [[ ! -x "${t}/bin/python" ]]; then
+      need="its interpreter link is broken"
+    fi
+    # A tool with only its receipt gone still runs, so that is advice, as it
+    # is for a tool with no record; the restore puts the receipt back.
+    if [[ -n "${need}" ]]; then
+      uvm_record_findings+="FAIL  tool ${name} is damaged (${need}); its record restores it"$'\n'
+      uvm_record_problems=$(( uvm_record_problems + 1 ))
+    elif [[ ! -f "${t}/uv-receipt.toml" ]]; then
+      uvm_record_findings+="WARN  tool ${name} has no receipt; its record restores it"$'\n'
+      uvm_record_advisories=$(( uvm_record_advisories + 1 ))
+    else
+      continue
+    fi
+    uvm_restore_tools+=("${name}")
+  done
 }
 
 uvm_detect() {
   local problems=0 advisories=0 findings="" d f target name
   uvm_damaged_tools=() uvm_damaged_pythons=() uvm_orphans=""
+  uvm_detect_records
 
   if [[ ! -x "${real_uv}" ]]; then
     findings+="FAIL  uv binary missing: ${real_uv}"$'\n'; problems=$(( problems + 1 ))
@@ -948,14 +1626,19 @@ uvm_detect() {
   # repair names. With that directory still present the repair rebuilds it
   # and the shim resolves again. With the directory removed whole, uv no
   # longer counts that tool or interpreter as installed, so the repair has
-  # nothing to rebuild: doctor reports the shim and the repair leaves it.
+  # nothing to rebuild: doctor reports the shim and the repair leaves it,
+  # unless the tool has a record, which restores it and owns the finding.
   for d in "${uvm_root}/bin/shims" "${uvm_root}/bin/python-shims"; do
     [[ -d "${d}" ]] || continue
     for f in "${d}"/*; do
       [[ -e "${f}" || -L "${f}" ]] || continue
       if [[ ! -x "${f}" ]]; then
-        findings+="FAIL  dangling executable: ${f}"$'\n'; problems=$(( problems + 1 ))
         target="$(readlink -- "${f}" 2>/dev/null || true)"
+        if [[ "${d}" != */python-shims && "${target}" == */tools/*/bin/* ]]; then
+          name="${target%/bin/*}"; name="${name##*/}"
+          if uvm_restoring "${name}"; then continue; fi
+        fi
+        findings+="FAIL  dangling executable: ${f}"$'\n'; problems=$(( problems + 1 ))
         [[ "${target}" == */bin/* ]] || continue
         target="${target%/bin/*}"; name="${target##*/}"
         if [[ "${d}" != */python-shims ]]; then
@@ -981,6 +1664,7 @@ uvm_detect() {
     for d in "${uvm_root}/tools"/*/; do
       [[ -d "${d}" ]] || continue
       name="$(basename -- "${d%/}")"
+      if uvm_restoring "${name}"; then continue; fi
       # Advisory, not damage: uv ignores a receipt-less directory, but whatever
       # is installed there keeps working when invoked. The line carries its own
       # remedy because a tree with no failures prints no remediation block, and
@@ -1025,6 +1709,7 @@ uvm_detect() {
   for di in "${uvm_root}"/tools/*/lib/*/site-packages/*.dist-info; do
     [[ -d "${di}" ]] || continue
     tool="${di#"${uvm_root}/tools/"}"; tool="${tool%%/*}"
+    if uvm_restoring "${tool}"; then continue; fi
     name="${di##*/}"; name="${name%.dist-info}"
     record="${di}/RECORD"
     sp="${di%/*}"
@@ -1071,9 +1756,11 @@ uvm_detect() {
         uvm_damaged_python "${name}"
         continue
       fi
+      # No bytecode: doctor writes nothing under UVM_ROOT, and the import
+      # would otherwise leave __pycache__ in the interpreter it probes.
       for f in "${d}bin/python3" "${d}bin/python"; do
         [[ -x "${f}" ]] || continue
-        if ! "${f}" -c 'import json, os, ssl' >/dev/null 2>&1; then
+        if ! PYTHONDONTWRITEBYTECODE=1 "${f}" -c 'import json, os, ssl' >/dev/null 2>&1; then
           findings+="FAIL  managed interpreter ${name} is damaged (stdlib import failed)"$'\n'
           problems=$(( problems + 1 ))
           if [[ ! -L "${d%/}" ]]; then uvm_damaged_python "${name}"; fi
@@ -1083,12 +1770,74 @@ uvm_detect() {
     done
   fi
 
+  findings="${uvm_record_findings}${findings}"
+  problems=$(( problems + uvm_record_problems )) advisories=$(( advisories + uvm_record_advisories ))
   uvm_findings="${findings}" uvm_problems="${problems}" uvm_advisories="${advisories}"
 }
 
+# Doctor writes under UVM_DATA and nothing under UVM_ROOT. It records each
+# installed tool that has no record and regenerates the record trampolines
+# first, so one run after an upgrade leaves every recorded tool restorable and
+# reachable by name. The trampolines in UVM_ROOT/bin are under UVM_ROOT, so
+# the next sync there writes them, not doctor.
+#
+# The backfill's `uv tool list` creates uv's lock file, tools/.lock, when it
+# is missing, and an access-time purge takes that idle, empty file, so a
+# purged tree is exactly where doctor runs. The backfill therefore runs only
+# where the lock file already exists; elsewhere doctor names each tool with
+# no record and the command that writes one.
 uvm_doctor() {
+  if [[ -f "${UV_TOOL_DIR}/.lock" ]]; then uvm_backfill >&2 || true; fi
+  uvm_trampolines records || true
   uvm_detect
   local problems="${uvm_problems}" advisories="${uvm_advisories}" findings="${uvm_findings}"
+
+  # Advice, both: the tree works without these tools, or with them pinned. A
+  # recorded tool with no trace here belongs to another architecture or to a
+  # cluster sharing UVM_DATA, or was removed by hand, and a prologue keyed on
+  # the exit status must not fail on another node type's tools. A tool
+  # restored where its receipt named another tree keeps the pins the replay
+  # wrote, so uv tool upgrade leaves it where it is.
+  local absent
+  while IFS= read -r absent; do
+    [[ -n "${absent}" ]] || continue
+    findings+="WARN  tool ${absent} is recorded but not installed for ${arch}. Run it by name with"
+    findings+=" UVM_REPAIR set to restore it here; uv tool uninstall ${absent}, where it is"
+    findings+=" installed, drops the record."$'\n'
+    advisories=$(( advisories + 1 ))
+  done <<< "${uvm_absent_tools}"
+  for absent in "${uvm_root}"/tools/*/.uvm-restored; do
+    [[ -e "${absent}" ]] || continue
+    absent="${absent%/.uvm-restored}"; absent="${absent##*/}"
+    findings+="WARN  tool ${absent} is pinned by a restore: uv tool upgrade leaves it at the restored"
+    findings+=" versions. uv tool install --force with its original arguments releases it."$'\n'
+    advisories=$(( advisories + 1 ))
+  done
+
+  # Advice too: a tool with no record runs, and a purge of it is handled as
+  # 0.7.0 handled it. Either the backfill above did not run, because uv's lock
+  # file is missing, or it refused the tool, whose source nothing pins now.
+  local d
+  for d in ${uvm_records:+"${uvm_root}"/tools/*/}; do
+    absent="${d%/}"; absent="${absent##*/}"
+    [[ -f "${d}uv-receipt.toml" && -f "${d}pyvenv.cfg" ]] || continue
+    if uvm_recorded "${absent}"; then continue; fi
+    uvm_unpinnable "${absent}"
+    if [[ -n "${uvm_unpinned}" ]]; then
+      findings+="WARN  tool ${absent} has no record: its receipt records ${uvm_unpinned}, and the"
+      findings+=" direct_url.json that pins it is gone, so no record can say what to restore."
+      findings+=" Install ${absent} again from that source."$'\n'
+    else
+      findings+="WARN  tool ${absent} has no record, so nothing restores it after a purge."
+      findings+=" uv tool list writes one"
+      if [[ ! -f "${UV_TOOL_DIR}/.lock" ]]; then
+        findings+="; doctor does not while uv's lock file, ${UV_TOOL_DIR}/.lock, is missing,"
+        findings+=" since writing one recreates it"
+      fi
+      findings+="."$'\n'
+    fi
+    advisories=$(( advisories + 1 ))
+  done
 
   # A standing lock is advice, never a failure. Every rank sees one while any
   # rank provisions or repairs, so a job prologue keyed on the exit status
@@ -1134,27 +1883,46 @@ uvm_doctor() {
   # ended with its job, or with its task in an array, so those are counted on
   # one line and never read: a read refreshes the record's atime and would
   # keep it alive through the purge that is meant to take it. Repaired
-  # outcomes are not reported; each is one empty file.
-  local outcome value reason jobs=0
+  # outcomes are not reported; each is one empty file. A name carrying a +
+  # is not a scope's outcome (an encoded scope writes + as _2B): it is a
+  # failed restore by name, the scope's name, +tool- and the tool's, and
+  # under a value it gets a line of its own naming both. Under a job it is
+  # counted with the rest.
+  local outcome value rtool reason jobs=0 jobtools=0
   for outcome in "${uvm_root}/.repair"/value-*.failed; do
     [[ -f "${outcome}" ]] || continue
-    value="${outcome##*/value-}"; value="$(uvm_repair_decode "${value%.failed}")"
+    value="${outcome##*/value-}"; value="${value%.failed}"
     reason=""
     read -r reason 2>/dev/null < "${outcome}" || true
-    findings+="WARN  repair failed for UVM_REPAIR=${value}: ${reason:-<none recorded>}."
-    findings+=" Every call with that value fails the same way until the value"
-    findings+=" changes; remove the record with uvm clean outcomes --yes."$'\n'
+    if [[ "${value}" == *+tool-* ]]; then
+      rtool="$(uvm_repair_decode "${value#*+tool-}")"
+      value="$(uvm_repair_decode "${value%%+tool-*}")"
+      findings+="WARN  restore of tool ${rtool} failed for UVM_REPAIR=${value}: ${reason:-<none recorded>}."
+      findings+=" Every call of a command ${rtool} provides with that value fails the same"
+      findings+=" way until the value changes; uvm clean outcomes --yes removes this record"
+      findings+=" with every other outcome."$'\n'
+    else
+      value="$(uvm_repair_decode "${value}")"
+      findings+="WARN  repair failed for UVM_REPAIR=${value}: ${reason:-<none recorded>}."
+      findings+=" Every call with that value fails the same way until the value"
+      findings+=" changes; remove the record with uvm clean outcomes --yes."$'\n'
+    fi
     advisories=$(( advisories + 1 ))
   done
   for outcome in "${uvm_root}/.repair"/job-*.failed; do
     [[ -f "${outcome}" ]] || continue
-    jobs=$(( jobs + 1 ))
+    if [[ "${outcome##*/}" == *+tool-* ]]; then
+      jobtools=$(( jobtools + 1 ))
+    else
+      jobs=$(( jobs + 1 ))
+    fi
   done
-  if (( jobs > 0 )); then
-    findings+="WARN  ${jobs} failed repair outcome(s) recorded under Slurm jobs in"
-    findings+=" ${uvm_root}/.repair. Each belongs to one job, or to one task of an"
-    findings+=" array, whose tasks share only a repaired record; a new job or task"
-    findings+=" checks the tree again. uvm clean outcomes --yes removes them."$'\n'
+  if (( jobs + jobtools > 0 )); then
+    findings+="WARN  ${jobs} failed repair(s) and ${jobtools} failed restore(s) of a tool by name"
+    findings+=" recorded under Slurm jobs in ${uvm_root}/.repair. Each belongs to one job,"
+    findings+=" or to one task of an array, whose tasks share only a repaired record; a"
+    findings+=" new job or task checks the tree and tries each restore again. uvm clean"
+    findings+=" outcomes --yes removes them."$'\n'
     advisories=$(( advisories + 1 ))
   fi
 
@@ -1184,7 +1952,7 @@ EOF
   # is gone gets none: nothing is left to reinstall, and the fallback line
   # below says to remove it. A tool with no pyvenv.cfg gets no command; the
   # paragraph below says why.
-  local commands="" pytext="" tooltext="" tool
+  local commands="" pytext="" tooltext="" restoretext="" tool restorable=() replay=0
   if (( ${#uvm_damaged_pythons[@]} > 0 )); then
     commands+="    uv python install --reinstall ${uvm_damaged_pythons[*]}"$'\n'
     pytext="The python command names each damaged interpreter by its directory name under"$'\n'
@@ -1194,6 +1962,12 @@ EOF
   fi
   for tool in ${uvm_damaged_tools[@]+"${uvm_damaged_tools[@]}"}; do
     [[ -f "${uvm_root}/tools/${tool}/pyvenv.cfg" ]] || continue
+    # A recorded tool the in-place repair would refuse is restored, as the
+    # repair's own walk does.
+    if uvm_recorded "${tool}"; then
+      uvm_tool_refusal "${tool}"
+      if [[ -n "${uvm_refusal}" ]]; then restorable+=("${tool}"); continue; fi
+    fi
     uvm_tool_pins "${tool}"
     uvm_tool_receipt "${tool}"
     if [[ -n "${uvm_unrestorable}" ]]; then
@@ -1221,6 +1995,29 @@ index's release of that version.
 
 "
   fi
+  # A restore is not a command a human should type: through the wrapper, a
+  # replay's -c would become the record's request, and its receipt would pin
+  # the tool. A knob-set call runs the restore itself, under the repair lock.
+  for tool in ${uvm_restore_tools[@]+"${uvm_restore_tools[@]}"} ${restorable[@]+"${restorable[@]}"}; do
+    uvm_restore_request "${tool}"
+    if [[ -n "${uvm_restore_local}" ]]; then
+      commands+="    # ${tool}: installed from ${uvm_restore_local}, a local source no record keeps;"
+      commands+=" install ${tool} again from that source"$'\n'
+    else
+      commands+="    # ${tool}: restored from ${uvm_records}/${tool} by the call below"$'\n'
+      replay=1
+    fi
+  done
+  if (( replay )); then
+    commands+="    UVM_REPAIR=\"restore-\$(date +%s)\" uv --version"$'\n'
+    restoretext="A call with UVM_REPAIR set restores each tool its record covers: uv tool
+install --force replays the request recorded under UVM_DATA with every
+distribution pinned to what was installed, on the Python minor it ran on, then
+puts uv's receipt back where it names this tree, so uv tool upgrade still moves
+the tool. A tool installed from a local source is recorded but never restored.
+
+"
+  fi
   if [[ -z "${commands}" ]]; then
     commands="    # nothing above is repaired in place; remove a shim whose tool or interpreter is gone"$'\n'
   fi
@@ -1234,8 +2031,8 @@ ${commands}
 Each command restores what is installed, interpreters first, since every tool
 runs on one.
 
-${pytext}${tooltext}Inside a Slurm job, UVM_REPAIR=1 on the uv or uvx call runs this repair before the
-command does, once per job.
+${pytext}${tooltext}${restoretext}Inside a Slurm job, UVM_REPAIR=1 on a uv or uvx call, or on a tool run by its own
+name, runs this repair before the command does, once per job.
 
 --no-cache carries the repair: uv runs no integrity check on its unpacked archive
 store, so a reinstall that reuses the cache reinstalls the same damage. The python
@@ -1243,10 +2040,11 @@ command needs network access; uv never caches interpreter tarballs. A missing uv
 binary needs no command at all — the next uv call re-provisions it and honors
 UVM_PIN.
 
-No command repairs a tool whose pyvenv.cfg is gone, and none is safe to run
-against one: uv falls back to the base interpreter and writes outside this tree.
-Remove that tool's directory and install the tool again, naming the version you
-want — the recorded requirement may not be the version that was installed.
+No command repairs a tool with no record whose pyvenv.cfg is gone, and none is
+safe to run against one: uv falls back to the base interpreter and writes outside
+this tree. Remove that tool's directory and install the tool again, naming the
+version you want — the requirement in its receipt may not be the version that was
+installed.
 
 Consider pointing UVM_ROOT at non-purged storage instead.
 EOF
@@ -1337,20 +2135,29 @@ Usage: uv-manager <command> [args]
   versions            List uv versions installed for this architecture
   install [VERSION]   Select VERSION, downloading it if absent.
                       With no VERSION, re-resolve latest from the network.
-  trampolines         Regenerate architecture-neutral executable shims
+  trampolines         Regenerate the architecture-neutral trampolines that
+                      run installed tools by name: UVM_DATA/bin for the
+                      recorded ones, UVM_ROOT/bin for the rest
   clean [WHAT] --yes  Remove cache (default), lock (both locks), outcomes
                       (recorded repair outcomes), arch tree, or all
   help                This message
 
 Environment:
   UVM_ROOT            Base directory for per-user uv state (set by the module)
+  UVM_DATA            Durable directory for what each installed tool was
+                      installed from, a few KB per tool, off scratch
+                      (default: \${XDG_DATA_HOME:-\$HOME/.local/share}/uvm)
   UVM_PIN             uv version to provision and select
   UVM_PLATFORM        Override the architecture key (default: uname -m)
   UVM_INSTALL_URL     Installer base URL, for sites mirroring Astral
   UVM_LOCK_TIMEOUT    Seconds to wait for a lock. Past it, provisioning installs
                       without the lock and a repair fails (default: 180)
-  UVM_REPAIR          Repair what a scratch purge removed before running the
-                      command, once per Slurm job, else once per value. Off
+  UVM_REPAIR          On a uv or uvx call, or an installed tool run by its
+                      own name, repair what a scratch purge removed and
+                      restore installed tools from their records before the
+                      command runs, once per Slurm job, else once per value;
+                      a tool run by its own name is restored even on an
+                      architecture it was never installed for. Off
                       when unset, empty or 0; any other value, 00 and false
                       included, is on. Outside a job, give a per-run value,
                       at most 194 bytes, each byte outside a-z 0-9 . -,
@@ -1367,11 +2174,13 @@ uvm_manager_main() {
   local cmd="${1:-status}"
   shift || true
 
-  # These two are the reason uvm_init is deferred: they must work where no
-  # state root is configured, because they are what tell you how to set one.
+  # help and --version are the reason uvm_init is deferred: they must work
+  # where no state root is configured, because they are what tell you how to
+  # set one. _trampoline is a trampoline's way in, and runs uvm_init itself.
   case "${cmd}" in
     help|-h|--help) uvm_help; return 0 ;;
     --version)      printf '%s\n' "${uvm_version}"; return 0 ;;
+    _trampoline)    uvm_tool_entry "$@" ;;
   esac
 
   uvm_init
@@ -1380,13 +2189,107 @@ uvm_manager_main() {
     versions)    uvm_list_versions ;;
     doctor)      uvm_set_paths; uvm_doctor ;;
     clean)       uvm_clean "${1:-cache}" "${2:-}" ;;
-    trampolines) uvm_export_env; uvm_trampolines
-                 note "trampolines synced in ${uvm_neutral_bin}" ;;
+    trampolines) uvm_export_env; uvm_trampolines; uvm_trampolines_report ;;
     install)     if [[ -n "${1:-}" ]]; then uvm_install "$1" ""; else uvm_install "" 1; fi
                  uvm_export_env; uvm_trampolines
                  note "selected $("${real_uv}" --version 2>/dev/null || echo '?')" ;;
     *)           die "unknown command: ${cmd} (try: uv-manager help)" ;;
   esac
+}
+
+# ---- restore from a record -------------------------------------------------
+#
+# A record rebuilds what a purge leaves the in-place repair nothing to act on:
+# a tool that lost its directory, its pyvenv.cfg, its interpreter link, an
+# executable or its receipt, and a tool the in-place arm refuses, a git, URL
+# or path source among them. The restore replays the record: `uv tool install
+# --force` of the request as typed, with the record's constraints pinning
+# every distribution, a VCS one to its commit, on an interpreter of the
+# recorded minor. Pins are constraints, not requirements, so they add no
+# package and resolution stays the user's: uv.toml and the UV_ variables
+# apply, and the replay runs from / in a subshell, as the repair arms do, so
+# the job's project configuration does not. --force is what puts a missing
+# shim back; without it uv reports the tool installed and changes nothing.
+# The cache is bypassed, because uv runs no integrity check on it.
+#
+# The replay's receipt carries the pins, which would hold the tool against
+# `uv tool upgrade` where nothing held it before. The record keeps uv's own
+# receipt byte for byte, so that copy goes back in place of the replay's when
+# every install-path it records names this tree's shim directory. One naming
+# another architecture's or another root's directory would point uv at
+# entrypoints this tree does not have, so there the replay's receipt stays,
+# and a .uvm-restored file in the tool's directory tells doctor the tool is
+# pinned by a restore; `uv tool install --force` with the original arguments
+# recreates the directory without it. The test counts fixed strings and
+# parses nothing. This is the one place the wrapper writes a receipt, and
+# what it writes is uv's own. The record itself is read, never written.
+
+# TOOL: sets uvm_restore_args to the replay's arguments from TOOL's recorded
+# request, and uvm_restore_local to the local source it names, or to nothing.
+# The request is opaque except for three classes of token, and is not a model
+# of uv's command line. --force is dropped, because the replay adds its own
+# and uv refuses a repeated flag. <name>[extras]@latest loses @latest, which
+# uv resolves to the newest release before it reads the pins and which then
+# conflicts with them. An option naming a local file or directory marks a
+# source the wrapper does not keep, which a replay from / could not reach
+# anyway; so does a constraint on a file: URL, which a path source records.
+uvm_restore_request() {
+  local a r="${uvm_records}/$1" re_latest='^([A-Za-z0-9._-]+(\[[^]]*\])?)@latest$'
+  uvm_restore_args=() uvm_restore_local=""
+  while IFS= read -r a || [[ -n "${a}" ]]; do
+    case "${a}" in
+      --force) continue ;;
+      -e|--editable|--editable=*|--with-editable|--with-editable=*|--with-requirements|--with-requirements=*\
+      |-c|--constraints|--constraints=*|--overrides|--overrides=*|-b|--build-constraints|--build-constraints=*)
+        if [[ -z "${uvm_restore_local}" ]]; then uvm_restore_local="${a%%=*}"; fi ;;
+    esac
+    if [[ "${a}" =~ ${re_latest} ]]; then a="${BASH_REMATCH[1]}"; fi
+    uvm_restore_args+=("${a}")
+  done < "${r}/request"
+  if [[ -z "${uvm_restore_local}" ]] && grep -q ' @ file:' "${r}/constraints" 2>/dev/null; then
+    uvm_restore_local="a path"
+  fi
+}
+
+# TOOL: restores TOOL from its record. Returns 1 with uvm_repair_reason set
+# when it refuses a local source or the replay fails, so the repair arm that
+# called it can end the walk with that reason. Every byte goes to stderr.
+uvm_restore() {
+  local tool="$1" r="${uvm_records}/$1" t="${UV_TOOL_DIR}/$1" py="" line n_all=0 n_here=0
+  uvm_restore_request "${tool}"
+  if [[ -n "${uvm_restore_local}" ]]; then
+    uvm_repair_reason="tool ${tool} was installed from ${uvm_restore_local}, a local source no record"
+    uvm_repair_reason+=" keeps; install it again from that source"
+    return 1
+  fi
+  read -r py 2>/dev/null < "${r}/python" || true
+  # The minor as UV_PYTHON rather than --python: a request's own --python then
+  # wins, uv refuses it twice, and no .python-version or global pin steers the
+  # replay onto another interpreter.
+  if ! (
+    cd / || exit 1
+    if [[ -n "${py}" ]]; then export UV_PYTHON="${py}"; fi
+    UV_NO_CACHE=1 exec "${real_uv}" tool install --force -c "${r}/constraints" \
+      ${uvm_restore_args[@]+"${uvm_restore_args[@]}"}
+  ) >&2; then
+    uvm_repair_reason="the restore of tool ${tool} from its record failed"
+    return 1
+  fi
+  if [[ -f "${r}/uv-receipt.toml" ]]; then
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+      [[ "${line}" == *'install-path = "'* ]] || continue
+      n_all=$(( n_all + 1 ))
+      if [[ "${line}" == *"install-path = \"${UV_TOOL_BIN_DIR}/"* ]]; then n_here=$(( n_here + 1 )); fi
+    done < "${r}/uv-receipt.toml"
+  fi
+  if (( n_all > 0 && n_all == n_here )) \
+     && cp "${r}/uv-receipt.toml" "${t}/.uv-receipt.toml.$$" \
+     && mv -f "${t}/.uv-receipt.toml.$$" "${t}/uv-receipt.toml"; then
+    return 0
+  fi
+  rm -f "${t}/.uv-receipt.toml.$$" 2>/dev/null || true
+  : > "${t}/.uvm-restored" 2>/dev/null || true
+  return 0
 }
 
 # ---- purge repair ----------------------------------------------------------
@@ -1442,6 +2345,7 @@ uvm_repair_ok=""
 uvm_repair_failed=""
 uvm_repair_reason=""
 uvm_repair_name=""
+uvm_repair_scope=""
 
 # SCOPE: sets uvm_repair_name to SCOPE written as a record name. Builtins
 # only, since a call with the knob set and an outcome recorded runs this and
@@ -1476,7 +2380,9 @@ uvm_repair_recorded() {
   [[ -e "${uvm_repair_ok}" || -e "${uvm_repair_failed}" ]]
 }
 
-# Detect, then run the arms the damage calls for, interpreters first. Sets
+# Detect, then run the arms the damage calls for, in order: the interpreters,
+# the restore of recorded tools, the in-place repair of the rest. Each arm
+# that fails sets uvm_repair_reason and returns, and the walk with it. Sets
 # uvm_repair_reason on failure, and returns 0 either way, so that it runs
 # under errexit: a fault in the walk then ends the call, as a dead holder
 # does, rather than letting it go on to record an outcome. Everything goes to
@@ -1539,6 +2445,25 @@ uvm_repair_run() {
     fi
   fi
 
+  # Recorded tools, from their records. A damaged recorded tool the in-place
+  # arm below would refuse joins them here, after the interpreter arm, since
+  # whether its bin/python runs is one of the refusals. The in-place arm stays
+  # the first choice for every other damaged tool, recorded or not: it leaves
+  # the receipt byte for byte, where a restore puts back a copy only when it
+  # names this tree. The first refusal or failure ends the walk with its
+  # reason.
+  for tool in ${uvm_damaged_tools[@]+"${uvm_damaged_tools[@]}"}; do
+    if uvm_restoring "${tool}" || ! uvm_recorded "${tool}"; then continue; fi
+    uvm_tool_refusal "${tool}"
+    if [[ -n "${uvm_refusal}" ]]; then uvm_restore_tools+=("${tool}"); fi
+  done
+  if (( ${#uvm_restore_tools[@]} > 0 )); then
+    note "restoring the installed tools for ${arch} from their records: ${uvm_restore_tools[*]}"
+    for tool in "${uvm_restore_tools[@]}"; do
+      uvm_restore "${tool}" || return 0
+    done
+  fi
+
   # Each damaged tool, and no other, gets every distribution in its
   # environment reinstalled at the version its dist-info directory names,
   # into that environment. uv's tool commands cannot do this: an upgrade
@@ -1553,35 +2478,16 @@ uvm_repair_run() {
   # purge. --no-cache carries the repair: uv runs no integrity check on its
   # unpacked archive store, so a reinstall that reuses the cache reinstalls
   # the same damage.
-  (( ${#uvm_damaged_tools[@]} > 0 )) || return 0
-  note "repairing the tool environments for ${arch}: ${uvm_damaged_tools[*]}"
-  for tool in "${uvm_damaged_tools[@]}"; do
-    # --python must name the tool's own environment. pyvenv.cfg is what makes
-    # bin/python that environment's interpreter rather than the base one, and
-    # the interpreter arm above has already restored what bin/python points
-    # at, so an interpreter that still does not run is gone for good.
-    if [[ ! -f "${uvm_root}/tools/${tool}/pyvenv.cfg" || ! -x "${uvm_root}/tools/${tool}/bin/python" ]]; then
-      uvm_repair_reason="tool ${tool} has no interpreter at bin/python, so no automated repair is safe;"
-      uvm_repair_reason+=" remove ${uvm_root}/tools/${tool} and install the tool again"
-      return 0
-    fi
-    uvm_tool_pins "${tool}"
-    if [[ -n "${uvm_unrestorable}" ]]; then
-      uvm_repair_reason="tool ${tool} has ${uvm_unrestorable} from a URL, git or path source, which no"
-      uvm_repair_reason+=" version on an index restores; install the tool again from that source"
-      return 0
-    fi
-    # The same refusal when the purge took direct_url.json too, read from the
-    # receipt.
-    uvm_tool_receipt "${tool}"
-    if [[ -n "${uvm_receipt_source}" ]]; then
-      uvm_repair_reason="tool ${tool} has ${uvm_receipt_source} in its receipt, which no version on"
-      uvm_repair_reason+=" an index restores; install the tool again from that source"
-      return 0
-    fi
-    if (( ${#uvm_pins[@]} == 0 )); then
-      uvm_repair_reason="tool ${tool} records no installed distribution to restore;"
-      uvm_repair_reason+=" remove ${uvm_root}/tools/${tool} and install the tool again"
+  local inplace=()
+  for tool in ${uvm_damaged_tools[@]+"${uvm_damaged_tools[@]}"}; do
+    if ! uvm_restoring "${tool}"; then inplace+=("${tool}"); fi
+  done
+  (( ${#inplace[@]} > 0 )) || return 0
+  note "repairing the tool environments for ${arch}: ${inplace[*]}"
+  for tool in "${inplace[@]}"; do
+    uvm_tool_refusal "${tool}"
+    if [[ -n "${uvm_refusal}" ]]; then
+      uvm_repair_reason="${uvm_refusal}"
       return 0
     fi
     if ! (cd / && exec "${real_uv}" pip install --python "${uvm_root}/tools/${tool}/bin/python" \
@@ -1590,6 +2496,41 @@ uvm_repair_run() {
       return 0
     fi
   done
+  return 0
+}
+
+# TOOL: sets uvm_refusal to the reason the in-place arm cannot repair TOOL,
+# or to nothing, and uvm_pins to what it would reinstall.
+uvm_tool_refusal() {
+  local tool="$1"
+  uvm_refusal=""
+  # --python must name the tool's own environment. pyvenv.cfg is what makes
+  # bin/python that environment's interpreter rather than the base one, and
+  # the interpreter arm has already restored what bin/python points at, so
+  # an interpreter that still does not run is gone for good.
+  if [[ ! -f "${uvm_root}/tools/${tool}/pyvenv.cfg" || ! -x "${uvm_root}/tools/${tool}/bin/python" ]]; then
+    uvm_refusal="tool ${tool} has no interpreter at bin/python, so no automated repair is safe;"
+    uvm_refusal+=" remove ${uvm_root}/tools/${tool} and install the tool again"
+    return 0
+  fi
+  uvm_tool_pins "${tool}"
+  if [[ -n "${uvm_unrestorable}" ]]; then
+    uvm_refusal="tool ${tool} has ${uvm_unrestorable} from a URL, git or path source, which no"
+    uvm_refusal+=" version on an index restores; install the tool again from that source"
+    return 0
+  fi
+  # The same refusal when the purge took direct_url.json too, read from the
+  # receipt.
+  uvm_tool_receipt "${tool}"
+  if [[ -n "${uvm_receipt_source}" ]]; then
+    uvm_refusal="tool ${tool} has ${uvm_receipt_source} in its receipt, which no version on"
+    uvm_refusal+=" an index restores; install the tool again from that source"
+    return 0
+  fi
+  if (( ${#uvm_pins[@]} == 0 )); then
+    uvm_refusal="tool ${tool} records no installed distribution to restore;"
+    uvm_refusal+=" remove ${uvm_root}/tools/${tool} and install the tool again"
+  fi
   return 0
 }
 
@@ -1622,6 +2563,7 @@ uvm_repair() {
     || die "UVM_REPAIR is too long: its record name would be ${#ok} bytes, and the limit is 200"
   uvm_repair_ok="${dir}/${ok}.ok"
   uvm_repair_failed="${dir}/${failed}.failed"
+  uvm_repair_scope="${scope}"
 
   # The repaired path costs this one stat.
   [[ -e "${uvm_repair_ok}" ]] && return 0
@@ -1636,6 +2578,16 @@ uvm_repair() {
      uvm_acquire_lock repair fail uvm_repair_recorded &&
      ! uvm_repair_recorded; then
     (umask 077; mkdir -p "${dir}") || die "cannot create ${dir}"
+    # Records first, for tools that have none, so a user who only runs jobs
+    # after an upgrade still gets them before the walk reads them, and their
+    # trampolines with them: a record and its trampoline are written as one
+    # step, and a record whose trampoline is missing leaves the tool "command
+    # not found" once a purge takes the shim. The sync is the record
+    # directory's alone, once per scope, and runs whether or not the backfill
+    # wrote anything, so a record some earlier write left without its
+    # trampoline gets one too.
+    uvm_backfill >&2 || true
+    uvm_trampolines records >&2 || true
     uvm_repair_run
     # The failed record is written whole under a temporary name and renamed,
     # because a waiter reads its reason the moment the name appears. The
@@ -1656,6 +2608,91 @@ uvm_repair() {
     ${after}"
 }
 
+# ---- restore by name -------------------------------------------------------
+#
+# The walk restores only a recorded tool with a trace in this tree. One with
+# none was installed for another architecture, on a cluster sharing UVM_DATA,
+# or removed by hand, and restoring every such tool in every job's walk would
+# install each on every node type, every download under the lock. So it comes
+# back only where it is run by its own name with the knob set: the trampoline
+# whose shim is still missing after the scope check restores that tool, and
+# no other, under the repair lock: its second caller, with its own predicate.
+#
+# Success is its own evidence, the shim executable again, and the waiters'
+# predicate tests exactly that, so nothing is recorded for it. Nothing stale
+# can read as clean either, since this path is entered only when the shim is
+# missing. A failure is recorded per scope and tool, as the scope's failed
+# record with +tool-<encoded tool> before .failed, so the calls waiting on it
+# fail at once with its reason rather than at UVM_LOCK_TIMEOUT, and it lasts
+# as that record does: a job's, an array task's own, a value's until the value
+# changes. An encoded scope writes + as _2B, so the two names never collide,
+# and doctor tells them apart by it.
+
+uvm_ondemand_shim=""
+uvm_ondemand_failed=""
+
+# The waiter's predicate, and the test a call makes on arrival and once it
+# holds the lock.
+uvm_ondemand_done() {
+  [[ -x "${uvm_ondemand_shim}" || -e "${uvm_ondemand_failed}" ]]
+}
+
+# NAME: restores the recorded tool whose entrypoints name NAME, after
+# uvm_repair has named the scope's records. Returns 0 with NAME's shim in
+# place, or when no record names NAME, which leaves the caller to say so;
+# dies with the recorded reason when the restore failed.
+uvm_restore_by_name() {
+  local name="$1" tool="" f ep base after reason="no outcome was recorded"
+  for f in ${uvm_records:+"${uvm_records}"/*/entrypoints}; do
+    [[ -f "${f}" ]] || continue
+    while IFS= read -r ep || [[ -n "${ep}" ]]; do
+      if [[ "${ep}" == "${name}" ]]; then tool="${f%/entrypoints}"; tool="${tool##*/}"; break 2; fi
+    done < "${f}"
+  done
+  [[ -n "${tool}" ]] || return 0
+  uvm_repair_encode "${tool}"
+  uvm_ondemand_shim="${UV_TOOL_BIN_DIR}/${name}"
+  uvm_ondemand_failed="${uvm_repair_failed%.failed}+tool-${uvm_repair_name}.failed"
+  # NAME_MAX is 255 bytes, and the temporary name adds a dot and a pid.
+  base="${uvm_ondemand_failed##*/}"
+  (( ${#base} <= 240 )) \
+    || die "cannot restore ${tool}: its record name would be ${#base} bytes, and the limit is 240"
+
+  # uvm_repair's shape: not done on arrival, not done by the holder this call
+  # waited on, and still not done once the lock is won.
+  if ! uvm_ondemand_done &&
+     uvm_acquire_lock repair fail uvm_ondemand_done &&
+     ! uvm_ondemand_done; then
+    note "restoring the installed tool ${tool} for ${arch} from its record"
+    uvm_repair_reason=""
+    if uvm_restore "${tool}" && [[ ! -x "${uvm_ondemand_shim}" ]]; then
+      uvm_repair_reason="tool ${tool} was restored from its record and provides no ${name}"
+    fi
+    # The restored tool's record trampolines, as wherever a record is acted
+    # on, so the next call by name finds one in $UVM_DATA/bin.
+    uvm_trampolines records >&2 || true
+    # Written whole under a temporary name and renamed, because a waiter
+    # reads its reason the moment the name appears.
+    if [[ -n "${uvm_repair_reason}" ]]; then
+      { (umask 077; mkdir -p "${uvm_ondemand_failed%/*}") &&
+        printf '%s\n' "${uvm_repair_reason}" > "${uvm_ondemand_failed}.$$" &&
+        mv -f "${uvm_ondemand_failed}.$$" "${uvm_ondemand_failed}"; } \
+        || die "cannot record the restore outcome at ${uvm_ondemand_failed}"
+    fi
+  fi
+  uvm_unlock
+
+  [[ -x "${uvm_ondemand_shim}" ]] && return 0
+  read -r reason 2>/dev/null < "${uvm_ondemand_failed}" || true
+  if [[ -n "${SLURM_JOB_ID:-}" ]]; then
+    after="Every call of ${name} in this job fails the same way; the record ends with the job."
+  else
+    after="Every call of ${name} with this value fails the same way until the value changes."
+  fi
+  die "cannot run ${name} for ${uvm_repair_scope}: ${reason}
+    ${after}"
+}
+
 # ---- dispatch --------------------------------------------------------------
 
 if [[ "${mode}" == "manager" ]]; then
@@ -1673,6 +2710,33 @@ uvm_parse_command "$@"
 uvm_ensure_uv
 uvm_export_env
 
+# The first call after an upgrade syncs the trampolines, once per root. Until
+# it does, a tool runs through its 0.7.0 trampoline in $UVM_ROOT/bin, which
+# the module keeps on PATH and which the sync rewrites in place; waiting for a
+# user to run `uv tool` or doctor would leave that until whenever they did.
+#
+# The trigger is this root's marker, in this root's directory and written only
+# here and by a sync of that directory. $UVM_DATA/bin cannot serve: doctor
+# creates it and never writes under UVM_ROOT, and another root sharing
+# UVM_DATA creates it first, and either would leave this root's 0.7.0
+# trampolines unrewritten. The call creates the marker before it syncs, and
+# skips the sync when it cannot: a directory that cannot be created or
+# written, or an inode quota, would otherwise cost a full sync on every call
+# that could never leave a marker. A sync that then fails to write this
+# root's directory removes the marker, so the next call tries again, one
+# attempt per call while it fails. An unwritable UVM_DATA costs nothing
+# further: the root's directory syncs and the marker stays. While the marker
+# exists this is one stat and no fork. First calls that start before the
+# marker exists each sync, and every write is a temporary file renamed into
+# place, so they converge. A call killed mid-sync leaves its marker; an old
+# trampoline it did not reach still runs the tool, and the next `uv tool`
+# command or `uvm trampolines` rewrites it.
+if [[ ! -e "${uvm_heal_marker}" ]] \
+   && { [[ -d "${uvm_root_bin}" ]] || (umask 077; mkdir -p "${uvm_root_bin}") 2>/dev/null; } \
+   && : 2>/dev/null > "${uvm_heal_marker}"; then
+  uvm_trampolines || true
+fi
+
 # Off, the common case on every call, is this one builtin test and no fork.
 # It sits after uvm_export_env because the repair's uv inherits those paths,
 # and ahead of every branch, so the knob fires whatever the subcommand.
@@ -1683,12 +2747,30 @@ if [[ "${uvm_cmd}" == "self" && "${uvm_subcmd}" == "update" ]]; then
 fi
 
 # Commands that change what is installed also change what needs a trampoline,
-# so these cannot be exec'd; they run to completion and then resync.
+# so these cannot be exec'd; they run to completion and then resync. A `uv
+# tool` command that changes what is installed also changes the records,
+# which only an exit 0 may touch: the marks taken before it say which tools
+# it changed. Nothing after uv's own exit overwrites rc.
 if [[ "${uvm_cmd}" == "tool" || "${uvm_cmd}" == "python" ]]; then
+  uvm_marks="" uvm_recorded_cmd=""
+  if [[ "${uvm_cmd}" == "tool" ]]; then
+    case "${uvm_subcmd}" in
+      install|upgrade|uninstall)
+        uvm_recorded_cmd="${uvm_subcmd}"
+        uvm_marks="$(uvm_tool_marks)" || true ;;
+    esac
+  fi
   set +e
   "${real_uv}" "$@"
   rc=$?
   set -e
+  if [[ "${rc}" == 0 && -n "${uvm_recorded_cmd}" ]]; then
+    uvm_records_update "${uvm_recorded_cmd}" "${uvm_marks}" ${uvm_rest[@]+"${uvm_rest[@]}"} || true
+  fi
+  # Any `uv tool` command that succeeds also records each installed tool that
+  # has no record, so the first `uv tool list` after an upgrade records the
+  # tools installed before it.
+  if [[ "${rc}" == 0 && "${uvm_cmd}" == "tool" ]]; then uvm_backfill || true; fi
   uvm_trampolines || true
   exit "${rc}"
 fi

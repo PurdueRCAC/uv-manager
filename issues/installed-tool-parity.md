@@ -1,5 +1,5 @@
 ---
-status: unshaped
+status: adopted:installed-tool-parity
 kind: feature
 appetite: big
 lane: public

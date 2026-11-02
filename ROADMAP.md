@@ -19,20 +19,19 @@ See `AGENTS.md` for why.
 
 ### A tool run by its own name gets none of the guarantees `uvx` gets
 **Seed:** [`issues/installed-tool-parity.md`](issues/installed-tool-parity.md) · `feature` · appetite
-big
+big · **adopted** as [`spec/installed-tool-parity/`](spec/installed-tool-parity/GOAL.md)
 
-`purge-tree-repair` made `srun uvx <tool>` repair once and run on every rank, and that route stays.
-`uv tool install` on a login node followed by `srun <tool>` gets none of it: the trampoline execs the
-shim without entering the wrapper, and the only record of what was installed is the receipt inside
-the purged tree. A whole tool directory, a receipt, a git source or a purged shim (which takes its
-trampoline with it at the next sync) is beyond repair on 0.7.0. The direction, agreed with the
-maintainer on 2026-11-01, adds a `UVM_DATA` contract beside `UVM_ROOT`: a durable,
-architecture-neutral tree, set by the modulefile, holding plain-file records of what the user asked
-for with every distribution pinned, and the trampolines generated from them. A trampoline goes
-through the wrapper's scope check when `UVM_REPAIR` is set, and a missing tool is restored by
-replaying its record. It contradicts the README's "none under $HOME" claim, which is why it needs
-shaping rather than a fix. First in the queue because it gives the second route the contract the
-first already has; `uv-cache-purge-damage` completes the first.
+Shaped on 2026-11-01 against `release/0.8.0`, twelve criteria, at most five phases. `uv tool install`
+then `srun <tool>` gets the contract `srun uvx <spec>` has: under `UVM_REPAIR` a call by the tool's
+name runs the scope check, and a tool whose directory, receipt or shim a purge took, a git-sourced
+one included, is restored once from a plain-file record under `UVM_DATA` while the other ranks wait.
+`UVM_DATA` is set by the modulefile beside `UVM_ROOT` and defaults to
+`${XDG_DATA_HOME:-$HOME/.local/share}/uvm`; it holds records and trampolines, a few KB per tool,
+which retires the README's "none under $HOME" claim. A real-uv drive during shaping settled the
+VCS pin (a constraint line keeps the request as typed) and which `uvx` forms reach an installed
+tool. The foreman's gate ruled on all ten open questions; among them, a restore must not leave a
+tool held against `uv tool upgrade` that was not held before the purge. First in the queue;
+`uv-cache-purge-damage` completes the `uvx` route.
 
 ### Separately submitted jobs queue to check one tree under the repair lock
 **Seed:** [`issues/repair-scope-queueing.md`](issues/repair-scope-queueing.md) · `feature` · appetite
