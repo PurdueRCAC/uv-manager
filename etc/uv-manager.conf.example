@@ -124,14 +124,32 @@
 # from an index fail the call instead: one whose direct_url.json records a
 # URL, git or path source, or whose receipt records a requirement,
 # constraint or override from a directory, path, editable, git or URL
-# source. The receipt is read for
-# that alone and never written. The repair runs under uv.toml and the UV_
-# variables, so a configured index or mirror is in effect, and from /, so
-# the project configuration of the job's directory is not; an index or
-# find-links given only on one install's command line is not applied again,
-# so a name from it can resolve from the configured index instead. The
-# tool repair needs pypi.org and files.pythonhosted.org, or the configured
-# index, and room under TMPDIR for the tool's environment; the
+# source. The receipt is read for that alone and never written. Last comes
+# uv's cache: a damaged environment that uv run <script> or uvx <spec> runs
+# from has its damaged distributions, and no others, reinstalled in place
+# the same way while it is still a virtualenv, and is otherwise removed, as
+# a damaged unpacked wheel is, for uv to rebuild from the script or spec the
+# next call names. A cached uvx environment holding a distribution not shown
+# to come from the configured index is removed too, and so is one whose
+# reinstall fails; a script environment fails the call instead when its
+# reinstall fails, when the source of a damaged distribution in it is not
+# recorded, or when one it would pin by version is a release the configured
+# index does not serve, an exclude-newer cutoff included, or a wheel whose
+# Python source differs from that index's release, as one from an index the
+# script itself names can, and uv-manager clean cache --yes, which rebuilds
+# the whole cache, is the remedy. Only wheels are compared: a distribution uv
+# built from an sdist is checked only for being served, so a fork served as
+# an sdist is not seen, nor is one that differs only in a compiled extension
+# or in its metadata. When the fetch fails, the index unreachable, offline or
+# refusing the credentials, the call fails saying so, with no remedy to run:
+# the next scope tries again. The repair runs under uv.toml
+# and the UV_ variables, so a configured index or mirror is in effect, and
+# from /, so the project configuration of the job's directory is not; an
+# index or find-links given only on one install's command line is not
+# applied again, so a name from it can resolve from the configured index
+# instead. The tool and cache repairs need pypi.org and
+# files.pythonhosted.org, or the configured index, and room under TMPDIR
+# for each environment; the
 # interpreter reinstall needs releases.astral.sh. It runs in `uv` and `uvx`
 # under any subcommand, and in an installed tool run by its own name. A
 # failed repair stops its scope: under a value the record stands until the value

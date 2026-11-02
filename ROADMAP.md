@@ -116,17 +116,16 @@ that cycle has landed.
 
 ### A purge that damages uv's cache breaks `uv run` and `uvx`
 **Seed:** [`issues/uv-cache-purge-damage.md`](issues/uv-cache-purge-damage.md) · `feature` ·
-appetite big
+appetite big · **adopted** as [`spec/uv-cache-purge-damage/`](spec/uv-cache-purge-damage/GOAL.md)
 
-The class `purge-tree-repair` conceded at its gate. A script's environment, an ephemeral `uvx`
-environment and the unpacked archives they come from all live in `UV_CACHE_DIR`, inside the purged
-tree, and uv runs no integrity check on the archives. So `srun uvx <tool>`, the route the README
-recommends for job scripts, gets the scope check but no repair unless the tool is installed (found
-on a production cluster, 2026-11-01). Unmeasured: the first criterion is constructing the failure. Repairing it
-means clearing a shared cache and then
-having every rank rebuild at once under a `flock` that not every parallel filesystem honours, which
-is why it is its own cycle. It reuses the lock, scope and outcome contract of `purge-tree-repair`,
-which has landed.
+The `uvx` route's half of the two-route contract. Shaping constructed the failure with uv 0.13.6:
+a purge's shapes in a script environment, an ephemeral `uvx` environment or an unpacked wheel make
+the next `uv run` or `uvx` fail. A script environment that loses `pyvenv.cfg` runs with rc 0
+after installing into the managed interpreter. With the knob set, the scope is recorded repaired
+on such a cache. The GOAL extends doctor's detection to the cache's live entries and repairs them
+under `purge-tree-repair`'s lock, scope and outcome contract. A process running from a repaired
+entry keeps importing, and no waiter rebuilds what the repair restored. It closes on a 2 × 64-rank
+cluster drive. Planned after `installed-tool-parity` lands on the release branch.
 
 ### A real test harness
 **Seed:** [`issues/test-harness.md`](issues/test-harness.md) · `feature` · appetite big

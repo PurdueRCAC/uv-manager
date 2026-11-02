@@ -1,0 +1,12 @@
+--- metadata buckets: 30% of files removed from simple-v*, interpreter-v*, and the .http/.msgpack files of wheels-v*
+meta: existing s.py                      | rc=0   | out=s ok 4.67.1            | back 0/24    | new-archive 0  | 2nd rc=0 | 
+meta: existing uvx tqdm                  | rc=0   | out=4.67.1                 | back 1/24    | new-archive 0  | 2nd rc=0 | 
+meta: new script m.py                    | rc=0   | out=m ok                   | back 2/24    | new-archive 1  | 2nd rc=0 | 
+meta: new uvx --with                     | rc=0   | out=4.67.1                 | back 4/24    | new-archive 2  | 2nd rc=0 | 
+--- running process across an in-place reinstall
+script env, in-place reinstall during run: late import ok
+--- gates on this tree with the knob set (release/0.8.0 wrapper)
+UVM_REPAIR uv run s.py, module gone: rc=1 0 repair lines; outcome=value-g1.ok 
+UVM_REPAIR uvx tqdm, module gone: rc=1 0 repair lines
+uvm doctor rc=0 (OK    no damage detected under TMP)
+UVM_REPAIR uv run s.py, pyvenv.cfg gone: rc=0 base site-packages: pip pip-26.2.2.dist-info README.txt tqdm tqdm-4.67.1.dist-info 

@@ -977,17 +977,19 @@ uvm_carries_userinfo() {
   return 1
 }
 
-# TOOLDIR: prints one constraint per distribution in the environment. A
-# distribution with no direct_url.json came from an index and is pinned by
-# version; one with it is pinned to its source, a VCS one to its commit, and
-# either within the subdirectory it was built from, which uv matches against
-# the request as part of the URL. Returns 1 when a direct_url.json names no
+# TOOLDIR [DI...]: prints one constraint per distribution in the environment,
+# or per dist-info directory DI when any is given. A distribution with no
+# direct_url.json came from an index and is pinned by version; one with it
+# is pinned to its source, a VCS one to its commit, and either within the
+# subdirectory it was built from, which uv matches against the request as
+# part of the URL. Returns 1 when a direct_url.json names no
 # URL, rather than pin such a distribution to an index it never came from.
 uvm_record_constraints() {
   local di dist json line url vcs commit sub
   local re_url='"url":"([^"]*)"' re_vcs='"vcs":"([a-z]+)"' re_commit='"commit_id":"([0-9a-f]+)"'
-  local re_sub='"subdirectory":"([^"]*)"'
-  for di in "$1"/lib/*/site-packages/*.dist-info; do
+  local re_sub='"subdirectory":"([^"]*)"' dis=("$1"/lib/*/site-packages/*.dist-info)
+  (( $# < 2 )) || dis=("${@:2}")
+  for di in "${dis[@]}"; do
     [[ -d "${di}" ]] || continue
     dist="${di##*/}"; dist="${dist%.dist-info}"
     if [[ ! -f "${di}/direct_url.json" ]]; then
@@ -1452,9 +1454,12 @@ uvm_list_versions() {
 # damaged interpreters' install keys) and uvm_orphans (tool names missing
 # pyvenv.cfg, one per line); through uvm_detect_records, which runs first,
 # uvm_restore_tools (recorded tools a restore rebuilds, which the other passes
-# skip) and uvm_absent_tools (recorded tools with no trace here). A finding
-# the repair cannot act on sets none of them. It prints nothing; doctor adds
-# its own advisories and the report.
+# skip) and uvm_absent_tools (recorded tools with no trace here); and through
+# uvm_detect_cache, which runs last, uvm_cache_fix (damaged cache environments
+# a reinstall can repair in place, and beside it uvm_cache_fixd, the damaged
+# distributions in each) and uvm_cache_drop (damaged cache entries only a
+# removal clears). A finding the repair cannot act on sets none of
+# them. It prints nothing; doctor adds its own advisories and the report.
 uvm_damaged_python() {  # KEY: add an install key once
   case " ${uvm_damaged_pythons[*]-} " in *" $1 "*) return 0 ;; esac
   uvm_damaged_pythons+=("$1")
@@ -1607,6 +1612,338 @@ uvm_detect_records() {
     fi
     uvm_restore_tools+=("${name}")
   done
+}
+
+# ---- uv's cache ------------------------------------------------------------
+#
+# The wrapper points UV_CACHE_DIR inside the tree, so a purge reaches the
+# cache too, and uv checks nothing it finds there: a script environment or a
+# cached uvx environment missing a module is run as it is, and an unpacked
+# wheel missing a file is linked or copied into every environment built from
+# it. The walk covers the live entries, the ones a uv run or uvx call runs or
+# builds from, as uv 0.13 lays them out:
+#
+#   environments-v2/<name>-<hash>/   a script environment, a real directory
+#   environments-v2/<hash>/<hash>    a cached environment (uvx, uv run
+#                                    --with), a link into archive-v0
+#   wheels-v*/.../<version>-<tag>    an unpacked wheel, a link into archive-v0
+#
+# An archive no link or pointer reaches is not walked: no call uses it, and
+# uv cache prune collects it. The walk goes through each link rather than
+# reading it, so it forks nothing per entry. A wheel's link sits three to
+# five levels down, by where the wheel came from, so one find per bucket
+# lists the links and the pointer files beside them without following them
+# into the archives; fixed-depth globs either miss a source or descend
+# through every archive.
+#
+# Sets uvm_cache_findings and uvm_cache_problems for doctor, and for the
+# repair uvm_cache_fix (environments it can reinstall in place) and
+# uvm_cache_drop (entries it removes for uv to rebuild), each item KIND:PATH
+# with KIND script, link or wheel, and uvm_cache_fixd, beside each item of
+# uvm_cache_fix, its damaged dist-info directories, one per line. It lists
+# directories, reads RECORD files and tests paths, and writes nothing.
+
+# KIND PATH [DIR]: queue one live entry for uvm_cache_check. DIR is the
+# directory walked, PATH by default, and a wheel's archive when its link is
+# gone and its pointer reaches it.
+uvm_cache_entry() {
+  uvm_cache_qk+=("$1") uvm_cache_qp+=("$2") uvm_cache_qd+=("${3:-$2}")
+}
+
+# Check the queued entries and record the first problem found in each, so an
+# entry gives one finding however much of it the purge took, and with it
+# every damaged dist-info directory, since the repair reinstalls those and
+# no other distribution. An environment needs pyvenv.cfg, without which uv
+# runs the base interpreter in its place.
+# Each dist-info directory, in site-packages for an environment and at the
+# root for a wheel, needs RECORD and METADATA, and every path RECORD lists. The
+# paths are read as the tools walk reads them, except that ../ paths are
+# checked: RECORD lists a console script as ../../../bin/<name>, and an
+# executable under bin/ is part of what an environment runs. A wheel with no
+# dist-info directory at all is damaged; an environment with none holds
+# nothing to check.
+#
+# Testing each path RECORD lists costs a metadata round trip per line on a
+# parallel filesystem, a minute and more for a cache holding one data-science
+# stack. So the entries are listed instead, by one find over all of them,
+# which reads directories and stats no file, and one awk pass over the
+# listing and every RECORD, which resolves . and .. by name and reports each
+# path the listing lacks. Only those are tested, as the tools walk tests
+# them, so a file reached through a link to a directory, or outside the
+# entry, counts as it would there: a path is missing when neither -e nor -L
+# holds for it, a dangling link included as present. Every entry's
+# RECORD and METADATA, and its pyvenv.cfg, are tested in the shell first.
+uvm_cache_check() {
+  local n="${#uvm_cache_qp[@]}" i j=0 k=0 di why pend rest m=0 line out tab=$'\t' nl=$'\n'
+  local stops=() pends=() roots=() dis=() dists=() gapm=() gapt=() walked dmg
+  for (( i = 0; i < n; i++ )); do
+    why="" pend="" dists=() walked=""
+    if [[ "${uvm_cache_qk[i]}" == wheel ]]; then
+      dists=("${uvm_cache_qd[i]}"/*.dist-info)
+      [[ -d "${dists[0]}" ]] || why="it has no dist-info directory"
+    elif [[ ! -f "${uvm_cache_qp[i]}/pyvenv.cfg" ]]; then
+      why="it has no pyvenv.cfg"
+    else
+      dists=("${uvm_cache_qp[i]}"/lib/*/site-packages/*.dist-info)
+    fi
+    # Each line is a dist-info directory and what the shell found missing in
+    # it, in glob order, so the first problem is the first line with one.
+    for di in ${dists[@]+"${dists[@]}"}; do
+      [[ -d "${di}" ]] || continue
+      if [[ ! -f "${di}/RECORD" ]]; then pend+="${di}${tab}${di##*/} has no RECORD manifest${nl}"
+      elif [[ ! -f "${di}/METADATA" ]]; then pend+="${di}${tab}${di##*/} has no METADATA${nl}"
+      else pend+="${di}${tab}${nl}" dis+=("${di}") walked=1
+      fi
+    done
+    [[ -z "${walked}" ]] || roots+=("${uvm_cache_qd[i]}")
+    stops[i]="${why}" pends[i]="${pend}"
+  done
+  if (( ${#dis[@]} > 0 )); then
+    # -H follows a cached environment's link given as a root and no link
+    # below it. The listing and the dist-info directories are one stream,
+    # parted by a line holding only the byte 036.
+    if ! out=$( { find -H "${roots[@]}" 2>/dev/null; printf '\036\n'; printf '%s\n' "${dis[@]}"; } |
+                LC_ALL=C awk "${uvm_cache_awk}"); then
+      # Without the listing, every path is tested.
+      out=""
+      for di in "${dis[@]}"; do out+="$(uvm_cache_record_paths "${di}")${nl}"; done
+    fi
+    while IFS= read -r line; do
+      case "${line}" in
+        "M${tab}"*)
+          [[ -e "${line#"M${tab}"}" || -L "${line#"M${tab}"}" ]] || m=$(( m + 1 )) ;;
+        "T${tab}"*)
+          # The T lines come in the order of dis, so a cursor that only
+          # moves forward finds each one's index, and the counts are kept
+          # there. Searching the whole result once per damaged dist-info
+          # directory costs the square of the damage.
+          rest="${line#"T${tab}"}" di="${rest%"${tab}"*}"
+          while (( j < ${#dis[@]} )) && [[ "${dis[j]}" != "${di}" ]]; do j=$(( j + 1 )); done
+          if (( j < ${#dis[@]} )); then
+            (( m == 0 )) || gapm[j]="${m}" gapt[j]="${rest##*"${tab}"}"
+            j=$(( j + 1 ))
+          fi
+          m=0 ;;
+      esac
+    done <<< "${out}"
+  fi
+  for (( i = 0; i < n; i++ )); do
+    why="${stops[i]}" dmg=""
+    while IFS= read -r line; do
+      [[ -n "${line}" ]] || continue
+      di="${line%%"${tab}"*}" rest="${line#*"${tab}"}"
+      if [[ -z "${rest}" ]]; then
+        # The walked directories come in the order of dis too.
+        k=$(( k + 1 ))
+        [[ -n "${gapm[k-1]-}" ]] || continue
+        rest="${di##*/} is missing ${gapm[k-1]} of ${gapt[k-1]} files"
+      fi
+      why="${why:-${rest}}" dmg+="${di}${nl}"
+    done <<< "${pends[i]}"
+    [[ -z "${why}" ]] || uvm_cache_found "${uvm_cache_qk[i]}" "${uvm_cache_qp[i]}" "${why}" "${dmg}"
+  done
+  uvm_cache_qk=() uvm_cache_qp=() uvm_cache_qd=()
+}
+
+# The awk pass of uvm_cache_check. The listing comes first, each path
+# resolved by name, which a path holding no "/." and no "//" already is; then one dist-info directory per line, whose RECORD is
+# read as the shell reads it: the field before the first comma, an empty one
+# skipped, one quote stripped from each end, an absolute path skipped. Each
+# path the listing lacks is printed "M<tab>path", as the shell would test it,
+# then "T<tab>dist-info<tab>paths read" for that dist-info.
+# shellcheck disable=SC2016  # an awk program; awk expands it
+uvm_cache_awk='
+function norm(path,   n, a, i, k, out, abs) {
+  if (!index(path, "/.") && !index(path, "//")) return path
+  abs = (substr(path, 1, 1) == "/")
+  n = split(path, a, "/")
+  k = 0
+  for (i = 1; i <= n; i++) {
+    if (a[i] == "" || a[i] == ".") continue
+    if (a[i] == ".." && k > 0 && st[k] != "..") { k--; continue }
+    if (a[i] == ".." && abs && k == 0) continue
+    st[++k] = a[i]
+  }
+  out = ""
+  for (i = 1; i <= k; i++) out = out ((i > 1 || abs) ? "/" : "") st[i]
+  if (out == "" && abs) out = "/"
+  return out
+}
+BEGIN { part = 1 }
+part == 1 { if ($0 == "\036") part = 2; else have[norm($0)] = 1; next }
+{
+  di = $0; sp = di; sub(/\/[^\/]*$/, "", sp); f = di "/RECORD"; total = 0; miss = 0
+  while ((getline line < f) > 0) {
+    i = index(line, ",")
+    rel = i ? substr(line, 1, i - 1) : line
+    if (rel == "") continue
+    sub(/^"/, "", rel); sub(/"$/, "", rel)
+    if (substr(rel, 1, 1) == "/") continue
+    total++
+    if (!(norm(sp "/" rel) in have)) { print "M\t" sp "/" rel; miss++ }
+  }
+  close(f)
+  if (miss) print "T\t" di "\t" total
+}'
+
+# DI: what the awk pass prints for DI, by testing every path its RECORD lists;
+# the fallback where awk cannot run.
+uvm_cache_record_paths() {
+  local sp="${1%/*}" rel total=0 miss=0
+  while IFS=, read -r rel _ || [[ -n "${rel}" ]]; do
+    [[ -n "${rel}" ]] || continue
+    rel="${rel#\"}"; rel="${rel%\"}"
+    case "${rel}" in /*) continue ;; esac
+    total=$(( total + 1 ))
+    if [[ ! -e "${sp}/${rel}" && ! -L "${sp}/${rel}" ]]; then
+      printf 'M\t%s\n' "${sp}/${rel}"
+      miss=$(( miss + 1 ))
+    fi
+  done < "$1/RECORD"
+  (( miss == 0 )) || printf 'T\t%s\t%s\n' "$1" "${total}"
+}
+
+# KIND PATH WHY DAMAGED: record a damaged entry for doctor and the repair.
+# DAMAGED is its damaged dist-info directories, one per line, kept beside the
+# entry on uvm_cache_fixd.
+uvm_cache_found() {
+  local kind="$1" p="$2" di
+  uvm_cache_findings+="FAIL  cache entry ${p} is damaged ($3, partial purge)"$'\n'
+  uvm_cache_problems=$(( uvm_cache_problems + 1 ))
+  # Only an environment that is still a virtualenv can be reinstalled in
+  # place; a wheel and an environment without pyvenv.cfg are removed. So is a
+  # cached environment any of whose distributions cannot be shown to come
+  # from the configured index: a reinstall would pin it by version from that
+  # index, a fork or a local package swapped for a public one of the same
+  # name, where the next call's own spec rebuilds it from its source.
+  if [[ "${kind}" == wheel || ! -f "${p}/pyvenv.cfg" ]]; then
+    uvm_cache_drop+=("${kind}:${p}")
+    return 0
+  fi
+  if [[ "${kind}" == link ]]; then
+    for di in "${p}"/lib/*/site-packages/*.dist-info; do
+      if [[ -d "${di}" ]] && uvm_cache_unpinnable link "${di}"; then
+        uvm_cache_drop+=("${kind}:${p}")
+        return 0
+      fi
+    done
+  fi
+  uvm_cache_fix+=("${kind}:${p}") uvm_cache_fixd+=("${4-}")
+}
+
+# KIND DI: true when the distribution of dist-info directory DI cannot be
+# pinned to where it came from by what the directory holds. A distribution
+# from an index has no direct_url.json, and the reinstall pins it by version
+# from the configured index; nothing in the environment names any other
+# index, so the test is for the marks of every other source. One with a
+# direct_url.json is pinned to the URL, git commit or path it records. Two
+# marks leave a source the reinstall cannot name: a direct_url.json its
+# RECORD lists and the purge took, and a uv_cache.json, on disk or listed in
+# its RECORD, with no direct_url.json, which uv writes for a distribution it
+# installed from a local file or directory, a find-links directory included,
+# and for none from an index (measured with uv 0.13.6). A uv_cache.json can
+# outlive the RECORD that lists it, so the file is tested as well as the
+# listing.
+#
+# KIND link, a cached environment, is held to more, and every distribution
+# in it is tested, since removing its link loses nothing and the next call's
+# own spec rebuilds it faithfully: a direct_url.json that is still there, or
+# a dist-info directory without its RECORD, which leaves nothing to tell the
+# source by, counts too. A script environment is not removed while a
+# process may run from it; only its damaged distributions are tested. Every
+# damaged distribution either kind would pin by version, with its RECORD or
+# without, then goes to uvm_cache_index_check.
+uvm_cache_unpinnable() {
+  local di="$2" rel
+  if [[ ! -f "${di}/RECORD" || -e "${di}/direct_url.json" ]]; then
+    [[ "$1" != link ]] || return 0
+    [[ ! -e "${di}/direct_url.json" && -e "${di}/uv_cache.json" ]]
+    return
+  fi
+  [[ ! -e "${di}/uv_cache.json" ]] || return 0
+  while IFS=, read -r rel _ || [[ -n "${rel}" ]]; do
+    rel="${rel#\"}"; rel="${rel%\"}"
+    case "${rel}" in "${di##*/}/direct_url.json"|"${di##*/}/uv_cache.json") return 0 ;; esac
+  done < "${di}/RECORD"
+  return 1
+}
+
+# KIND PATH: true when the entry checks clean, leaving the walk's lists as
+# they were.
+uvm_cache_clean() {
+  local uvm_cache_findings="" uvm_cache_problems=0 uvm_cache_fix=() uvm_cache_drop=() uvm_cache_fixd=()
+  local uvm_cache_qk=() uvm_cache_qp=() uvm_cache_qd=()
+  uvm_cache_entry "$1" "$2"
+  uvm_cache_check
+  (( uvm_cache_problems == 0 ))
+}
+
+# A directory under environments-v2 holding lib/, bin/ or pyvenv.cfg is a
+# script environment, even with every file gone, since a purge keeps the
+# directories; any other holds the cached environments' links. The glob skips
+# dot names. A dangling link is skipped: uv rebuilds an entry that is gone.
+# A wheel whose link the purge took is still reached through its pointer,
+# <link>.http or <link>.rev, which uv follows; such a wheel is walked in the
+# archive the pointer names, and only one that exists.
+uvm_detect_cache() {
+  local cache="${uvm_root}/cache" e l
+  uvm_cache_findings="" uvm_cache_problems=0 uvm_cache_fix=() uvm_cache_drop=() uvm_cache_fixd=()
+  uvm_cache_qk=() uvm_cache_qp=() uvm_cache_qd=()
+  [[ -d "${cache}" ]] || return 0
+  for e in "${cache}"/environments-v2/*/; do
+    e="${e%/}"
+    [[ -d "${e}" && ! -L "${e}" ]] || continue
+    if [[ -e "${e}/pyvenv.cfg" || -d "${e}/lib" || -d "${e}/bin" ]]; then
+      uvm_cache_entry script "${e}"
+      continue
+    fi
+    for l in "${e}"/*; do
+      [[ -L "${l}" && -d "${l}" ]] || continue
+      uvm_cache_entry link "${l}"
+    done
+  done
+  for e in "${cache}"/wheels-v*/; do
+    e="${e%/}"
+    [[ -d "${e}" ]] || continue
+    while IFS= read -r l; do
+      [[ -n "${l}" ]] || continue
+      if [[ -L "${l}" ]]; then
+        [[ ! -d "${l}" ]] || uvm_cache_entry wheel "${l}"
+      elif [[ ! -d "${l%.*}" ]] && uvm_cache_pointee "${l}" "${cache}"; then
+        uvm_cache_entry wheel "${l%.*}" "${uvm_cache_archive}"
+      fi
+    done <<< "$(find "${e}" \( -type l -o -type f \( -name '*.http' -o -name '*.rev' \) \) 2>/dev/null || true)"
+  done
+  uvm_cache_check
+}
+
+# PTR CACHE: sets uvm_cache_archive to the archive under CACHE that a wheel's
+# pointer file names, and is false when it names none that exists. uv writes
+# the pointer in msgpack, and the archive's id is a string of sixteen bytes
+# from [A-Za-z0-9_-], which msgpack heads with the byte 0xb0, in a .http (an
+# index's wheel) and a .rev (a URL's, a path's or a find-links directory's)
+# alike (measured with uv 0.13.6). The file is read by builtins, split at its
+# NUL bytes, under LC_ALL=C so that the walk is over bytes; the caller's
+# locale is put back after. A pointer that cannot be read or parsed, or that
+# names an archive that is gone, is passed over without a word: uv downloads
+# such a wheel again. Only a pointer whose link is gone is read, so a healthy
+# cache reads none.
+uvm_cache_pointee() {
+  local buf="" seg="" id rest lc_all="${LC_ALL-}" lc_set="${LC_ALL+1}" rc=1
+  uvm_cache_archive=""
+  LC_ALL=C
+  { while IFS= read -r -d '' seg; do buf+="${seg}"$'\n'; done < "$1"; } 2>/dev/null || :
+  rest="${buf}${seg}"
+  while [[ "${rest}" == *$'\xb0'* ]]; do
+    rest="${rest#*$'\xb0'}"
+    id="${rest:0:16}"
+    if (( ${#id} == 16 )) && [[ "${id}" != *[!A-Za-z0-9_-]* && -d "$2/archive-v0/${id}" ]]; then
+      uvm_cache_archive="$2/archive-v0/${id}" rc=0
+      break
+    fi
+  done
+  if [[ -n "${lc_set}" ]]; then LC_ALL="${lc_all}"; else unset LC_ALL; fi
+  return "${rc}"
 }
 
 uvm_detect() {
@@ -1770,8 +2107,11 @@ uvm_detect() {
     done
   fi
 
-  findings="${uvm_record_findings}${findings}"
-  problems=$(( problems + uvm_record_problems )) advisories=$(( advisories + uvm_record_advisories ))
+  # uv's cache last: its environments run on the interpreters checked above.
+  uvm_detect_cache
+  findings="${uvm_record_findings}${findings}${uvm_cache_findings}"
+  problems=$(( problems + uvm_record_problems + uvm_cache_problems ))
+  advisories=$(( advisories + uvm_record_advisories ))
   uvm_findings="${findings}" uvm_problems="${problems}" uvm_advisories="${advisories}"
 }
 
@@ -2018,6 +2358,20 @@ the tool. A tool installed from a local source is recorded but never restored.
 
 "
   fi
+  local cachetext=""
+  if (( uvm_cache_problems > 0 )); then
+    commands+="    uv-manager clean cache --yes"$'\n'
+    cachetext="The clean command removes uv's whole cache, which uv rebuilds as each call
+needs it; run it when no job is running from the cache. uv cache clean
+<package> leaves the environments built from a damaged wheel, and uv cache
+prune leaves the wheel they rebuild from, so neither alone clears the damage.
+A call with UVM_REPAIR set repairs the cache without clearing it: the damaged
+distributions of each environment are reinstalled in place where it is still
+a virtualenv and the source of each is known, and the rest are removed for uv
+to rebuild.
+
+"
+  fi
   if [[ -z "${commands}" ]]; then
     commands="    # nothing above is repaired in place; remove a shim whose tool or interpreter is gone"$'\n'
   fi
@@ -2031,7 +2385,7 @@ ${commands}
 Each command restores what is installed, interpreters first, since every tool
 runs on one.
 
-${pytext}${tooltext}${restoretext}Inside a Slurm job, UVM_REPAIR=1 on a uv or uvx call, or on a tool run by its own
+${pytext}${tooltext}${restoretext}${cachetext}Inside a Slurm job, UVM_REPAIR=1 on a uv or uvx call, or on a tool run by its own
 name, runs this repair before the command does, once per job.
 
 --no-cache carries the repair: uv runs no integrity check on its unpacked archive
@@ -2153,15 +2507,18 @@ Environment:
   UVM_LOCK_TIMEOUT    Seconds to wait for a lock. Past it, provisioning installs
                       without the lock and a repair fails (default: 180)
   UVM_REPAIR          On a uv or uvx call, or an installed tool run by its
-                      own name, repair what a scratch purge removed and
-                      restore installed tools from their records before the
-                      command runs, once per Slurm job, else once per value;
-                      a tool run by its own name is restored even on an
-                      architecture it was never installed for. Off
-                      when unset, empty or 0; any other value, 00 and false
-                      included, is on. Outside a job, give a per-run value,
-                      at most 194 bytes, each byte outside a-z 0-9 . -,
-                      an uppercase letter included, counting as three.
+                      own name, repair what a scratch purge removed,
+                      uv's cache included (the environments uv run <script>
+                      and uvx <spec> run from, and the wheels they are
+                      built from), and restore installed tools from their
+                      records before the command runs, once per Slurm job,
+                      else once per value; a tool run by its own name is
+                      restored even on an architecture it was never
+                      installed for. Off when unset, empty or 0; any other
+                      value, 00 and false included, is on. Outside a job,
+                      give a per-run value, at most 194 bytes, each byte
+                      outside a-z 0-9 . -, an uppercase letter included,
+                      counting as three.
                       README.md, "Repairing inside a job", says what it
                       repairs, what it needs and why.
 
@@ -2381,7 +2738,8 @@ uvm_repair_recorded() {
 }
 
 # Detect, then run the arms the damage calls for, in order: the interpreters,
-# the restore of recorded tools, the in-place repair of the rest. Each arm
+# the restore of recorded tools, the in-place repair of the rest, and uv's
+# cache (uvm_repair_cache). Each arm
 # that fails sets uvm_repair_reason and returns, and the walk with it. Sets
 # uvm_repair_reason on failure, and returns 0 either way, so that it runs
 # under errexit: a fault in the walk then ends the call, as a dead holder
@@ -2396,8 +2754,8 @@ uvm_repair_recorded() {
 # with uv 0.13.6). The interpreter reinstall with no target installs what any
 # of the three asks for, exits 0 and leaves the damaged interpreter as it was;
 # a named install key overrides all three. The tool arm names the tool's own
-# interpreter with --python, which overrides UV_PYTHON, the only one of the
-# three a pip install reads.
+# interpreter with --python, and the cache arm each environment's, which
+# overrides UV_PYTHON, the only one of the three a pip install reads.
 #
 # Nor does it apply the project configuration of the job's working directory.
 # uv reads [tool.uv] and [tool.uv.pip] in a pyproject.toml, and a uv.toml, from
@@ -2482,22 +2840,381 @@ uvm_repair_run() {
   for tool in ${uvm_damaged_tools[@]+"${uvm_damaged_tools[@]}"}; do
     if ! uvm_restoring "${tool}"; then inplace+=("${tool}"); fi
   done
-  (( ${#inplace[@]} > 0 )) || return 0
-  note "repairing the tool environments for ${arch}: ${inplace[*]}"
-  for tool in "${inplace[@]}"; do
-    uvm_tool_refusal "${tool}"
-    if [[ -n "${uvm_refusal}" ]]; then
-      uvm_repair_reason="${uvm_refusal}"
+  if (( ${#inplace[@]} > 0 )); then
+    note "repairing the tool environments for ${arch}: ${inplace[*]}"
+    for tool in "${inplace[@]}"; do
+      uvm_tool_refusal "${tool}"
+      if [[ -n "${uvm_refusal}" ]]; then
+        uvm_repair_reason="${uvm_refusal}"
+        return 0
+      fi
+      if ! (cd / && exec "${real_uv}" pip install --python "${uvm_root}/tools/${tool}/bin/python" \
+           --reinstall --no-cache "${uvm_pins[@]}") >&2; then
+        uvm_repair_reason="the tool environment repair failed for ${tool}"
+        return 0
+      fi
+    done
+  fi
+
+  uvm_repair_cache
+  return 0
+}
+
+# The cache arm, last: a cache environment runs on a managed interpreter the
+# interpreter arm may just have restored, so whether its bin/python runs is
+# decided here, not by the walk. Every damaged live entry is acted on, so a
+# scope whose only damage is in the cache never records a repair that did
+# nothing.
+#
+# An environment that is still a virtualenv, with pyvenv.cfg and a running
+# bin/python, and whose damaged distributions can each be pinned to where
+# they came from (uvm_cache_unpinnable), is reinstalled in place, as the tool
+# arm does, but only those distributions: each pinned at its dist-info
+# version, or to the source its direct_url.json records, from / and with
+# --no-cache, so it never builds from a damaged unpacked wheel. A reinstall
+# rewrites files under the same paths, so a process running from the
+# environment keeps importing, and the calls waiting on the lock find it
+# whole and rebuild nothing. Each one is walked again afterwards, since a
+# reinstall that exits 0 can still leave the damage.
+#
+# A script environment holding a damaged distribution whose source the
+# reinstall cannot name fails the scope instead, since a pin by version
+# could replace it with another, and so does one whose reinstall fails or
+# leaves it damaged: it is not removed while a process may run from it.
+# Every damaged distribution it would pin by version, with its RECORD or
+# without, is pinned only once the configured index is shown to serve the
+# same release, or for a build from an sdist the same version
+# (uvm_cache_index_check): an index the script itself names leaves no mark
+# in the environment. The reason names the distribution and
+# the remedy, clearing the cache, which costs every environment and wheel in
+# it a rebuild on the next call that needs it.
+#
+# Everything else is removed, for uv to rebuild from the script or spec the
+# next call names. A cache entry holds nothing uv cannot rebuild, unlike a
+# tool directory, which holds what the user asked for and so is refused
+# instead. Removed are:
+#
+#   - a cached environment's link (uvx, uv run --with) when the environment
+#     is no virtualenv, or holds a distribution not shown to come from the
+#     configured index, by its marks or by uvm_cache_index_check, which its
+#     own spec rebuilds faithfully, an editable kept editable; and, after
+#     the reinstalls, one whose reinstall failed or left it damaged. The
+#     archive behind the link stays, for a process running from it, and uv
+#     cache prune collects it.
+#   - a script environment that is no virtualenv. Without pyvenv.cfg uv runs
+#     the base interpreter in its place and installs the script's
+#     dependencies there, so it goes before the first uv call this arm makes
+#     that could reach the base interpreter; only the fetch of
+#     uvm_cache_index_check comes earlier, for an environment that is still
+#     a virtualenv, into a target of its own. It is renamed aside first,
+#     under a name the walk skips and uv cache prune removes, so uv never
+#     sees half of one; the name carries the host, the pid and $RANDOM, as a
+#     trampoline's temporary name does. A removal
+#     that cannot finish after the rename is noted and passed over, since uv
+#     no longer reaches what is left.
+#   - an unpacked wheel. uv reaches the archive through the pointer beside
+#     the link, <link>.http, not through the link, so removing the link alone
+#     leaves the damage in use and hides it from the walk. Every pointer file
+#     <link>.<ext> goes, then the link, except <link>.lock, which is uv's lock
+#     file. The next build downloads the wheel again.
+#
+# A refusal, or a removal or a script environment's reinstall that fails,
+# sets uvm_repair_reason, naming the entry, and returns.
+uvm_repair_cache() {
+  local entry kind p out line di dist i fix=() fixd=() drop=() dis=() pins=() names=() reinstalled=()
+  local checks=() notes=() clean="clear the cache with uv-manager clean cache --yes"
+  for (( i = 0; i < ${#uvm_cache_fix[@]}; i++ )); do
+    entry="${uvm_cache_fix[i]}" kind="${uvm_cache_fix[i]%%:*}" p="${uvm_cache_fix[i]#*:}" checks=()
+    if [[ ! -f "${p}/pyvenv.cfg" || ! -x "${p}/bin/python" ]]; then
+      drop+=("${entry}")
+      continue
+    fi
+    # A distribution with a direct_url.json is pinned to its source; every
+    # other is pinned by version, so the configured index must be shown to
+    # serve it first.
+    while IFS= read -r di; do
+      [[ -n "${di}" && ! -e "${di}/direct_url.json" ]] || continue
+      if [[ "${kind}" == script ]] && uvm_cache_unpinnable script "${di}"; then
+        dist="${di##*/}"; dist="${dist%.dist-info}"
+        uvm_repair_reason="the cache environment ${p} holds a distribution whose source is not recorded"
+        uvm_repair_reason+=" (${dist%-*} ${dist##*-}); ${clean}"
+        return 0
+      fi
+      checks+=("${di}")
+    done <<< "${uvm_cache_fixd[i]}"
+    if (( ${#checks[@]} > 0 )) && ! uvm_cache_index_check "${p}" "${checks[@]}"; then
+      if [[ "${kind}" == link ]]; then
+        drop+=("${entry}")
+        notes+=("${p} is not shown to come from the configured index; its link is removed for uv to rebuild")
+        continue
+      fi
+      if [[ -z "${uvm_cache_index_why}" ]]; then
+        uvm_repair_reason="the cache environment ${p} is damaged, and uv-manager could not fetch"
+        uvm_repair_reason+=" ${uvm_cache_index_dist} from the configured index to check its source"
+        uvm_repair_reason+=" (the index may be unreachable); the scope is not repaired"
+        return 0
+      fi
+      uvm_repair_reason="the cache environment ${p} holds a distribution whose source is not recorded"
+      [[ "${uvm_cache_index_dist}" != *,* ]] ||
+        uvm_repair_reason="the cache environment ${p} holds distributions whose source is not recorded"
+      uvm_repair_reason+=" (${uvm_cache_index_dist}), ${uvm_cache_index_why}; ${clean}"
       return 0
     fi
-    if ! (cd / && exec "${real_uv}" pip install --python "${uvm_root}/tools/${tool}/bin/python" \
-         --reinstall --no-cache "${uvm_pins[@]}") >&2; then
-      uvm_repair_reason="the tool environment repair failed for ${tool}"
+    fix+=("${entry}") fixd+=("${uvm_cache_fixd[i]}")
+  done
+  for entry in ${uvm_cache_drop[@]+"${uvm_cache_drop[@]}"}; do drop+=("${entry}"); done
+  (( ${#fix[@]} + ${#drop[@]} > 0 )) || return 0
+  note "repairing the cache for ${arch}: ${#fix[@]} environment(s) in place, ${#drop[@]} entry(ies) removed"
+  for line in ${notes[@]+"${notes[@]}"}; do note "${line}"; done
+
+  for entry in ${drop[@]+"${drop[@]}"}; do
+    uvm_cache_remove "${entry}" || return 0
+  done
+
+  # Only the damaged distributions are reinstalled, each named by
+  # --reinstall-package and pinned as uvm_record_constraints reads it. The
+  # rest satisfy the resolver as they stand, so uv leaves their files as they
+  # were (measured with uv 0.13.6), and one from a find-links directory or an
+  # index the configuration does not name is never resolved at all.
+  for (( i = 0; i < ${#fix[@]}; i++ )); do
+    entry="${fix[i]}" kind="${fix[i]%%:*}" p="${fix[i]#*:}" pins=() names=() dis=()
+    while IFS= read -r di; do
+      [[ -n "${di}" ]] || continue
+      dist="${di##*/}"; dist="${dist%.dist-info}"
+      dis+=("${di}") names+=(--reinstall-package "${dist%-*}")
+    done <<< "${fixd[i]}"
+    if ! out=$(uvm_record_constraints "${p}" ${dis[@]+"${dis[@]}"}); then
+      uvm_repair_reason="the cache environment ${p} holds a distribution whose source is not recorded"
+      return 0
+    fi
+    while IFS= read -r line; do
+      [[ -z "${line}" ]] || pins+=("${line}")
+    done <<< "${out}"
+    if (cd / && exec "${real_uv}" pip install --python "${p}/bin/python" \
+        ${names[@]+"${names[@]}"} --no-cache ${pins[@]+"${pins[@]}"}) >&2; then
+      reinstalled+=("${entry}")
+    elif [[ "${kind}" == link ]]; then
+      note "the reinstall of ${p} failed; its link is removed for uv to rebuild"
+      uvm_cache_remove "${entry}" || return 0
+    else
+      uvm_repair_reason="the cache environment repair failed for ${p}"
+      return 0
+    fi
+  done
+  # A reinstall that exits 0 is not proof: the entries it reinstalled are
+  # walked again. A cached environment still damaged loses its link; a
+  # script environment fails the scope rather than letting it record a
+  # repair that left the damage.
+  for entry in ${reinstalled[@]+"${reinstalled[@]}"}; do
+    kind="${entry%%:*}" p="${entry#*:}"
+    uvm_cache_clean "${kind}" "${p}" && continue
+    if [[ "${kind}" == link ]]; then
+      note "${p} is still damaged after its reinstall; its link is removed for uv to rebuild"
+      uvm_cache_remove "${entry}" || return 0
+    else
+      uvm_repair_reason="the cache environment ${p} is still damaged after its repair"
       return 0
     fi
   done
   return 0
 }
+
+# KIND:PATH: removes one cache entry, as the arm above describes. Sets
+# uvm_repair_reason, naming the entry, and returns 1 when it cannot.
+uvm_cache_remove() {
+  local kind="${1%%:*}" p="${1#*:}" out aside f ext gone=()
+  case "${kind}" in
+    script)
+      aside="${p%/*}/.${p##*/}.${HOSTNAME:-}.$$.${RANDOM}"
+      if ! out=$(mv -- "${p}" "${aside}" 2>&1); then
+        # Gone since the walk, by uv cache prune or clean elsewhere: done.
+        [[ -e "${p}" || -L "${p}" ]] || return 0
+        uvm_repair_reason="cannot remove the cache entry ${p}: ${out%%$'\n'*}"
+        return 1
+      fi
+      rm -rf -- "${aside}" 2>/dev/null || note "left ${aside} behind; uv cache prune removes it"
+      ;;
+    wheel)
+      # A pointer is a file named <link>.<ext>. A compressed platform tag
+      # holds dots, so another wheel's link, and the files beside it, can
+      # share this prefix; none of them is a plain file with a dotless
+      # extension.
+      for f in "${p}".*; do
+        ext="${f#"${p}".}"
+        if [[ "${ext}" != *.* && "${ext}" != lock && -f "${f}" && ! -L "${f}" ]]; then gone+=("${f}"); fi
+      done
+      # The link goes only once every pointer has: a link removed beside a
+      # pointer that stayed hides damage uv still reaches.
+      if (( ${#gone[@]} > 0 )) && ! out=$(rm -f -- "${gone[@]}" 2>&1) \
+         || ! out=$(rm -f -- "${p}" 2>&1); then
+        uvm_repair_reason="cannot remove the cache entry ${p}: ${out%%$'\n'*}"
+        return 1
+      fi
+      ;;
+    *)
+      if ! out=$(rm -f -- "${p}" 2>&1); then
+        uvm_repair_reason="cannot remove the cache entry ${p}: ${out%%$'\n'*}"
+        return 1
+      fi
+      ;;
+  esac
+  return 0
+}
+
+# ENV DI...: true when the configured index serves the release of each
+# distribution whose dist-info directory DI is given, in script or cached
+# environment ENV, so that a reinstall by version from that index puts back
+# the same source; for a distribution built from an sdist, only that the
+# index serves its version (uvm_cache_hash_py). Otherwise sets uvm_cache_index_dist to the distribution
+# found wanting, "name version", or to every one given when the fetch
+# failed, sets uvm_cache_index_why to the reason, empty for a fetch that
+# failed, and is false. A distribution from an
+# index the script names, from a find-links directory or from a local file,
+# at a version the configured index also has, would else be swapped for the
+# configured index's release, and uv would never sync it back: a
+# requirement by version is satisfied by either.
+#
+# The releases are fetched in one call, with --no-deps into a temporary
+# target in environments-v2, under the dot name a script environment is
+# renamed aside to, so that the walk and uv skip it and uv cache prune
+# collects what a killed holder leaves. It runs from / under the reinstall's
+# own configuration, and with --python ENV's interpreter, so it picks the
+# wheels the reinstall would, and builds a release the index serves only as
+# an sdist, as the reinstall would. Each is then compared by ENV's interpreter
+# under -I -S, which imports nothing from the environment
+# (uvm_cache_hash_py). Only the repair runs this.
+#
+# A fetch that fails is told from a release the index lacks by positive
+# markers of a failed fetch, since uv's exit status alone does not separate
+# them: with uv 0.13.6 an unreachable index or a server error exits 2 with
+# "Failed to fetch", an offline run exits 1 with "not found in the cache"
+# and a hint that the network was disabled, and an index refusing the
+# credentials exits 1 with a hint naming 401 Unauthorized or 403 Forbidden.
+# Each of these is a fetch that failed, whose reason sends nobody to clear a
+# cache that a lost network or a credential does not mend. Every other
+# failure is a release the index does not serve: a version it lacks, a
+# project it lacks, or a version a uv setting filters out, such as
+# exclude-newer, with or without uv's hint, which clearing the cache does
+# mend once the environment is rebuilt under the same settings. The fetch
+# runs with colour off, so no escape code splits the words read. The scope
+# fails either way. uv's stderr is kept to read and then passed on whole;
+# its stdout goes to stderr, as every byte of the repair's does.
+uvm_cache_index_check() {
+  local p="$1" di dist dir="${1%/*}" tmp out err line rc=0 reqs=()
+  uvm_cache_index_dist="" uvm_cache_index_why=""
+  for di in "${@:2}"; do
+    dist="${di##*/}"; dist="${dist%.dist-info}"
+    reqs+=("${dist%-*}==${dist##*-}")
+    uvm_cache_index_dist+="${uvm_cache_index_dist:+, }${dist%-*} ${dist##*-}"
+  done
+  [[ "${dir##*/}" == environments-v2 ]] || dir="${dir%/*}"
+  tmp="${dir}/.${p##*/}.${HOSTNAME:-}.$$.${RANDOM}"
+  if err=$( { (cd / && unset FORCE_COLOR CLICOLOR_FORCE && export NO_COLOR=1 &&
+      exec "${real_uv}" pip install -q --python "${p}/bin/python" --target "${tmp}" \
+      --no-deps --no-cache "${reqs[@]}") 2>&1 >&3 3>&-; } 3>&2 ); then
+    [[ -z "${err}" ]] || printf '%s\n' "${err}" >&2
+    out=$(cd / && exec "${p}/bin/python" -I -S -c "${uvm_cache_hash_py}" "${tmp}" "${@:2}") || rc=$?
+    if [[ "${out}" == */* ]]; then
+      dist="${out##*/}"; dist="${dist%.dist-info}"
+      uvm_cache_index_dist="${dist%-*} ${dist##*-}"
+    fi
+    case "${rc}" in
+      0) ;;
+      3) uvm_cache_index_why="whose files differ from the configured index's release" ;;
+      *) uvm_cache_index_why="which could not be compared with the configured index's release" ;;
+    esac
+  else
+    rc=$?
+    [[ -z "${err}" ]] || printf '%s\n' "${err}" >&2
+    uvm_cache_index_why="which the configured index does not serve"
+    (( rc != 2 )) || uvm_cache_index_why=""
+    while IFS= read -r line; do
+      case "${line}" in
+        *"Failed to fetch"* | *"not found in the cache"* | *hint:*"network"*"disabled"* | \
+        *hint:*"401 Unauthorized"* | *hint:*"403 Forbidden"*) uvm_cache_index_why="" ;;
+      esac
+    done <<< "${err}"
+    rc=2
+  fi
+  rm -rf -- "${tmp}" 2>/dev/null || note "left ${tmp} behind; uv cache prune removes it"
+  return "${rc}"
+}
+
+# The comparison of uvm_cache_index_check: TARGET DI..., where TARGET holds
+# the fetched releases. Each DI is matched to the release's dist-info
+# directory by name and version. Only wheels are compared. uv writes
+# uv_build.json into the dist-info directory of a distribution it built from
+# an sdist, and never into one it installed from a wheel (measured with uv
+# 0.13.6, the fetch into TARGET included, which builds a release the index
+# serves only as an sdist). When DI or the release carries it, the files are
+# not compared and the release is taken as served once it was fetched: a
+# build from an sdist is not reproducible, since a build backend can write a
+# path of its temporary build environment into a .py file, as numpy's does,
+# so a comparison would refuse the configured index's own sdists. A fork
+# served as an sdist, or one served as a wheel where the configured index
+# serves that version only as an sdist, passes, conceded. For a wheel only
+# source files are compared: the *.py and *.pyi paths outside the dist-info
+# directory and bin/, since a compiled extension and the packaging metadata
+# can differ between two builds of one source; a fork that changes only
+# those passes, conceded. Where DI keeps its RECORD, the sha256 it lists for
+# each source path is compared with the release's RECORD for the same path,
+# which reads no file of the environment. Where RECORD is gone, each source
+# file of the release still present in the environment is hashed and
+# compared. A path on one side only is passed over, so a release with no
+# source file in common passes. A fork whose every source file that differs
+# from the release was purged passes; nothing is left to tell it by. Exits
+# 3 at the first difference, naming the file on stderr, and 2 when a
+# release is missing from TARGET, printing that DI on stdout in both cases.
+uvm_cache_hash_py='
+import base64, csv, glob, hashlib, os, re, sys
+target, dis = sys.argv[1], sys.argv[2:]
+def key(name):
+    stem = name[:-len(".dist-info")]
+    n, _, v = stem.rpartition("-")
+    return re.sub(r"[-_.]+", "_", n).lower(), v
+def hashes(record, own):
+    out = {}
+    with open(record, newline="", encoding="utf-8") as f:
+        for row in csv.reader(f):
+            if len(row) < 2 or not row[1].startswith("sha256="):
+                continue
+            path = os.path.normpath(row[0])
+            parts = path.split(os.sep)
+            if os.path.isabs(path) or parts[0] in ("..", "bin", own) or not path.endswith((".py", ".pyi")):
+                continue
+            out[tuple(parts)] = row[1][7:]
+    return out
+def digest(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as g:
+        for block in iter(lambda: g.read(1 << 20), b""):
+            h.update(block)
+    return base64.urlsafe_b64encode(h.digest()).rstrip(b"=").decode()
+fetched = {key(os.path.basename(d)): d for d in glob.glob(os.path.join(glob.escape(target), "*.dist-info"))}
+for di in dis:
+    sp, own = os.path.split(di)
+    rel = fetched.get(key(own))
+    if rel is None or not os.path.isfile(os.path.join(rel, "RECORD")):
+        print(di)
+        sys.exit(2)
+    if os.path.exists(os.path.join(di, "uv_build.json")) or os.path.exists(os.path.join(rel, "uv_build.json")):
+        continue
+    want = hashes(os.path.join(rel, "RECORD"), os.path.basename(rel))
+    if os.path.isfile(os.path.join(di, "RECORD")):
+        have = hashes(os.path.join(di, "RECORD"), own)
+    else:
+        have = {}
+        for parts in want:
+            local = os.path.join(sp, *parts)
+            if os.path.isfile(local):
+                have[parts] = digest(local)
+    for parts, h in have.items():
+        if parts in want and want[parts] != h:
+            local = os.path.join(sp, *parts)
+            print("uv-manager: %s differs from the release on the index" % local, file=sys.stderr)
+            print(di)
+            sys.exit(3)
+'
 
 # TOOL: sets uvm_refusal to the reason the in-place arm cannot repair TOOL,
 # or to nothing, and uvm_pins to what it would reinstall.

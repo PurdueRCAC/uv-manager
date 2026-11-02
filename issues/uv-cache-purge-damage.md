@@ -1,5 +1,5 @@
 ---
-status: unshaped
+status: adopted:uv-cache-purge-damage
 kind: feature
 appetite: big
 lane: public

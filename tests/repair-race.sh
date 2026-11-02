@@ -5,9 +5,9 @@
 # Release concurrent ranks at a damaged tree with UVM_REPAIR=1, and check that
 # exactly one repairs it under the repair lock while the rest wait and then run.
 #
-#   tests/repair-race.sh --scenario F|T|P|kill|I|ikill [--ranks N] [--timeout S]
+#   tests/repair-race.sh --scenario F|T|P|kill|I|ikill|U|S|ukill [--ranks N] [--timeout S]
 #                        [--launch local|srun] [--summary FILE]
-#                        [--uv-bin PATH] [--uv-version VER]
+#                        [--uv-bin PATH] [--uv-version VER] [--large-cache]
 #
 # Each scenario prepares one tree in a temp_root.sh sandbox, damages it, and
 # releases the ranks at it once. Every rank makes one wrapper call with
@@ -52,14 +52,35 @@
 #         still the pid the owner line records. The waiters' timeout must name
 #         the lock and its owner line, then doctor, `uvm clean lock --yes` and
 #         a clean pass that restores once.
+#   U     Real uv, a managed cpython 3.12, and a cache as a user's looks:
+#         ten script environments and ten cached uvx environments over a mix
+#         of packages, with the wheels they were built from, beside the two
+#         subjects. The uvx environment of tqdm 4.67.1 loses tqdm/std.py and
+#         every file of its dist-info directory but RECORD, the directory
+#         kept: a cached environment that lost a RECORD cannot show where its
+#         distributions came from, and the repair removes its link rather
+#         than reinstall it, so this scenario keeps the shape the repair
+#         restores in place. Each rank runs `uvx tqdm==4.67.1 --version`.
+#         Exactly one rank must repair it in place, and no rank may rebuild
+#         an environment or unpack a wheel the repair restored: the cache's
+#         archives and environments are listed before and after the pass.
+#   S     As U, the damage in the script environment of a script needing
+#         tqdm 4.67.1, which loses RECORD too: a script environment is
+#         reinstalled in place either way. Each rank runs `uv run
+#         --no-project` on that script.
+#   ukill As U, and the rank whose own wrapper holds the repair lock kills it,
+#         as under kill, then doctor, `uvm clean lock --yes` and a clean pass.
+#         The holder walks the cache before its reinstall, so the kill, on
+#         sight of the owner line, lands before the cache is touched.
 #
-# --timeout S     the ranks' UVM_LOCK_TIMEOUT: 180 by default, 20 under kill
-#                 and ikill. Under ikill it holds for the killed pass only,
-#                 whose waiters run it out; the clean pass keeps the wrapper's
-#                 own 180, because its holder restores five tools with no
-#                 cache, one built from git, and that was measured past 20 s.
-#                 The clean pass's subject is one restore and every rank
-#                 exiting 0, not the timeout.
+# --timeout S     the ranks' UVM_LOCK_TIMEOUT: 180 by default, 20 under kill,
+#                 ikill and ukill. Under ikill and ukill it holds for the
+#                 killed pass only, whose waiters run it out; the clean pass
+#                 keeps the wrapper's own 180, because its holder restores
+#                 five tools with no cache, one built from git, or reinstalls
+#                 an environment with no cache, and the first was measured
+#                 past 20 s. The clean pass's subject is one repair and every
+#                 rank exiting 0, not the timeout.
 # --uv-bin PATH   seeds versions/<ver> and `current` from a local uv binary and
 #                 the uvx beside it, for a host where the installer cannot run.
 #                 Without it, the job sets UVM_PIN to --uv-version (default
@@ -74,6 +95,16 @@
 #                 The checkout must be on a filesystem every node mounts,
 #                 because the ranks re-execute this file by its path.
 # --summary FILE  writes the result block to FILE as well as stdout.
+# --large-cache   under U, S and ukill, adds a data-science stack to the cache
+#                 before the subjects: a script environment of pandas, scipy,
+#                 scikit-learn and matplotlib, and a uvx environment of
+#                 jupyterlab, pinned, with their wheels, which bring the cache
+#                 to about 40,000 RECORD lines and several hundred MB more. The
+#                 walk lists the live entries with one find and compares every
+#                 RECORD line with that listing, testing only the paths it
+#                 lacks, so its time grows with the cache's files and lines,
+#                 and its time on a cache like a user's needs a cache this
+#                 large.
 #
 # The real scenarios need egress: astral.sh and its binary host for uv unless
 # --uv-bin is given, releases.astral.sh for the interpreter, and pypi.org and
@@ -139,8 +170,40 @@
 #   unpinned_upgrade   under I only: moved, kept or failed, for what `uv tool
 #                  upgrade pycodestyle` did to the restored unpinned tool
 #
-# Under kill and ikill the killed pass reports those keys, then
-# doctor_warn_repair_lock, then the clean pass's keys prefixed clean_.
+# U, S and ukill add what the cache held and what the pass rebuilt:
+#
+#   walk_s         seconds `uvm doctor` took on the damaged tree before the
+#                  pass, to two decimals: the walk the holder runs, plus
+#                  doctor's interpreter probe, about 0.15 s
+#   cache_files    files in the cache, before the damage
+#   live_entries   script environments, cached-environment links and
+#                  unpacked-wheel links in the cache, counted by the drive
+#   record_lines   lines in the RECORD files of the live entries, before the
+#                  damage: what the walk reads and compares with its listing
+#                  of the entries
+#   link_mode      hardlink, symlink or copy-or-clone, from the subject's
+#                  tqdm/__init__.py against the wheel's; a copy and a clone
+#                  cannot be told apart from the tree
+#   flock          under --launch srun, whether a flock taken on one node holds
+#                  on another, on the filesystem under test: coherent when it
+#                  holds, node-local when the other node takes it too, absent
+#                  when flock fails there, the utility missing on a node
+#                  included, and not-measured when the probe could not run on
+#                  two nodes. Under --launch local, not-measured, or unknown
+#                  without the flock utility.
+#   rebuilt       archives and environments-v2 entries present after the
+#                  pass and absent before it, and environments present before
+#                  it holding a dist-info file newer than the repair's outcome
+#                  record, which a call rewrote in place after the repair, as
+#                  uv's sync does, to the resolution of the filesystem's
+#                  timestamps; 0 when the repair restored in place and no
+#                  call rebuilt
+#
+# Under kill, ikill and ukill the killed pass reports those keys, then
+# doctor_warn_repair_lock, then the clean pass's keys prefixed clean_. Under
+# ukill the killed pass must report restored=0: a kill that lands after the
+# reinstall leaves the clean pass nothing to repair, so the drive did not
+# construct the fault.
 #
 # Exit 0  every check of the scenario held.
 # Exit 1  a correctness defect; stderr names the key that caught it.
@@ -190,6 +253,8 @@ rank() {
     case "$REPAIRRACE_SCENARIO" in
         F) set -- uv --version ;;
         T) set -- uvx pyflakes --version ;;
+        U|ukill) set -- uvx tqdm==4.67.1 --version ;;
+        S) set -- uv run --no-project "$REPAIRRACE_COLLECT/s.py" ;;
         I|ikill)
             case "$((_i % 5))" in
                 0) set -- pyflakes --version ;;
@@ -212,7 +277,7 @@ rank() {
         UVM_REPAIR=1 UVM_LOCK_TIMEOUT="$REPAIRRACE_TIMEOUT"
         export UVM_REPAIR UVM_LOCK_TIMEOUT
         _kill=''
-        case "$REPAIRRACE_SCENARIO.$REPAIRRACE_PASS" in kill.main|ikill.main) _kill=1 ;; esac
+        case "$REPAIRRACE_SCENARIO.$REPAIRRACE_PASS" in kill.main|ikill.main|ukill.main) _kill=1 ;; esac
         # Job control only for the call the kill may take: it puts the wrapper
         # in a process group of its own, whose id is the wrapper's pid.
         [ -z "$_kill" ] || set -m
@@ -242,6 +307,63 @@ rank() {
     _b=$(bash -c 'printf "%s.%s" "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]}"' 2>/dev/null) || _b=''
     printf '%s %s %s\n' "$(uname -n)" "${_b:-none}" "$_w" > "$_d/who.$_i"
 }
+
+# ---- flock: does a lock taken on one node hold on another? ----------------
+#
+# uv takes flock on its cache, so whether the filesystem under test carries
+# flock across nodes decides what a removed cache entry costs: one rebuild,
+# one per node, or a uv that fails outright. Two ranks, one per node, lock a
+# file in the collection directory, which is on that filesystem. Rank 0
+# takes flock -x, creates `held`, and keeps the lock until rank 1 creates
+# `done` or 30 s pass, creating `left` before it lets go. Rank 1 waits for
+# `held` and tries flock -n -E 75: 75 says it saw the hold, 0 that the lock
+# is local to its node. A `left` already there after the try means the hold
+# may have ended first, and the try counts for nothing. Each rank records its
+# status, so a flock that fails or is missing reads as such, and every wait
+# is bounded, so the probe cannot hang a job.
+
+# FILE...: wait up to 30 s for any FILE to exist; false if none did.
+probewait() {
+    _t=$(($(date +%s) + 30))
+    while [ "$(date +%s)" -le "$_t" ]; do
+        for _f in "$@"; do [ ! -e "$_f" ] || return 0; done
+        sleep 0.1 2>/dev/null || sleep 1
+    done
+    return 1
+}
+
+flockprobe() {
+    _d="$REPAIRRACE_COLLECT/flock"
+    uname -n > "$_d/node.$SLURM_PROCID"
+    case "$SLURM_PROCID" in
+        0)
+            # shellcheck disable=SC2016  # expanded by the inner sh
+            flock -x "$_d/lockfile" sh -c '
+                : > "$1/held"
+                t=$(($(date +%s) + 30))
+                while [ ! -e "$1/done" ] && [ "$(date +%s)" -le "$t" ]; do
+                    sleep 0.1 2>/dev/null || sleep 1
+                done
+                : > "$1/left"' sh "$_d" 2>/dev/null
+            echo "$?" > "$_d/rc.0" ;;
+        1)
+            if probewait "$_d/held" "$_d/rc.0" && [ -e "$_d/held" ]; then
+                flock -n -E 75 "$_d/lockfile" true 2>/dev/null
+                _r=$?
+                [ ! -e "$_d/left" ] || _r=late
+            else
+                _r=none
+            fi
+            echo "$_r" > "$_d/rc.1"
+            : > "$_d/done" ;;
+    esac
+}
+
+if [ "${REPAIRRACE_ROLE:-}" = flock ]; then
+    : "${SLURM_PROCID:?a rank re-executed by srun needs SLURM_PROCID}"
+    flockprobe
+    exit 0
+fi
 
 if [ "${REPAIRRACE_ROLE:-}" = rank ]; then
     : "${SLURM_PROCID:?a rank re-executed by srun needs SLURM_PROCID}"
@@ -288,6 +410,8 @@ restored() {
                 done < "$c/rec0/$_t/entrypoints"
             done
             echo 1 ;;
+        U|S|ukill)
+            if uvm doctor > /dev/null 2>&1; then echo 1; else echo 0; fi ;;
         *)
             _base=$(interp)
             if [ -n "$_base" ] && "$_base/bin/python3" -c 'import json, os, ssl' > /dev/null 2>&1
@@ -392,6 +516,7 @@ prepare_real() {
             if pyflakes --version > /dev/null 2>&1 || wheel version > /dev/null 2>&1; then
                 noprep "the damage did not break the command"
             fi ;;
+        U|S|ukill) prepare_cache ;;
         *)
             _base=$(interp)
             [ -n "$_base" ] || noprep "no managed interpreter directory"
@@ -403,6 +528,102 @@ prepare_real() {
                 noprep "the damage did not break the command"
             fi ;;
     esac
+}
+
+# A cache shaped like a user's: ten script environments and ten cached uvx
+# environments over a mix of packages, each pinned and each with a wheel for
+# Linux x86_64 and macOS arm64 on CPython 3.12, then the two subjects. The
+# walk's cost grows with every RECORD line it reads, so a cache holding only
+# the subjects would time a walk no user has. The facts are taken before the
+# damage, then the damage, then a call that must fail on it.
+prepare_cache() {
+    _s="$c/scripts"
+    mkdir -p "$_s"
+    for _d in requests==2.32.3 click==8.1.7 attrs==24.2.0 pyyaml==6.0.2 packaging==24.1 \
+              jinja2==3.1.4 tabulate==0.9.0 python-dateutil==2.9.0.post0 toolz==0.12.1 more-itertools==10.5.0; do
+        printf '# /// script\n# requires-python = ">=3.12"\n# dependencies = ["%s"]\n# ///\nprint("ok")\n' "$_d" > "$_s/${_d%%=*}.py"
+        uv run --no-project "$_s/${_d%%=*}.py" > /dev/null 2>> "$c/prep.err" || noprep "a script environment could not be built"
+    done
+    for _d in pycowsay==0.0.0.2 black==24.10.0 isort==5.13.2 cowsay==6.1 pyflakes==3.2.0 \
+              pycodestyle==2.12.1 docutils==0.21.2 pygments==2.18.0 sqlparse==0.5.1 wheel==0.45.1; do
+        uvx --from "$_d" python -c pass > /dev/null 2>> "$c/prep.err" || noprep "a uvx environment could not be built"
+    done
+    if [ -n "$REPAIRRACE_LARGE" ]; then
+        printf '# /// script\n# requires-python = ">=3.12"\n# dependencies = ["pandas==2.2.3", "scipy==1.14.1", "scikit-learn==1.5.2", "matplotlib==3.9.2"]\n# ///\nprint("ok")\n' > "$_s/datasci.py"
+        uv run --no-project "$_s/datasci.py" > /dev/null 2>> "$c/prep.err" || noprep "the large script environment could not be built"
+        uvx --from jupyterlab==4.2.5 python -c pass > /dev/null 2>> "$c/prep.err" || noprep "the large uvx environment could not be built"
+    fi
+    printf '# /// script\n# requires-python = ">=3.12"\n# dependencies = ["tqdm==4.67.1"]\n# ///\nimport tqdm, tqdm.std\nprint("s ok", tqdm.__version__)\n' > "$c/s.py"
+    { uv run --no-project "$c/s.py" && uvx tqdm==4.67.1 --version; } > /dev/null 2>> "$c/prep.err" || noprep "the subjects could not be built"
+    _e=''
+    case "$REPAIRRACE_SCENARIO" in
+        S) for _x in "$cache"/environments-v2/s-*/; do [ -d "${_x}lib/python3.12/site-packages/tqdm" ] && _e="${_x%/}"; done ;;
+        *) for _x in "$cache"/environments-v2/*/*; do [ -L "$_x" ] && [ -d "$_x/lib/python3.12/site-packages/tqdm" ] && _e="$_x"; done ;;
+    esac
+    [ -n "$_e" ] || noprep "no subject environment"
+    _sp="$_e/lib/python3.12/site-packages"
+    # Inode numbers: ls -i is the portable way to read one.
+    # shellcheck disable=SC2012
+    _a=$(ls -i "$_sp/tqdm/__init__.py" | awk '{ print $1 }')
+    # shellcheck disable=SC2012
+    _b=$(ls -i "$cache"/wheels-v*/pypi/tqdm/*/tqdm/__init__.py 2>/dev/null | awk '{ print $1; exit }')
+    if [ -L "$_sp/tqdm/__init__.py" ]; then fact link_mode symlink
+    elif [ -n "$_a" ] && [ "$_a" = "$_b" ]; then fact link_mode hardlink
+    else fact link_mode copy-or-clone
+    fi
+    fact cache_files "$(find "$cache" -type f | wc -l | tr -d ' ')"
+    _n=0
+    for _x in "$cache"/environments-v2/*/; do
+        if [ -d "${_x}lib" ] || [ -d "${_x}bin" ] || [ -e "${_x}pyvenv.cfg" ]; then _n=$((_n + 1)); continue; fi
+        for _y in "$_x"*; do [ ! -L "$_y" ] || _n=$((_n + 1)); done
+    done
+    fact live_entries "$((_n + $(find "$cache"/wheels-v* -type l | wc -l)))"
+    # The script environments' RECORDs, the cached environments' through
+    # their links, and the unpacked wheels' through theirs.
+    fact record_lines "$( { cat "$cache"/environments-v2/*/lib/*/site-packages/*.dist-info/RECORD \
+                                "$cache"/environments-v2/*/*/lib/*/site-packages/*.dist-info/RECORD 2>/dev/null
+                            find "$cache"/wheels-v* -type l 2>/dev/null | while IFS= read -r _l; do
+                                cat "$_l"/*.dist-info/RECORD 2>/dev/null
+                            done; } | wc -l | tr -d ' ')"
+    { case "$REPAIRRACE_SCENARIO" in
+          S) find "$_sp"/tqdm-*.dist-info -type f -delete ;;
+          *) find "$_sp"/tqdm-*.dist-info -type f ! -name RECORD -delete ;;
+      esac && mv "$_sp/tqdm/std.py" "$trash/std.py"; } 2>> "$c/prep.err" \
+        || noprep "the damage could not be made"
+    if case "$REPAIRRACE_SCENARIO" in
+           S) uv run --no-project "$c/s.py" ;;
+           *) uvx tqdm==4.67.1 --version ;;
+       esac > /dev/null 2>&1; then
+        noprep "the damage did not break the command"
+    fi
+    # Timed by the managed interpreter, since date has no sub-second format
+    # everywhere: doctor on the damaged tree runs the walk the holder runs.
+    fact walk_s "$("$(interp)/bin/python3" -c 'import subprocess, time
+t = time.monotonic()
+subprocess.run(["uvm", "doctor"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+print("%.2f" % (time.monotonic() - t))' 2>> "$c/prep.err")"
+}
+# The cache's archives, environments-v2 directories and the links in them,
+# one name per line; the caller sorts. A name present after a pass and absent
+# before it is an entry some call rebuilt.
+entries() {
+    ls "$cache/archive-v0" 2>/dev/null
+    for _x in "$cache"/environments-v2/*; do
+        echo "${_x##*/}"
+        for _y in "$_x"/*; do [ ! -L "$_y" ] || echo "${_x##*/}/${_y##*/}"; done
+    done
+}
+
+# The environments the pass rewrote in place after the repair: each holds a
+# dist-info file newer than the outcome record and was there before the pass,
+# by its archive or its environments-v2 name. 0 with no ok outcome.
+resynced() {
+    _ok=''
+    for _f in "$root"/.repair/*.ok; do [ ! -e "$_f" ] || _ok="$_f"; done
+    if [ -z "$_ok" ]; then echo 0; return; fi
+    find "$cache/archive-v0" "$cache/environments-v2" -newer "$_ok" -path '*/site-packages/*.dist-info/*' 2>/dev/null |
+        sed -n -e 's|^.*/archive-v0/\([^/]*\)/lib/.*|\1|p' -e 's|^.*/environments-v2/\([^/]*\)/lib/.*|\1|p' |
+        sort -u | comm -12 "$_pd/entries0" - | wc -l | tr -d ' '
 }
 
 # The unpinned tool's version and its six's, from their dist-info names, and
@@ -472,6 +693,39 @@ ifacts() {
         "records_identical=$_ri" "receipts_kept=$_rk" "commit_kept=$_ck" >> "$1"
 }
 
+# The flock key, one word. A local launch runs every rank on one node, where
+# flock always holds, so it measures nothing. Under srun the probe's step
+# asks for one rank on each of two nodes; a step that fails, or ranks that
+# report one node or none, leave the key not-measured rather than a word the
+# probe did not see.
+probe_flock() {
+    if [ "$REPAIRRACE_LAUNCH" != srun ]; then
+        if command -v flock > /dev/null 2>&1; then echo not-measured; else echo unknown; fi
+        return
+    fi
+    _fd="$c/flock"
+    mkdir -p "$_fd"
+    if ! REPAIRRACE_ROLE=flock srun --nodes=2 --ntasks=2 --ntasks-per-node=1 --kill-on-bad-exit=0 \
+            --cpu-bind=none --export=ALL bash "$self" > /dev/null 2> "$_fd/srun.err"; then
+        echo not-measured
+        return
+    fi
+    _n0=$(cat "$_fd/node.0" 2>/dev/null) _n1=$(cat "$_fd/node.1" 2>/dev/null)
+    if [ -z "$_n0" ] || [ -z "$_n1" ] || [ "$_n0" = "$_n1" ]; then
+        echo not-measured
+        return
+    fi
+    _r0=$(cat "$_fd/rc.0" 2>/dev/null) _r1=$(cat "$_fd/rc.1" 2>/dev/null)
+    case "$_r1" in
+        75) echo coherent ;;
+        0) echo node-local ;;
+        late|none|'')
+            # Rank 1 never tried: absent if rank 0's own flock failed.
+            case "$_r0" in ''|0|*[!0-9]*) echo not-measured ;; *) echo absent ;; esac ;;
+        *) echo absent ;;
+    esac
+}
+
 # NAME: release every rank once, then record what the pass left.
 run_pass() {
     REPAIRRACE_PASS="$1"
@@ -479,6 +733,7 @@ run_pass() {
     _pd="$c/$1"
     mkdir -p "$_pd"
     _lf=0
+    case "$REPAIRRACE_SCENARIO" in U|S|ukill) entries | sort > "$_pd/entries0" ;; esac
     _s0=$(date +%s)
     case "$REPAIRRACE_LAUNCH" in
         srun)
@@ -524,13 +779,18 @@ run_pass() {
         printf '%s\n' "unpinned_version=$1" "unpinned_with=$2" \
             "second_dist_info=$(second_dist_info)" "receipts_kept=$(receipts_kept)" >> "$_pd/facts"
     fi
-    case "$REPAIRRACE_SCENARIO" in I|ikill) ifacts "$_pd/facts" ;; esac
+    case "$REPAIRRACE_SCENARIO" in
+        I|ikill) ifacts "$_pd/facts" ;;
+        U|S|ukill)
+            _rb=$(entries | sort | comm -13 "$_pd/entries0" - | wc -l | tr -d ' ')
+            echo "rebuilt=$((_rb + $(resynced)))" >> "$_pd/facts" ;;
+    esac
 }
 
 if [ "${REPAIRRACE_ROLE:-}" = job ]; then
     : "${UVM_ROOT:?}" "${UVM_SANDBOX:?}" "${REPAIRRACE_COLLECT:?}" "${REPAIRRACE_SCENARIO:?}"
     : "${REPAIRRACE_RANKS:?}" "${REPAIRRACE_TIMEOUT:?}" "${REPAIRRACE_CLEAN_TIMEOUT:?}" "${REPAIRRACE_LAUNCH:?}"
-    : "${REPAIRRACE_UV_VERSION:?}" "${REPAIRRACE_UV_BIN=}"
+    : "${REPAIRRACE_UV_VERSION:?}" "${REPAIRRACE_UV_BIN=}" "${REPAIRRACE_LARGE=}"
     c="$REPAIRRACE_COLLECT"
     root="$UVM_ROOT/${UVM_PLATFORM:-$(uname -m)}"
     # Damage to a tool is a move into this directory. Damage to the interpreter
@@ -540,6 +800,7 @@ if [ "${REPAIRRACE_ROLE:-}" = job ]; then
     REPAIRRACE_OWNER="$root/.repair.lock/owner"
     export REPAIRRACE_OWNER
     itools="pyflakes pycodestyle pygments wheel progressbar"
+    cache="$root/cache"
     case "$REPAIRRACE_SCENARIO" in
         I|ikill)
             # The records and the trampolines live beside the tree under test,
@@ -555,6 +816,9 @@ if [ "${REPAIRRACE_ROLE:-}" = job ]; then
         *) prepare_real ;;
     esac
     fact prep_s "$(($(date +%s) - p0))"
+    case "$REPAIRRACE_SCENARIO" in
+        U|S|ukill) fact flock "$(probe_flock)" ;;
+    esac
     fact prep ok
     run_pass main
     if [ "$REPAIRRACE_SCENARIO" = I ]; then
@@ -568,7 +832,7 @@ if [ "${REPAIRRACE_ROLE:-}" = job ]; then
         echo "unpinned_upgrade=$u" >> "$c/main/facts"
     fi
     case "$REPAIRRACE_SCENARIO" in
-        kill|ikill)
+        kill|ikill|ukill)
             uvm doctor > "$c/doctor.out" 2>&1
             fact doctor_warn_repair_lock "$(grep -c '^WARN  repair lock standing' "$c/doctor.out")"
             uvm clean lock --yes > /dev/null 2>&1 || fact clean_lock failed
@@ -581,33 +845,35 @@ fi
 
 # ---- driver -----------------------------------------------------------------
 
-scenario='' ranks=64 timeout='' launch=local summary='' uv_bin='' uv_version=0.13.6
+scenario='' ranks=64 timeout='' launch=local summary='' uv_bin='' uv_version=0.13.6 large=
 
 usage() { echo "repair-race.sh: $*" >&2; exit 2; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --scenario)   scenario="${2:?--scenario needs F, T, P, kill, I or ikill}"; shift 2 ;;
+        --scenario)   scenario="${2:?--scenario needs F, T, P, kill, I, ikill, U, S or ukill}"; shift 2 ;;
         --ranks)      ranks="${2:?--ranks needs a count}"; shift 2 ;;
         --timeout)    timeout="${2:?--timeout needs seconds}"; shift 2 ;;
         --launch)     launch="${2:?--launch needs local|srun}"; shift 2 ;;
         --summary)    summary="${2:?--summary needs a file}"; shift 2 ;;
         --uv-bin)     uv_bin="${2:?--uv-bin needs a path}"; shift 2 ;;
         --uv-version) uv_version="${2:?--uv-version needs a version}"; shift 2 ;;
+        --large-cache) large=1; shift ;;
         *) usage "unknown option: $1" ;;
     esac
 done
-case "$scenario" in F|T|P|kill|I|ikill) ;; *) usage "--scenario must be F, T, P, kill, I or ikill" ;; esac
+case "$scenario" in F|T|P|kill|I|ikill|U|S|ukill) ;; *) usage "--scenario must be F, T, P, kill, I, ikill, U, S or ukill" ;; esac
 case "$launch" in local|srun) ;; *) usage "bad --launch: $launch (local or srun)" ;; esac
+case "$large.$scenario" in .*|1.U|1.S|1.ukill) ;; *) usage "--large-cache applies to U, S and ukill" ;; esac
 case "$ranks" in ''|*[!0-9]*|0) usage "bad --ranks: $ranks (a positive count)" ;; esac
 if [ -z "$timeout" ]; then
-    case "$scenario" in kill|ikill) timeout=20 ;; *) timeout=180 ;; esac
+    case "$scenario" in kill|ikill|ukill) timeout=20 ;; *) timeout=180 ;; esac
 fi
 case "$timeout" in ''|*[!0-9]*) usage "bad --timeout: $timeout (whole seconds)" ;; esac
-if [ "$scenario" = ikill ]; then clean_timeout=180; else clean_timeout="$timeout"; fi
+case "$scenario" in ikill|ukill) clean_timeout=180 ;; *) clean_timeout="$timeout" ;; esac
 case "$uv_version" in ''|*[!0-9.]*|.*|*.) usage "bad --uv-version: $uv_version (a version such as 0.13.6)" ;; esac
 if [ -n "$uv_bin" ]; then
-    [ "$scenario" != F ] || usage "--uv-bin applies to T, P, kill, I and ikill; F uses the fixture"
+    [ "$scenario" != F ] || usage "--uv-bin applies to every scenario but F, which uses the fixture"
     case "$uv_bin" in /*) ;; *) uv_bin="$(pwd -P)/$uv_bin" ;; esac
     [ -x "$uv_bin" ] && [ -x "$(dirname -- "$uv_bin")/uvx" ] \
         || usage "--uv-bin must name an executable uv with uvx beside it: $uv_bin"
@@ -643,7 +909,7 @@ runjob() {
 REPAIRRACE_ROLE=job REPAIRRACE_COLLECT="$c" REPAIRRACE_SCENARIO="$scenario" \
 REPAIRRACE_RANKS="$ranks" REPAIRRACE_TIMEOUT="$timeout" REPAIRRACE_CLEAN_TIMEOUT="$clean_timeout" \
 REPAIRRACE_LAUNCH="$launch" \
-REPAIRRACE_UV_BIN="$uv_bin" REPAIRRACE_UV_VERSION="$uv_version" \
+REPAIRRACE_UV_BIN="$uv_bin" REPAIRRACE_UV_VERSION="$uv_version" REPAIRRACE_LARGE="$large" \
     runjob bash "$self" > "$c/job.log" 2>&1
 jrc=$?
 
@@ -674,6 +940,8 @@ classify() {
     if [ -z "$_o" ]; then echo none; return; fi
     [ "$(printf '%s\n' "$_o" | wc -l | tr -d ' ')" = 1 ] || { echo other; return; }
     case "$scenario" in
+        U|ukill) if [ "$_o" = 4.67.1 ]; then _o=expected; else _o=''; fi ;;
+        S) if [ "$_o" = 's ok 4.67.1' ]; then _o=expected; else _o=''; fi ;;
         I|ikill)
             case "$(($2 % 5)).$_o" in
                 0."3.2.0 Python 3.12."*|1.2.11.1|2."Pygments version 2.18.0, "*|3."wheel 0.45.1"|4."pb v1.2.1")
@@ -783,6 +1051,7 @@ reduce() {
                 echo "$_p$_k=$(val "$_k" "$_f" none)"
             done
             [ "$scenario" != I ] || echo "${_p}unpinned_upgrade=$(val unpinned_upgrade "$_f" none)" ;;
+        U|S|ukill) echo "${_p}rebuilt=$(val rebuilt "$_f" none)" ;;
     esac
 }
 
@@ -790,12 +1059,16 @@ prep=$(val prep "$c/facts" "did not finish")
 {
     printf '%s\n' "scenario=$scenario" "launch=$launch" "ranks=$ranks" "timeout=$timeout" \
         "uv=$(val uv "$c/facts" none)" "prep_s=$(val prep_s "$c/facts" none)"
+    case "$scenario" in
+        U|S|ukill)
+            for k in walk_s cache_files live_entries record_lines link_mode flock; do echo "$k=$(val "$k" "$c/facts" none)"; done ;;
+    esac
     if [ "$prep" = ok ]; then
         reduce main '' "$timeout"
         case "$scenario" in
-            kill|ikill)
+            kill|ikill|ukill)
                 echo "doctor_warn_repair_lock=$(val doctor_warn_repair_lock "$c/facts" none)"
-                [ "$scenario" != ikill ] || echo "clean_timeout=$clean_timeout"
+                case "$scenario" in ikill|ukill) echo "clean_timeout=$clean_timeout" ;; esac
                 reduce clean clean_ "$clean_timeout" ;;
         esac
     fi
@@ -810,8 +1083,10 @@ elif [ "$prep" != ok ]; then
     progress="preparation failed: $prep"
 elif [ "$(key launch_failures)" != 0 ] || [ "$(key clean_launch_failures)" = 1 ]; then
     progress="srun failed to launch the ranks"
-elif { [ "$scenario" = kill ] || [ "$scenario" = ikill ]; } && [ "$(key killed)" != 1 ]; then
+elif { [ "$scenario" = kill ] || [ "$scenario" = ikill ] || [ "$scenario" = ukill ]; } && [ "$(key killed)" != 1 ]; then
     progress="$(key killed) ranks killed their own wrapper holding the repair lock, so the fault was not constructed"
+elif [ "$scenario" = ukill ] && [ "$(key restored)" != 0 ]; then
+    progress="the killed holder had already repaired the cache, so the fault was not constructed"
 fi
 echo "progress=$progress" >> "$c/result"
 cat "$c/result"
@@ -853,9 +1128,11 @@ repaired() {
                 [ "$(key "${1}$_k")" = 5 ] || bad "${1}$_k=$(key "${1}$_k"): expected all 5 tools"
             done
             [ "$(key "${1}commit_kept")" = 1 ] || bad "${1}commit_kept=$(key "${1}commit_kept"): the git tool's commit moved" ;;
+        U|S|ukill)
+            [ "$(key "${1}rebuilt")" = 0 ] || bad "${1}rebuilt=$(key "${1}rebuilt"): a call rebuilt or rewrote what the repair restored" ;;
     esac
 }
-if [ "$scenario" = kill ] || [ "$scenario" = ikill ]; then
+if [ "$scenario" = kill ] || [ "$scenario" = ikill ] || [ "$scenario" = ukill ]; then
     w=$((ranks - 1))
     if [ "$w" -gt 0 ]; then want_rc="1:$w,137:1"; else want_rc="137:1"; fi
     [ "$(key rc_hist)" = "$want_rc" ]          || bad "rc_hist=$(key rc_hist): expected $want_rc"

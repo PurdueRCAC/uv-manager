@@ -443,11 +443,12 @@ afterwards. It does not, and the failure is quiet. Tested directly against uv 0.
 
 | What is lost | What happens |
 | --- | --- |
-| Cache only | Fine. Re-downloads on next use. |
+| The whole cache | Fine. Re-downloads on next use. |
 | An entire tool environment | `uvx <tool>` works, since uv rebuilds it. But the executable left in `bin/shims` by `uv tool install` becomes a dangling symlink and is not repaired. |
 | A tool's `uv-receipt.toml` only | `uv tool list` warns `Ignoring malformed tool`; `uv tool run` quietly falls back to an ephemeral environment. |
 | **Individual files inside an environment** | uv performs no integrity check on an environment it believes is installed. It execs it, and the user gets a Python `ImportError` traceback. |
 | **Files inside a managed interpreter** | Same. Deleting `lib/python3.12/json` produced `ModuleNotFoundError: No module named 'json'` from uv's own interpreter probe, and broke the whole managed-Python subsystem. |
+| **Files inside uv's cache** | Same for the environments `uv run <script>` and `uvx <spec>` run from, which uv keeps in its cache: one missing a module or its dist-info files fails, and a script environment missing `pyvenv.cfg` runs on the managed interpreter and installs the script's dependencies into it. An unpacked wheel missing a file passes the damage to every environment built from it, or fails each build. uv rebuilds only an entry that is gone whole. Measured with uv 0.13.6. |
 
 Partial loss happens in practice, not just in principle. Because purge is keyed per file on access
 time, a hot module's `__init__.py` gets its atime refreshed on every run while `tests/`,
@@ -462,13 +463,17 @@ Mitigations, in order of effectiveness:
 
 1. **Put `UVM_ROOT` on non-purged storage.** On Anvil that means `$PROJECT`, which is what
    RCAC's documentation already recommends for long-lived Python environments. Scratch is still
-   fine for the cache alone if you want to split them.
+   fine for the cache alone if you want to split them, with `UVM_REPAIR` set in jobs: uv rebuilds
+   a cache that is gone whole, but not one that is partly gone.
 2. **`uv-manager doctor`** looks at every installed distribution and reports the damage uv ignores:
    dangling shims, a tool directory that lost its `pyvenv.cfg` or its receipt, a damaged managed
    interpreter, a distribution whose `RECORD` manifest is gone, and files a surviving manifest lists
-   that are no longer on disk. As advisories, it also reports a provisioning or repair lock left
-   standing, with the owner line it records, any staging copy an interrupted install left under
-   `versions/`, and a repair that failed (see [Repairing inside a job](#repairing-inside-a-job)).
+   that are no longer on disk. It checks the live entries of uv's cache the same way, by the files
+   each `RECORD` lists: the script environments `uv run <script>` runs from, the cached `uvx`
+   environments, and the unpacked wheels they were built from. As advisories, it also reports a
+   provisioning or repair lock left standing, with the owner line it records, any staging copy an
+   interrupted install left under `versions/`, and a repair that failed (see [Repairing inside a
+   job](#repairing-inside-a-job)).
    Each of those lines names what to remove and says the process that left it may still be running,
    because nothing on disk can tell. Failures set the exit status and advisories do not, so a job
    prologue can key on it. Its floor is whatever nothing on disk records. A distribution removed
@@ -543,10 +548,142 @@ where it was started. The receipt is read only to refuse a tool whose source an 
 cannot stand in for, below, and is never written. A repair restores what is installed and never
 applies the job's Python request: a `.python-version` in the working directory or above it, uv's
 global pin and `UV_PYTHON` all leave it unchanged. Interpreters go first because every tool runs on
-one, and the tool repair fails on an interpreter that cannot import its standard library. The call records the outcome under
-`$UVM_ROOT/<arch>/.repair/` and releases the lock. The other calls wait on the lock, see the
-outcome, and act on it. No call repairs when nothing is damaged. The uv version in use and `current`
-stay as they were. All repair output goes to stderr, and the exit status is the command's own.
+one, and the tool repair fails on an interpreter that cannot import its standard library.
+
+uv's cache comes last: the script environments `uv run <script>` runs from, the cached environments
+of `uvx <spec>` and `uv run --with`, and the unpacked wheels they are built from. A damaged
+environment that is still a virtualenv, with its `pyvenv.cfg` and a `bin/python` that runs, has its
+damaged distributions reinstalled in place, and no others: each one the check found a file, its
+`RECORD` or its `METADATA` missing from, at its dist-info version from the configured index or from
+the source its `direct_url.json` records, with `uv pip install --reinstall-package` and without the
+cache, so a damaged wheel never leaks back in. Every other distribution in the environment keeps
+its files byte for byte, and its source is never looked up. A process running from the environment
+imports from it again once the reinstall is done, and the calls waiting on the lock rebuild
+nothing. During the reinstall of an environment whose module files the purge took, a process
+importing from that same environment can briefly find a module missing, as it can during the tool
+repair.
+The rest are removed for uv to rebuild from the script or spec the next call names:
+
+- a cached environment's link, when the environment has lost `pyvenv.cfg` or its interpreter, or
+  holds a distribution not shown to come from the configured index, which its own spec rebuilds as
+  it was asked for: one from a URL, git or a path, its `direct_url.json` still there or listed in a
+  `RECORD` the purge left; one from a local file or a find-links directory, which uv marks with a
+  `uv_cache.json`; one whose dist-info directory lost its `RECORD`, which leaves nothing to tell
+  its source by; and one whose installed files the configured index's release of that version does
+  not match, as one from an index given on the command line can (below). So is the link of one
+  whose reinstall fails, or that is still damaged when it is checked again. The environment behind the link stays, for any
+  process running from it, until `uv cache prune`;
+- a script environment that has lost `pyvenv.cfg` or its interpreter, removed before any uv
+  command of the repair that could reach the managed interpreter, since uv would otherwise install
+  the script's dependencies into that interpreter itself. Only the release fetches below come
+  earlier, each run for an environment that is still a virtualenv, into a directory of its own. It is renamed aside first, so uv never sees half of one, and an aside that
+  cannot be removed whole is left, noted, for `uv cache prune`;
+- a damaged unpacked wheel, by its link and the pointer files beside it, so the next build downloads
+  it again.
+
+A script environment whose damaged distribution came from a URL, git or a path and lost its
+`direct_url.json`, or came from a local file or a find-links directory, fails the scope instead,
+and the reason names the distribution: nothing then records the source, a reinstall by version
+could replace a fork with upstream or a local package with a public one, and a script environment
+is not removed while a process may be running from it. uv marks a distribution from a local file
+or a find-links directory with a `uv_cache.json` in its dist-info directory, and the repair reads
+that mark on disk as well as in the `RECORD`, so a purge that takes only the `RECORD` still leaves
+it. A find-links requirement names only a version, so the index's release of that version satisfies
+it, and uv would never sync the environment back: the swap would be silent and would last. Putting
+the find-links directory in `uv.toml` changes nothing here, since the mark says where the
+distribution came from and not where the configuration points. The remedy is `uv-manager clean
+cache --yes`. It removes every environment and wheel in the cache, so the next call of each script
+and each spec builds its environment again and downloads every wheel it needs, and a process still
+running from the cache can find a module gone: run it when no job is using the cache.
+
+Every other damaged distribution would be reinstalled by version from the configured index, and
+nothing in the environment says that is where it came from: an index the script itself names in
+`[[tool.uv.index]]`, served over HTTP, leaves no mark, and neither does an index given on the
+command line. So before reinstalling any of them, the repair shows that the configured index
+serves that version. It fetches those versions in one call per environment, without their
+dependencies or the cache, into a temporary directory in the cache, from `/` under the same
+configuration as the reinstall; a version the index serves only as an sdist is built there, as the
+reinstall would build it.
+
+Only wheels are compared. uv writes a `uv_build.json` into the dist-info directory of every
+distribution it builds from an sdist, and into none it installs from a wheel. When the
+environment's dist-info directory or the fetched release's carries one, the repair compares no
+files, and the fetch succeeding is the whole check. A build from an sdist is not reproducible: its
+compiled extensions differ from one build to the next, so do its `METADATA` and `WHEEL` once the
+build backend has had a release, and a build backend can write a path of its temporary build
+environment into a `.py` file, as numpy's does, so a comparison would refuse the configured
+index's own sdists. The cost is a concession: a fork served as an sdist, from an index the script
+names, at a version the configured index also serves, is not seen, and is reinstalled from the
+configured index. So is a fork served as a wheel at a version the configured index serves only as
+an sdist.
+
+For a wheel, only source files are compared: the `.py` and `.pyi` files of the distribution,
+outside its dist-info directory and `bin/`. Where a distribution's `RECORD` survives, the sha256 it
+lists for each of them is compared with the one the release's `RECORD` lists for the same path;
+where the `RECORD` is gone, each source file of the release that the purge left in the environment
+is hashed and compared. A wheel's compiled extensions and packaging metadata are passed over for
+the same reason as above, so a fork that differs from the index's release only in a compiled
+extension or in its packaging metadata passes the check and is reinstalled from the index. So
+does a fork that lost its `RECORD` and every source file that differs from the index's release,
+since nothing is left to tell it by, and a distribution with no source file to compare passes as
+long as the fetch succeeds.
+
+A source file that differs, or a release the configured index does not serve, fails the scope as
+above, naming the distribution and `uv-manager clean cache --yes`. A release the index does not
+serve covers a version or a project the index lacks, and a version a uv setting such as
+`exclude-newer` filters out, which clearing the cache mends, since each environment is then built
+again under the same settings. A fetch that fails gets a reason of its own instead, `… could not
+fetch <name> <version> from the configured index to check its source (the index may be
+unreachable); the scope is not repaired`, which prescribes no `clean cache`, since that cannot
+help while the index is down or refuses the credentials; the next scope tries again. uv's exit
+status does not separate the two, so the repair reads uv's own words, with colour turned off for
+that one call, and counts a fetch as failed only on a sign of it: uv exiting with status 2,
+`Failed to fetch`, an offline run's `not found in the cache` or its hint that the network was
+disabled, or a hint naming `401 Unauthorized` or `403 Forbidden`. Any other failure counts as a
+release the index does not serve and names `clean cache`; that includes an sdist whose build
+fails, and a failed fetch that a later uv words differently. In a cached environment every one
+of these removes the link instead. The check adds one download per damaged environment to the
+repair, never to doctor or a healthy scope: on a workstation, 0.2 s for `tqdm` alone and 0.4 s
+for eleven distributions in one environment. A distribution built from an sdist is built once
+more for the check: numpy 2.1.3, which builds in about 35 s on a workstation, took about 110 s
+to repair.
+
+A removal that fails, or a script environment whose reinstall fails or that is still damaged when
+it is checked again after its reinstall, stops the scope, and the reason names the entry. A cached
+environment in either state loses its link, as above; a script environment is never removed while
+a process may be running from it, so it fails the scope instead. So does a script environment
+built with an index given only on the command line, whose name the configured index lacks, at the
+check above: clear the cache with `uv-manager clean cache --yes`. The tool repair makes the same
+concession for `uv tool install --index`.
+
+The same holds for a script environment with a distribution from an index the script itself names,
+an HTTP `[[tool.uv.index]]`, when the configured index lacks that build or serves a different one:
+a local version such as `1.16.0+hpc`, or a wheel of a version the configured index also has whose
+Python source differs (an sdist of such a version is not seen, as above). The
+repair cannot show where such a distribution came from, so with the knob set a damaged environment
+of that kind fails every call in the scope, unrelated calls included, until `uv-manager clean cache
+--yes` clears it. That loud failure is chosen over a swap: a reinstall from the configured index
+would run another build in its place, and uv would not sync it back.
+
+An entry the repair removes is rebuilt by the next call that needs it, not under the repair lock:
+a cached environment's link, a script environment without `pyvenv.cfg` or its interpreter, and an
+unpacked wheel. So is a script environment with a distribution reinstalled from the configured
+index where the script names a URL, git or path source for it: uv syncs it in place on the
+script's next run, after the lock is released. A distribution from a find-links directory or
+another index the script names is not reinstalled from the configured index in its place: uv would
+not sync it back, since a requirement by version is satisfied by the index's release, so the repair
+refuses it, as above.
+uv takes a `flock` on the cache entry while it builds one. Where `flock` holds
+across nodes, one call rebuilds the entry and the others wait for it and use it; where `flock` is
+node-local, the next call on each node rebuilds it, concurrently with the other nodes; where `flock`
+is absent, uv fails outright, as it does on any use of the cache (see [Filesystem semantics to
+verify before deploying](#filesystem-semantics-to-verify-before-deploying)). An environment
+reinstalled in place is whole when the lock is released, and no waiting call rebuilds it.
+
+The call records the outcome under `$UVM_ROOT/<arch>/.repair/` and releases the lock. The other
+calls wait on the lock, see the outcome, and act on it. No call repairs when nothing is damaged. The
+uv version in use and `current` stay as they were. All repair output goes to stderr, and the exit
+status is the command's own.
 
 **A failure stops the scope.** When the repair fails, the call records the reason, and that call and
 every other call in the scope exit non-zero with it and run nothing. Nobody retries within the
@@ -657,7 +794,13 @@ Two cases are conceded. An index or find-links given only on one install's comma
 the index `uv.toml` and the environment configure, so a name from that other index can resolve
 from this one. And a tool whose purge took both records, its receipt and the `direct_url.json` of
 the distribution from another source, has a source that cannot be known, so the repair installs
-the release of that version from the configured index, `pypi.org` by default. A tool with no `uv-receipt.toml` is otherwise repaired like any other, since the repair
+the release of that version from the configured index, `pypi.org` by default. The cache repair
+checks the first case instead of conceding it: an environment built from a remote index given
+only on the command line records nothing of that index, so it is reinstalled from the configured
+index only where that index's release of the same version matches what the environment holds, and
+otherwise a script environment fails the scope and a cached one loses its link. Put the index in
+`uv.toml`, where the check and the reinstall both find it. A
+tool with no `uv-receipt.toml` is otherwise repaired like any other, since the repair
 needs nothing from it; `uv-manager doctor` still reports the missing receipt, which uv needs to count
 the tool as installed.
 
@@ -670,18 +813,37 @@ minor-version link, `python/cpython-3.12-<platform>`, still leads to the install
 repaired. A shim whose whole tool directory is gone is restored when the tool has a record. Without
 one, and for an interpreter, it is reported by doctor but not repaired, since uv no longer counts
 that tool or interpreter as installed; remove the shim, and install the tool or interpreter again
-if you still need it. Damage inside uv's cache is not checked or repaired. That
-cache holds the environment of a script with inline dependencies, so `uv run <script>` can still
-fail on a cache the repair never touches. A project's `.venv` lives outside the tree and is the
-user's.
+if you still need it. A project's `.venv` lives outside the tree and is the user's.
+
+Damage inside uv's cache is caught the same way, by the files each live entry's `RECORD` lists, and
+repaired as above. The cache layout the walk reads, the links under `environments-v2` and
+`wheels-v*` and the `.http` pointer beside a wheel's link, was verified against uv 0.13.x; a uv that
+lays its cache out otherwise makes the walk see less. A wheel whose link the purge took is still
+checked through the pointer beside it, which uv follows to the same archive. Four things in the
+cache go unseen: an environment's dist-info directory removed whole, which leaves no `RECORD` to
+read; packages that a
+run in a script environment without `pyvenv.cfg` already installed into the managed interpreter,
+which the interpreter check passes; an environment built under `UV_LINK_MODE=symlink`, whose files
+are links into the wheels, where the repair was not measured; and wheels uv built from source
+distributions, under `sdists-v*`, which the walk does not enter, though an environment built from a
+damaged one inherits the damage.
+
+The manual remedy for a damaged cache is `uv-manager clean cache --yes`, which removes the whole
+cache, for uv to rebuild what it needs as it needs it. `uv cache clean <package>` removes a damaged
+wheel and leaves the environments built from it, and `uv cache prune` removes the environments no
+longer in use and leaves the damaged wheel they are rebuilt from, so either alone leaves the
+failure in place.
 
 **Network.** The tool repair downloads every distribution of each damaged tool again, from
 `pypi.org` and `files.pythonhosted.org` or the index configured in `uv.toml` or the environment.
 With the cache bypassed, uv stages that download in its temporary directory under `TMPDIR`, which
 needs room for the whole of the tool's environment; a `TMPDIR` that is not writable or is full
 fails the scope with uv's reason. A restore downloads the same way, and fetches a git source from
-its host. The interpreter reinstall downloads from `releases.astral.sh`, or
-the mirror the user configured. Where compute nodes have no egress, the repair fails as above.
+its host. The cache repair downloads each damaged distribution it reinstalls in the same way, and
+once more, into the repair's temporary directory, each one whose source it checks against the
+index; an entry it removes is downloaded again by the next call that needs it. The interpreter
+reinstall downloads from `releases.astral.sh`, or the mirror the user configured. Where compute
+nodes have no egress, the repair fails as above.
 
 **Reach.** `srun uvx <spec>` and `srun <tool>` are both job-script routes, under one contract. The
 check runs on every call through `uv` or `uvx`, whatever the subcommand, and on every call of an
@@ -697,7 +859,15 @@ turn. If one check takes `w` seconds, the job in place `k` of that line waits ab
 seconds, and a job whose wait passes `UVM_LOCK_TIMEOUT` fails there, naming the repair lock, having
 run and changed nothing. So about `UVM_LOCK_TIMEOUT / w + 1` jobs that start within one check of
 each other get through. At the default 180 s and a check of 1.5 s that is about 120 jobs; at a
-5 s timeout, three or four. A job that fails this way can be resubmitted, and checks again. An array shares
+5 s timeout, three or four. The check includes the walk of uv's cache, which lists each live
+entry's files once and compares every path its `RECORD` lists against that listing, testing only
+the paths the listing lacks. For a cache holding a data-science stack, 41,043 files in 153 live
+entries and 40,185 `RECORD` lines, `uvm doctor` took 2.5-4.4 s on a Lustre scratch, where testing
+every path had taken 52-108 s, and 0.7 s on a workstation's local disk. The listing costs a
+directory read per directory of each entry, not a metadata round trip per `RECORD` line, so `w`
+grows with the directories the cache's live entries hold. A purge that damages many entries adds
+little: with 30% of the files under 231 dist-info directories in 21 script environments purged at
+random, doctor took 0.45 s on a workstation, against 0.33 s for the same tree whole. A job that fails this way can be resubmitted, and checks again. An array shares
 its successful check and does not queue this way once one task has made it. On NFS, a call that wins the
 lock can miss an outcome another node just recorded, which costs one redundant check.
 

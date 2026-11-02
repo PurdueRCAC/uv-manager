@@ -1,0 +1,116 @@
+uv: uv 0.13.6 (329bf9448 2026-10-26 aarch64-apple-darwin)  link-mode: copy
+script env: environments-v2/s-c4db8bfc208798c4   uvx tqdm: environments-v2/887f96f8cdcad5a8/6bce7087d2f1c3b6 -> ../../archive-v0/awyRqm5vp_xDzetv
+--- healthy
+healthy s.py                             | rc=0   | out=s ok 4.67.1            | back 0/0     | new-archive 0  | 2nd rc=0 | 
+healthy uvx tqdm                         | rc=0   | out=4.67.1                 | back 0/0     | new-archive 0  | 2nd rc=0 | 
+healthy uvx flake8                       | rc=0   | out=7.1.1 (mccabe: 0.7.0, pycodestyle: 2.12. | back 0/0     | new-archive 0  | 2nd rc=0 | 
+healthy uvx ruff                         | rc=0   | out=ruff 0.8.4             | back 0/0     | new-archive 0  | 2nd rc=0 | 
+healthy r.py                             | rc=0   | out=r ok 2.21.0            | back 0/0     | new-archive 0  | 2nd rc=0 | 
+--- script env (s.py, tqdm)
+s env: random1                           | rc=1   | out=                       | back 2/21    | new-archive 0  | 2nd rc=1 | ModuleNotFoundError: No module named 'tqdm.std'
+s env: random2                           | rc=1   | out=                       | back 1/21    | new-archive 0  | 2nd rc=1 | AttributeError: module 'tqdm' has no attribute '__version__'
+s env: newest                            | rc=2   | out=                       | back 0/21    | new-archive 0  | 2nd rc=2 |   cause: failed to open file `SB/root/arm64/cache/environments-v2/s-c4d
+s env: module                            | rc=1   | out=                       | back 0/1     | new-archive 0  | 2nd rc=1 | ModuleNotFoundError: No module named 'tqdm.std'
+s env: distinfo-dir                      | rc=0   | out=s ok 4.67.1            | back 8/8     | new-archive 0  | 2nd rc=0 | 
+s env: distinfo-files                    | rc=2   | out=                       | back 0/8     | new-archive 0  | 2nd rc=2 |   cause: failed to open file `SB/root/arm64/cache/environments-v2/s-c4d
+s env: pyvenv                            | rc=0   | out=s ok 4.67.1            | back 0/1     | new-archive 0  | 2nd rc=0 | 
+s env: binpython                         | rc=0   | out=s ok 4.67.1            | back 1/1     | new-archive 0  | 2nd rc=0 | 
+s env: allfiles                          | rc=0   | out=s ok 4.67.1            | back 73/73   | new-archive 0  | 2nd rc=0 | 
+--- script env (r.py, rich + deps)
+r env: random1                           | rc=0   | out=r ok 2.21.0            | back 202/202 | new-archive 0  | 2nd rc=0 | 
+r env: random2                           | rc=2   | out=                       | back 1/202   | new-archive 0  | 2nd rc=2 |   cause: failed to open file `SB/root/arm64/cache/environments-v2/r-794
+r env: newest                            | rc=2   | out=                       | back 0/202   | new-archive 0  | 2nd rc=2 |   cause: failed to open file `SB/root/arm64/cache/environments-v2/r-794
+r env: module                            | rc=0   | out=r ok 2.21.0            | back 0/1     | new-archive 0  | 2nd rc=0 | 
+r env: distinfo-dir                      | rc=0   | out=r ok 2.21.0            | back 8/8     | new-archive 0  | 2nd rc=0 | 
+r env: distinfo-files                    | rc=2   | out=                       | back 0/8     | new-archive 0  | 2nd rc=2 |   cause: failed to open file `SB/root/arm64/cache/environments-v2/r-794
+r env: pyvenv                            | rc=0   | out=r ok 2.21.0            | back 0/1     | new-archive 0  | 2nd rc=0 | 
+r env: binpython                         | rc=0   | out=r ok 2.21.0            | back 1/1     | new-archive 0  | 2nd rc=0 | 
+r env: allfiles                          | rc=0   | out=r ok 2.21.0            | back 676/676 | new-archive 0  | 2nd rc=0 | 
+--- uvx env (tqdm)
+t env: random1                           | rc=1   | out=                       | back 2/20    | new-archive 0  | 2nd rc=1 | ModuleNotFoundError: No module named 'tqdm.std'
+t env: random2                           | rc=0   | out=4.67.1                 | back 0/20    | new-archive 1  | 2nd rc=0 | 
+t env: newest                            | rc=0   | out=4.67.1                 | back 0/20    | new-archive 0  | 2nd rc=0 | 
+t env: module                            | rc=1   | out=                       | back 0/1     | new-archive 0  | 2nd rc=1 | ModuleNotFoundError: No module named 'tqdm.std'
+t env: distinfo-dir                      | rc=1   | out=                       | back 0/8     | new-archive 0  | 2nd rc=1 | 
+t env: distinfo-files                    | rc=1   | out=                       | back 0/8     | new-archive 0  | 2nd rc=1 | 
+t env: pyvenv                            | rc=0   | out=4.67.1                 | back 0/1     | new-archive 0  | 2nd rc=0 | 
+t env: binpython                         | rc=0   | out=4.67.1                 | back 0/1     | new-archive 1  | 2nd rc=0 | 
+t env: allfiles                          | rc=0   | out=4.67.1                 | back 0/67    | new-archive 1  | 2nd rc=0 | 
+--- uvx env (flake8 + deps)
+f env: random1                           | rc=1   | out=                       | back 0/42    | new-archive 0  | 2nd rc=1 | 
+f env: random2                           | rc=0   | out=7.1.1 (mccabe: 0.7.0, pycodestyle: 2.12. | back 0/42    | new-archive 1  | 2nd rc=0 | 
+f env: newest                            | rc=1   | out=                       | back 0/42    | new-archive 0  | 2nd rc=1 | 
+f env: module                            | rc=1   | out=                       | back 0/1     | new-archive 0  | 2nd rc=1 | flake8.exceptions.FailedToLoadPlugin: Flake8 failed to load plugin "pyflakes" due to No module named 'pyflakes
+f env: distinfo-dir                      | rc=1   | out=                       | back 0/8     | new-archive 0  | 2nd rc=1 | importlib.metadata.PackageNotFoundError: No package metadata was found for pyflakes
+f env: distinfo-files                    | rc=1   | out=                       | back 0/8     | new-archive 0  | 2nd rc=1 | TypeError: '<' not supported between instances of 'NoneType' and 'str'
+f env: pyvenv                            | rc=1   | out=                       | back 0/1     | new-archive 0  | 2nd rc=1 | 
+f env: binpython                         | rc=0   | out=7.1.1 (mccabe: 0.7.0, pycodestyle: 2.12. | back 0/1     | new-archive 1  | 2nd rc=0 | 
+f env: allfiles                          | rc=0   | out=7.1.1 (mccabe: 0.7.0, pycodestyle: 2.12. | back 0/141   | new-archive 1  | 2nd rc=0 | 
+--- uvx env (ruff, binary)
+u env: bin/ruff                          | rc=2   | out=                       | back 0/1     | new-archive 0  | 2nd rc=2 |   cause: No such file or directory (os error 2)
+u env: RECORD only                       | rc=1   | out=                       | back 0/1     | new-archive 0  | 2nd rc=1 | 
+--- uvx env, entry removal
+t: archive dir removed (link dangles)    | rc=0   | out=4.67.1                 | back 0/0     | new-archive 1  | 2nd rc=0 | 
+t: environments-v2 link removed          | rc=0   | out=4.67.1                 | back 0/0     | new-archive 1  | 2nd rc=0 | 
+t: archive dir mv aside                  | rc=0   | out=4.67.1                 | back 0/0     | new-archive 1  | 2nd rc=0 | 
+s: script env mv aside                   | rc=0   | out=s ok 4.67.1            | back 0/0     | new-archive 0  | 2nd rc=0 | 
+--- unpacked wheel archive (tqdm), then a new environment
+wheel module: existing s.py              | rc=0   | out=s ok 4.67.1            | back 0/1     | new-archive 0  | 2nd rc=0 | 
+wheel module: new script n.py            | rc=1   | out=                       | back 0/1     | new-archive 0  | 2nd rc=1 | ModuleNotFoundError: No module named 'tqdm.std'
+wheel module: new uvx --with             | rc=1   | out=                       | back 0/1     | new-archive 1  | 2nd rc=1 | ModuleNotFoundError: No module named 'tqdm.std'
+wheel module: s.py after env removed     | rc=0   | out=s ok 4.67.1            | back 0/1     | new-archive 0  | 2nd rc=0 | 
+wheel distinfo-files: existing s.py      | rc=0   | out=s ok 4.67.1            | back 0/6     | new-archive 0  | 2nd rc=0 | 
+wheel distinfo-files: new script n.py    | rc=2   | out=                       | back 0/6     | new-archive 0  | 2nd rc=2 |   cause: failed to open file `SB/root/arm64/cache/archive-v0/ZvVyVuy4sb
+wheel distinfo-files: new uvx --with     | rc=2   | out=                       | back 0/6     | new-archive 0  | 2nd rc=2 |   cause: failed to open file `SB/root/arm64/cache/archive-v0/ZvVyVuy4sb
+wheel distinfo-files: s.py after env removed | rc=2   | out=                       | back 0/6     | new-archive 0  | 2nd rc=2 |   cause: failed to open file `SB/root/arm64/cache/archive-v0/ZvVyVuy4sb
+wheel allfiles: existing s.py            | rc=0   | out=s ok 4.67.1            | back 0/40    | new-archive 0  | 2nd rc=0 | 
+wheel allfiles: new script n.py          | rc=2   | out=                       | back 0/40    | new-archive 0  | 2nd rc=2 |   cause: failed to open file `SB/root/arm64/cache/archive-v0/ZvVyVuy4sb
+wheel allfiles: new uvx --with           | rc=2   | out=                       | back 0/40    | new-archive 0  | 2nd rc=2 |   cause: failed to open file `SB/root/arm64/cache/archive-v0/ZvVyVuy4sb
+wheel allfiles: s.py after env removed   | rc=2   | out=                       | back 0/40    | new-archive 0  | 2nd rc=2 |   cause: failed to open file `SB/root/arm64/cache/archive-v0/ZvVyVuy4sb
+wheel random1: existing s.py             | rc=0   | out=s ok 4.67.1            | back 0/12    | new-archive 0  | 2nd rc=0 | 
+wheel random1: new script n.py           | rc=2   | out=                       | back 0/12    | new-archive 0  | 2nd rc=2 |   cause: failed to open file `SB/root/arm64/cache/archive-v0/ZvVyVuy4sb
+wheel random1: new uvx --with            | rc=2   | out=                       | back 0/12    | new-archive 0  | 2nd rc=2 |   cause: failed to open file `SB/root/arm64/cache/archive-v0/ZvVyVuy4sb
+wheel random1: s.py after env removed    | rc=2   | out=                       | back 0/12    | new-archive 0  | 2nd rc=2 |   cause: failed to open file `SB/root/arm64/cache/archive-v0/ZvVyVuy4sb
+wheel dir-removed: existing s.py         | rc=0   | out=s ok 4.67.1            | back 0/0     | new-archive 0  | 2nd rc=0 | 
+wheel dir-removed: new script n.py       | rc=0   | out=n ok 4.67.1            | back 0/0     | new-archive 1  | 2nd rc=0 | 
+wheel dir-removed: new uvx --with        | rc=0   | out=4.67.1                 | back 0/0     | new-archive 1  | 2nd rc=0 | 
+wheel dir-removed: s.py after env removed | rc=0   | out=s ok 4.67.1            | back 0/0     | new-archive 0  | 2nd rc=0 | 
+--- uv cache commands on damage
+Removed 44 files (360.0KiB)
+after clean tqdm: script env exists=y uvx env exists=y wheel archive exists=n uvx link exists=y
+after uv cache clean tqdm: s.py          | rc=1   | out=                       | back 0/3     | new-archive 0  | 2nd rc=1 | ModuleNotFoundError: No module named 'tqdm.std'
+after uv cache clean tqdm: uvx tqdm      | rc=1   | out=                       | back 0/3     | new-archive 0  | 2nd rc=1 | ModuleNotFoundError: No module named 'tqdm.std'
+Removed 982 files (37.1MiB)
+after prune: script env exists=n uvx env exists=n wheel archive exists=y
+after uv cache prune: s.py               | rc=1   | out=                       | back 0/3     | new-archive 0  | 2nd rc=1 | ModuleNotFoundError: No module named 'tqdm.std'
+after uv cache prune: uvx tqdm           | rc=1   | out=                       | back 0/3     | new-archive 1  | 2nd rc=1 | ModuleNotFoundError: No module named 'tqdm.std'
+--- a running process when its entry is moved or unlinked
+script env, mv aside during run: ModuleNotFoundError: No module named 'tqdm'
+script env, mv aside then rebuilt before late import: late import ok
+uvx env via link, link removed and rebuilt: late import ok; old archive kept=y; new link target differs=y
+uvx env, archive mv aside during run: ModuleNotFoundError: No module named 'tqdm'
+uvx env run by archive path, link removed and rebuilt: late import ok; old archive kept=y
+--- in-place reinstall (the tool arm's idiom) on a damaged environment
+  module script env: 
+  module uvx env: 
+in-place module: s.py                    | rc=0   | out=s ok 4.67.1            | back 2/2     | new-archive 0  | 2nd rc=0 | 
+in-place module: uvx tqdm                | rc=0   | out=4.67.1                 | back 2/2     | new-archive 0  | 2nd rc=0 | 
+  random1 script env: 
+  random1 uvx env: 
+in-place random1: s.py                   | rc=0   | out=s ok 4.67.1            | back 27/41   | new-archive 0  | 2nd rc=0 | 
+in-place random1: uvx tqdm               | rc=0   | out=4.67.1                 | back 32/41   | new-archive 0  | 2nd rc=0 | 
+  distinfo-files script env: 
+  distinfo-files uvx env: 
+in-place distinfo-files: s.py            | rc=0   | out=s ok 4.67.1            | back 16/16   | new-archive 0  | 2nd rc=0 | 
+in-place distinfo-files: uvx tqdm        | rc=0   | out=4.67.1                 | back 16/16   | new-archive 0  | 2nd rc=0 | 
+  allfiles script env: error: No virtual environment or system Python installation found for path `TMP
+  allfiles uvx env: error: No virtual environment or system Python installation found for path `TMP
+in-place allfiles: s.py                  | rc=0   | out=s ok 4.67.1            | back 73/140  | new-archive 0  | 2nd rc=0 | 
+in-place allfiles: uvx tqdm              | rc=0   | out=4.67.1                 | back 73/140  | new-archive 1  | 2nd rc=0 | 
+--- detail: uvx tqdm with its dist-info directory removed
+
+--- pre-build candidates
+uv sync --script s.py: rc=0 env rebuilt=y 
+uvx --from tqdm python -c pass: rc=0 link back=y same key=y 
+--- ruff-only check of RECORD walk cost
+RECORD files in cache: 18; files in cache:     1715

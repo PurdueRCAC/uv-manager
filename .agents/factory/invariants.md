@@ -23,7 +23,7 @@ Only invoke the sections relevant to the change. Do not manufacture findings aga
 
 `uvm_acquire_lock` · `uvm_unlock` · `uvm_install` · `uvm_point_current` · `uvm_resolve_root` ·
 `uvm_init` · `uvm_trampolines` · `uvm_export_env` · `uvm_set_paths` · `uvm_repair` ·
-`uvm_tool_entry` (an `exec` site that runs the repair; with it `uvm_restore`, whose request reading
+`uvm_repair_cache` (the one arm that removes, under `UV_CACHE_DIR`) · `uvm_tool_entry` (an `exec` site that runs the repair; with it `uvm_restore`, whose request reading
 stays at three token classes) · the dispatch tail (everything below the `# ---- dispatch` banner)
 
 ---
@@ -276,8 +276,68 @@ stays at three token classes) · the dispatch tail (everything below the `# ----
   `target` would send the reinstall into the job's project and an `exclude-newer` would hide the
   installed versions. `--no-config` is not the fix; it drops the user's and the system's `uv.toml`
   too.
+- **The cache arm sits last and is the only arm that removes.** `uvm_repair_cache` runs after the
+  tool arm, on what `uvm_detect_cache` found. A damaged cache environment that still has
+  `pyvenv.cfg` and an executable `bin/python` (tested after the interpreter arm) has its damaged
+  distributions reinstalled in place as the tool arm does, and only those: the walk collects every
+  damaged dist-info directory of each entry (`uvm_cache_fixd`) while its FAIL text stays the first
+  problem, and the reinstall runs from `/` in a subshell, with `--python <entry>/bin/python
+  --reinstall-package <name>… --no-cache` and the pins `uvm_record_constraints` reads from those
+  dist-info names and `direct_url.json`, so every other distribution keeps its files byte for byte;
+  `--python` is passed only where `pyvenv.cfg` is present, so nothing installs into a managed
+  interpreter's `site-packages`. Everything else is removed, every removal before the arm's first
+  `uv` call that could reach the base interpreter (only `uvm_cache_index_check`'s fetch comes
+  earlier, for an environment that still has `pyvenv.cfg` and a running `bin/python`, into a target
+  of its own): a cached environment's link (also one holding any distribution not shown to come from
+  the configured index, which its spec rebuilds: a dist-info without `RECORD`, a `direct_url.json`
+  kept, or one or a `uv_cache.json` listed in a surviving `RECORD`, or a `uv_cache.json` on disk,
+  with no `direct_url.json`, `uvm_cache_unpinnable link`), never the archive, which a running
+  process may be using; a
+  script environment, renamed aside under §9's temporary-name rule and then removed, a removal that
+  cannot finish noted and passed, since the walk and uv skip dot names; an unpacked wheel's pointer
+  files `<link>.<ext>` but `<link>.lock` (uv follows `<link>.http`, not the link; a dotted `<ext>`
+  is another wheel's), then the link. A script environment with a damaged distribution whose
+  `RECORD` lists a `direct_url.json` that is gone, or that keeps or lists a `uv_cache.json` with no
+  `direct_url.json` (a local file or find-links directory), is never pinned by version: it fails
+  the scope naming the distribution and `uv-manager clean cache --yes` (`uvm_cache_unpinnable
+  script`). Every other damaged distribution either kind would pin by version, its `RECORD` kept
+  or not, is pinned only after `uvm_cache_index_check` fetches those versions in one
+  `--no-deps --no-cache` call per environment from `/` into a dot-named target in `environments-v2`, removed
+  on every path, and finds them equal, by the environment's interpreter under `-I -S`: a surviving
+  `RECORD`'s sha256 entries against the release's `RECORD` for the same paths, or else each file
+  the environment still holds hashed, source files only: `*.py` and `*.pyi` outside the dist-info
+  directory and `bin/`. Only wheels are compared: a distribution whose dist-info directory, in the
+  environment or in the fetched target, holds `uv_build.json` was built by uv from an sdist and
+  passes once the fetch succeeded, since a build is not reproducible (extensions and metadata
+  differ, and a backend can write its build interpreter's path into a `.py`, as numpy's does); a
+  fork served as an sdist is conceded. A wheel's extensions and metadata are not compared either,
+  so a fork differing only there is conceded, and a release with no source file in common passes.
+  A mismatch or a release the index does not serve fails a script environment's scope the same
+  way. A fetch that failed fails it with its own reason, naming the distribution and the fetch and
+  no `clean cache`. The fetch runs with colour off (`NO_COLOR=1`, `FORCE_COLOR` and
+  `CLICOLOR_FORCE` unset), and is a failed fetch only on a positive marker: exit 2,
+  `Failed to fetch`, "not found in the cache" or a network-disabled hint, or a hint naming
+  `401 Unauthorized` or `403 Forbidden`. Every other non-zero exit, a version behind an
+  `exclude-newer` hint included, is a release the index does not serve, so a later uv's new
+  wording for a failed fetch names `clean cache`. Each removes a
+  cached environment's link. It runs only on the repair's path, never in doctor or a healthy
+  scope. After
+  the reinstalls each reinstalled entry is walked again (`uvm_cache_clean`), so a reinstall that
+  exits 0 and restores nothing never records ok. A cached environment whose reinstall fails, or
+  that is still damaged on that walk, loses its link after the reinstalls, the one removal that
+  follows a `uv` call; a script environment in either state fails the scope. A failed rename or
+  removal sets `uvm_repair_reason` naming the entry. Doctor's walk of the cache lists the live entries with one `find -H` (names only, no
+  per-file predicate, no `-L`, no `-printf`), compares every `RECORD` path against the listing in
+  one `awk` pass that resolves `.` and `..` by name, and tests with `-e`/`-L` only the paths the
+  listing lacks, so a dangling link counts as present; it reads `RECORD` files and writes
+  nothing. A wheel whose link is gone or dangling is walked through its pointer, `<link>.http` or
+  `<link>.rev` (`uvm_cache_pointee`: the 16 characters after the byte `0xb0`, by builtins under
+  `LC_ALL=C`), only when the archive it names exists; a pointer that cannot be read or parsed is
+  passed over without a word, and a pointer beside a live link is never read. An archive is never
+  removed.
 - **The restore sits beside the repair and replays a record.** The arms run interpreters, then the
-  restore, then the in-place tool arm; each that fails sets `uvm_repair_reason` and returns.
+  restore, then the in-place tool arm, then the cache arm; each that fails sets
+  `uvm_repair_reason` and returns.
   `uvm_detect_records` lists a recorded tool with a trace here that lost its directory,
   `pyvenv.cfg`, interpreter link, an executable or its receipt, and `uvm_detect`'s other passes skip
   it; a damaged recorded tool the tool arm would refuse (`uvm_tool_refusal`) joins it. A recorded

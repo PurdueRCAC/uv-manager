@@ -102,8 +102,9 @@ Storage
 -------
 Run `uv-manager status` to see the exact locations in use. Scratch
 filesystems are periodically purged. A uv installation that goes untouched
-past the purge window is reprovisioned on next use, but a tool environment
-or managed interpreter that is only partly purged is not detected by uv.
+past the purge window is reprovisioned on next use, but a tool environment,
+managed interpreter or environment in uv's cache that is only partly purged
+is not detected by uv.
 Run `uv-manager doctor` if something that used to work stops importing,
 and once after upgrading from a release that kept no records: it writes a
 record for every tool installed before and the trampolines for them.
@@ -111,6 +112,8 @@ In a batch job, `UVM_REPAIR=1 uv run ...`, `UVM_REPAIR=1 uvx <tool>` or
 `UVM_REPAIR=1 <tool>` repairs a purged tool environment or managed
 interpreter before the command runs, and restores an installed tool from
 its record under UVM_DATA, once per Slurm job (keyed on SLURM_JOB_ID).
+It repairs uv's cache too: the environments `uv run <script>` and
+`uvx <spec>` run from, and the wheels they are built from.
 Unset, empty or 0 is off; any other value is on. An array shares a
 successful repair (keyed on SLURM_ARRAY_JOB_ID); a failed one stops only
 its own task, and the next task tries again. It needs pypi.org, files.pythonhosted.org and

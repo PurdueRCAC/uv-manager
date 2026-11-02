@@ -86,7 +86,7 @@ root at a temp directory, and removes it on exit.
 | `etc/uv-manager.conf.example` | Site settings, heavily commented. Every variable in it is real. |
 | `share/modulefiles/uv/main.lua` | Example Lmod modulefile. Exports only architecture-neutral paths. |
 | `README.md` | Design rationale + user and administrator documentation. |
-| `tests/` | Executable drives: the provisioning-lock race, and the purge-repair and installed-tool restore race across nodes. |
+| `tests/` | Executable drives: the provisioning-lock race, and the purge-repair race across nodes, for interpreters, tools, installed-tool restores and uv's cache. |
 | `.agents/` | The spec-driven software factory (skills, methodology, templates, scripts). |
 | `spec/{slug}/` | Committed, dated per-feature design records. Retained on merge. |
 | `issues/{slug}.md`, `ROADMAP.md` | Deferred code work and its ordered index. |
@@ -267,9 +267,52 @@ pinned or not, and touches no healthy tool; it refuses a tool without `pyvenv.cf
 path source, and one whose receipt records a requirement, constraint or override from such a
 source, the only use it makes of the receipt (`uvm_tool_receipt`). Its index options are not a
 refusal: uv writes a configured index into every receipt, and the repair runs under the same
-configuration. Both arms run from `/` in a subshell, so the user's and the system's `uv.toml` and the
-`UV_*` variables apply and the working directory's `pyproject.toml` and `uv.toml` do not. Both
-arms name their targets, so a repair never applies the job's Python request. The repair never calls
+configuration. The cache arm, `uvm_repair_cache`, runs last, after the interpreters it builds on:
+each damaged cache environment that still has `pyvenv.cfg` and a running `bin/python` gets the tool
+arm's reinstall for its damaged distributions only, the complete set the walk found
+(`uvm_cache_fixd`): `--python <entry>/bin/python --reinstall-package <name>… --no-cache`, pinned by
+`uvm_record_constraints` over those dist-info directories (versions, `direct_url.json` sources), so
+every other distribution keeps its files byte for byte. Every other damaged live
+entry is removed for uv to rebuild (`uvm_cache_remove`), all before the arm's first `uv` call that
+could reach the base interpreter (only `uvm_cache_index_check`'s fetch comes earlier, for an
+environment that is still a virtualenv, into a target of its own): a
+cached environment's link, never the archive behind it, also when any distribution in it is not
+shown to come from the configured index (`uvm_cache_unpinnable link`, over every distribution: a
+dist-info without `RECORD`, a `direct_url.json` kept, or one or a `uv_cache.json` listed in a
+`RECORD`, or a `uv_cache.json` on disk, with no `direct_url.json` beside it); a script environment, renamed aside to
+`.<name>.<host>.<pid>.<random>` and then removed, a removal that cannot finish noted and passed; an
+unpacked wheel's pointer files `<link>.<ext>` but `<link>.lock`, then the link, a wheel whose link
+was gone included, which the walk reached through its pointer (`uvm_cache_pointee`). A script
+environment with a damaged distribution whose `RECORD` lists a `direct_url.json` that is gone, or
+that keeps or lists a `uv_cache.json` with no `direct_url.json`, fails the scope rather than be
+pinned by version (`uvm_cache_unpinnable script`, over the damaged distributions only). Every
+other damaged distribution either kind would pin by version, its `RECORD` kept or not, is pinned
+only once `uvm_cache_index_check` shows the configured index serves the same release: the versions
+fetched in one `--no-deps --no-cache` call per environment from `/` into a dot-named target in
+`environments-v2`, removed on every path, then compared by the environment's interpreter under
+`-I -S`, wheels only: a distribution whose dist-info directory, in the environment or in the
+target, holds `uv_build.json` was built by uv from an sdist (measured with uv 0.13.6: written for
+every sdist build, the target's included, never for a wheel), and passes once fetched, since a
+build is not reproducible (numpy writes its build interpreter's path into a `.py`), so a fork
+served as an sdist is conceded. A wheel is compared on source files only (`*.py` and `*.pyi`
+outside the dist-info directory and `bin/`, so a fork differing only in an extension or metadata
+is conceded): a surviving `RECORD`'s sha256 entries against the release's `RECORD` for the same
+paths, or else each source file the environment still holds hashed; a release with none in common
+passes. A mismatch or a release the index does not serve fails a script environment's scope
+naming the distribution and `uv-manager clean cache --yes`; a fetch that failed fails it naming
+the distribution and the fetch, with no remedy. The fetch runs with `NO_COLOR=1` and
+`FORCE_COLOR` and `CLICOLOR_FORCE` unset, and is a failed fetch only on a positive marker: exit 2,
+`Failed to fetch`, "not found in the cache" or a network-disabled hint, or a hint naming
+`401 Unauthorized` or `403 Forbidden`; every other non-zero exit, an `exclude-newer` hint
+included, is a release the index does not serve. Either removes a cached environment's link. Each
+reinstalled environment
+is walked again (`uvm_cache_clean`). A cached environment whose reinstall fails, or that is still
+damaged on the second walk, loses its link after the reinstalls; a script environment in either
+state fails the scope.
+A failed rename or removal fails the scope naming the entry. Every arm
+runs from `/` in a subshell, so the user's and the system's `uv.toml` and the `UV_*` variables apply
+and the working directory's `pyproject.toml` and `uv.toml` do not. Every arm names its targets, so a
+repair never applies the job's Python request. The repair never calls
 `uvm_install`, so it cannot move `current`, and every byte it writes, uv's included, goes to stderr.
 No message on the `uv` and `uvx` path names `pip install` or `python install`: the offline fixture
 echoes its command line and the drives count those lines as repairs. Doctor's remediation block
@@ -389,6 +432,7 @@ sign-off gate at review:
 | `uvm_export_env` / `uvm_set_paths` | Everything `uv` spawns inherits this environment. Nesting must stay idempotent. |
 | the dispatch tail | `exec` semantics, the `tool`/`python` non-exec path, `rc` propagation. |
 | `uvm_repair` / `uvm_detect` | Runs before every exec while `UVM_REPAIR` is on, on every rank of a job. An arrival test that misses repairs on every call; an outcome recorded after the release sends a waiter into a second repair; a byte on stdout lands in the user's command's output. |
+| `uvm_repair_cache` | The only arm that removes anything, and it removes under `UV_CACHE_DIR`: a cached environment's link, a script environment, a wheel's pointer files and link. A glob one character too wide takes another wheel's files; a removal on the wrong side of the `pyvenv.cfg` test lets uv install a script's dependencies into the managed interpreter; a reinstall pinned by version where the source was a URL, git, a path or a find-links directory swaps the code a job runs. |
 | `uvm_tool_entry` / `uvm_restore` | An `exec` site that runs the repair: every installed tool run by its own name with `UVM_REPAIR` on enters it, on every rank. An exec before `uvm_unlock` leaves the repair lock held for every waiter; a byte on stdout lands in the tool's output. `uvm_restore` reads its recorded request for three token classes only, `--force`, `<name>@latest` and the options naming a local file, and passes the rest to uv as recorded; a fourth class starts a model of uv's command line. |
 
 ## Verification
@@ -419,7 +463,12 @@ kill` kills that holder to check the waiters' timeout, `uvm doctor`, `uvm clean 
 clean pass, with the same `--launch srun` and counts-only `--summary`. Scenarios `I` and `ikill` do
 the same for five installed tools, one per purge shape, each rank running its tool by its own name
 through its trampoline, and count one restore from the records and the tools' equality with what
-was installed.
+was installed. Scenarios `U`, `S` and `ukill` damage uv's cache, a cached `uvx` environment or a
+script environment among twenty others, run `uvx <spec>` or `uv run <script>` on every rank, kill
+the holder under `ukill`, and count the cache entries the pass rebuilt, or rewrote in place after
+the repair, which must be none, beside the walk's seconds, the cache's file, live-entry and `RECORD`
+line counts (`--large-cache` adds a data-science stack) and its link mode, and, under `--launch
+srun`, whether a `flock` taken on one node holds on another.
 
 `.agents/factory/bin/temp_root.sh` is the substrate. It scrubs the inherited environment (every
 `UV_*` and `UVM_*` variable, and every scratch candidate `uvm_resolve_root` consults), points

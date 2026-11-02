@@ -1,0 +1,20 @@
+s ok 4.67.1
+--- Q-A: wheel damaged (module), only the wheels-v7 link removed, new script
+ModuleNotFoundError: No module named 'tqdm.std'
+rc=0 new archives=0 link back=n -> 
+--- Q-A2: wheel damaged (module), link kept, .http and .msgpack removed
+n ok 4.67.1
+new archives=1
+--- Q-A3: wheel damaged (module), archive dir removed whole, link dangling
+n ok 4.67.1
+new archives=1
+--- Q-B: prune and an aside dir in environments-v2, and an orphan archive
+Removed 136 files (1.0MiB)
+aside survives prune=n orphan archive survives=n
+.
+..
+--- Q-B2: aside dir named like a script env? does uv run reuse? (no)
+s ok 4.67.1
+85fabea4ea32f2ef
+s-03d17fd222fddcd5
+s-03d17fd222fddcd5.uvm-removed

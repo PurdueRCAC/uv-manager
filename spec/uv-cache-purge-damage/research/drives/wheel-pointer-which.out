@@ -1,0 +1,10 @@
+drop [http]: n ok 4.67.1 new=1 link=I3jO5Zv96tKI4zFB  http=y msgpack=y
+drop [msgpack]: ModuleNotFoundError: No module named 'tqdm.std' new=0 link=gVrnjmVChSE7jrIg  http=y msgpack=y
+drop [http msgpack]: n ok 4.67.1 new=1 link=-GQFi7lyWLsE6nFX  http=y msgpack=y
+drop [link http msgpack]: n ok 4.67.1 new=1 link=fIX9t2jQrZlntZ-w  http=y msgpack=y
+drop [link http]: n ok 4.67.1 new=1 link=FcAFO98bSyaiN-ij  http=y msgpack=y
+--- .http head (strings)
+gVrnjmVChSE7jrIg
+Sha256
+@26445eca388f82e72884e0d580d5464cd801a3ea01e63e5601bdff9ba6a48de2
+tqdm-4.67.1-py3-none-any.whl
