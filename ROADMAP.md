@@ -17,22 +17,6 @@ See `AGENTS.md` for why.
 
 ## Queued
 
-### A tool run by its own name gets none of the guarantees `uvx` gets
-**Seed:** [`issues/installed-tool-parity.md`](issues/installed-tool-parity.md) · `feature` · appetite
-big · **adopted** as [`spec/installed-tool-parity/`](spec/installed-tool-parity/GOAL.md)
-
-Shaped on 2026-11-01 against `release/0.8.0`, twelve criteria, at most five phases. `uv tool install`
-then `srun <tool>` gets the contract `srun uvx <spec>` has: under `UVM_REPAIR` a call by the tool's
-name runs the scope check, and a tool whose directory, receipt or shim a purge took, a git-sourced
-one included, is restored once from a plain-file record under `UVM_DATA` while the other ranks wait.
-`UVM_DATA` is set by the modulefile beside `UVM_ROOT` and defaults to
-`${XDG_DATA_HOME:-$HOME/.local/share}/uvm`; it holds records and trampolines, a few KB per tool,
-which retires the README's "none under $HOME" claim. A real-uv drive during shaping settled the
-VCS pin (a constraint line keeps the request as typed) and which `uvx` forms reach an installed
-tool. The foreman's gate ruled on all ten open questions; among them, a restore must not leave a
-tool held against `uv tool upgrade` that was not held before the purge. First in the queue;
-`uv-cache-purge-damage` completes the `uvx` route.
-
 ### Separately submitted jobs queue to check one tree under the repair lock
 **Seed:** [`issues/repair-scope-queueing.md`](issues/repair-scope-queueing.md) · `feature` · appetite
 small
@@ -113,19 +97,6 @@ checks the wrapper is current without putting a network round trip in the hot pa
 constraint is already written at `bin/uv-manager:9-12`: never land on `~/.local/bin/uv`, and stay
 opt-in rather than on default `PATH`. It completes the automation story `purge-tree-repair` started;
 that cycle has landed.
-
-### A purge that damages uv's cache breaks `uv run` and `uvx`
-**Seed:** [`issues/uv-cache-purge-damage.md`](issues/uv-cache-purge-damage.md) · `feature` ·
-appetite big · **adopted** as [`spec/uv-cache-purge-damage/`](spec/uv-cache-purge-damage/GOAL.md)
-
-The `uvx` route's half of the two-route contract. Shaping constructed the failure with uv 0.13.6:
-a purge's shapes in a script environment, an ephemeral `uvx` environment or an unpacked wheel make
-the next `uv run` or `uvx` fail. A script environment that loses `pyvenv.cfg` runs with rc 0
-after installing into the managed interpreter. With the knob set, the scope is recorded repaired
-on such a cache. The GOAL extends doctor's detection to the cache's live entries and repairs them
-under `purge-tree-repair`'s lock, scope and outcome contract. A process running from a repaired
-entry keeps importing, and no waiter rebuilds what the repair restored. It closes on a 2 × 64-rank
-cluster drive. Planned after `installed-tool-parity` lands on the release branch.
 
 ### A real test harness
 **Seed:** [`issues/test-harness.md`](issues/test-harness.md) · `feature` · appetite big
