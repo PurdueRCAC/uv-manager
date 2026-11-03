@@ -1,0 +1,7 @@
+files=3142 records=65 record_lines=2713
+doctor with cache: 0.312s
+doctor with cache: 0.328s
+doctor with cache: 0.291s
+doctor without cache: 0.154s
+doctor without cache: 0.154s
+doctor without cache: 0.156s

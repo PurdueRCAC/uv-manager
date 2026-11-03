@@ -78,14 +78,21 @@ for name in $(env | sed -n 's/^\(UVM\{0,1\}_[A-Za-z0-9_]*\)=.*/\1/p'); do
     unset "$name"
 done
 unset CLUSTER_SCRATCH RCAC_SCRATCH SCRATCH PSCRATCH WORK PROJECT 2>/dev/null || true
+# An activated environment steers uv: a gate run through `uv run` inherits its
+# VIRTUAL_ENV, and uv inside the sandbox would build on that interpreter.
+unset VIRTUAL_ENV 2>/dev/null || true
 
 # Redirected rather than unset: the wrapper deliberately leaves XDG_CONFIG_HOME alone
 # (invariant §8), so a drive must still see a valid one — just not the developer's,
 # whose ~/.config/uv/uv.toml would change resolution behavior under the test.
+# XDG_DATA_HOME is redirected for a different reason: the wrapper writes its durable
+# tree (UVM_DATA, default ${XDG_DATA_HOME}/uvm) on every `uv tool` command, so a drive
+# left with the developer's would write tool records into their real home.
 XDG_CONFIG_HOME="$sandbox/config"
+XDG_DATA_HOME="$sandbox/data"
 UVM_ROOT="$sandbox/root"
 UVM_SANDBOX="$sandbox"
-export XDG_CONFIG_HOME UVM_ROOT UVM_SANDBOX
+export XDG_CONFIG_HOME XDG_DATA_HOME UVM_ROOT UVM_SANDBOX
 mkdir -p "$XDG_CONFIG_HOME" "$UVM_ROOT"
 
 if [ -n "$offline" ]; then

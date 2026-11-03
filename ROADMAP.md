@@ -17,23 +17,6 @@ See `AGENTS.md` for why.
 
 ## Queued
 
-### A tool run by its own name gets none of the guarantees `uvx` gets
-**Seed:** [`issues/installed-tool-parity.md`](issues/installed-tool-parity.md) · `feature` · appetite
-big
-
-`purge-tree-repair` made `srun uvx <tool>` repair once and run on every rank, and that route stays.
-`uv tool install` on a login node followed by `srun <tool>` gets none of it: the trampoline execs the
-shim without entering the wrapper, and the only record of what was installed is the receipt inside
-the purged tree. A whole tool directory, a receipt, a git source or a purged shim (which takes its
-trampoline with it at the next sync) is beyond repair on 0.7.0. The direction, agreed with the
-maintainer on 2026-11-01, adds a `UVM_DATA` contract beside `UVM_ROOT`: a durable,
-architecture-neutral tree, set by the modulefile, holding plain-file records of what the user asked
-for with every distribution pinned, and the trampolines generated from them. A trampoline goes
-through the wrapper's scope check when `UVM_REPAIR` is set, and a missing tool is restored by
-replaying its record. It contradicts the README's "none under $HOME" claim, which is why it needs
-shaping rather than a fix. First in the queue because it gives the second route the contract the
-first already has; `uv-cache-purge-damage` completes the first.
-
 ### Separately submitted jobs queue to check one tree under the repair lock
 **Seed:** [`issues/repair-scope-queueing.md`](issues/repair-scope-queueing.md) · `feature` · appetite
 small
@@ -114,20 +97,6 @@ checks the wrapper is current without putting a network round trip in the hot pa
 constraint is already written at `bin/uv-manager:9-12`: never land on `~/.local/bin/uv`, and stay
 opt-in rather than on default `PATH`. It completes the automation story `purge-tree-repair` started;
 that cycle has landed.
-
-### A purge that damages uv's cache breaks `uv run` and `uvx`
-**Seed:** [`issues/uv-cache-purge-damage.md`](issues/uv-cache-purge-damage.md) · `feature` ·
-appetite big
-
-The class `purge-tree-repair` conceded at its gate. A script's environment, an ephemeral `uvx`
-environment and the unpacked archives they come from all live in `UV_CACHE_DIR`, inside the purged
-tree, and uv runs no integrity check on the archives. So `srun uvx <tool>`, the route the README
-recommends for job scripts, gets the scope check but no repair unless the tool is installed (found
-on Gautschi, 2026-11-01). Unmeasured: the first criterion is constructing the failure. Repairing it
-means clearing a shared cache and then
-having every rank rebuild at once under a `flock` that not every parallel filesystem honours, which
-is why it is its own cycle. It reuses the lock, scope and outcome contract of `purge-tree-repair`,
-which has landed.
 
 ### A real test harness
 **Seed:** [`issues/test-harness.md`](issues/test-harness.md) · `feature` · appetite big

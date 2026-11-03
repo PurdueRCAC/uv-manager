@@ -1,8 +1,9 @@
 # uv-manager
 
 A transparent wrapper around [`uv`](https://docs.astral.sh/uv/) that makes it behave correctly
-on an HPC cluster: no home-directory quota consumption, no architecture mismatches between login
-and compute nodes, and no shared state between users.
+on an HPC cluster: nothing on home quota but a few KB per installed tool recording what it was
+installed from and the trampoline that runs it, no architecture mismatches between login and
+compute nodes, and no shared state between users.
 
 It is a single bash script. Users type `uv` and `uvx` and get the real thing.
 
@@ -11,7 +12,7 @@ $ module load uv
 $ uv --version
 uv 0.12.2
 $ uv-manager status
-uv-manager:            0.7.0
+uv-manager:            0.8.0
 invoked as:            uv-manager  (/apps/external/uv/main/bin/uv-manager)
 architecture:          x86_64
 state root:            /anvil/scratch/x-lentner/.uv  (from UVM_ROOT)
@@ -122,7 +123,7 @@ On every invocation it:
 
    ```
    $UVM_ROOT/
-   ├── bin/                     architecture-neutral trampolines  ← safe on PATH
+   ├── bin/                     this root's trampolines: interpreters, unrecorded tools
    └── <arch>/
        ├── versions/<ver>/      uv + uvx, one directory per version
        ├── current -> versions/<ver>
@@ -131,7 +132,40 @@ On every invocation it:
        ├── cache/               download + wheel cache (UV_CACHE_DIR)
        ├── tools/               tool virtual environments (UV_TOOL_DIR)
        └── python/              managed interpreters (UV_PYTHON_INSTALL_DIR)
+
+   $UVM_DATA/                   durable, off scratch, no architecture  (~/.local/share/uvm)
+   ├── bin/                     one trampoline per recorded executable  ← safe on PATH
+   └── tools/<name>/            what each installed tool was installed from: the request,
+                                its pins, its Python minor, its executables, uv's receipt
    ```
+
+   `UVM_DATA` is the one place the wrapper writes outside `UVM_ROOT`. A `uv tool install`,
+   `upgrade` or `uninstall` that exits 0 writes, rewrites or deletes the record of each tool it
+   changed, a few KB apiece, with any credential in a URL removed. A purge cannot take a record
+   along with the environment it describes.
+
+   The trampolines for recorded tools live there too, one per executable a record names, so a
+   purge that takes a tool's shim leaves the trampoline that runs it; one goes only when no record
+   names it, which means a `uv tool uninstall`. `$UVM_ROOT/bin` keeps one per shim name in that
+   root: the managed interpreters, which have no record, and any tool installed without one. The
+   module puts `$UVM_DATA/bin` first on `PATH` and `$UVM_ROOT/bin` after it, and keeps both. A sync
+   removes a trampoline from `$UVM_ROOT/bin` when no shim in that root names it, as releases before
+   0.8.0 did, and never touches another root's, so two clusters sharing `UVM_DATA` leave each
+   other's interpreters alone.
+
+   Releases before 0.8.0 wrote every trampoline to `$UVM_ROOT/bin` with a body that never enters
+   the wrapper. They keep running the tool across the upgrade. The first `uv` or `uvx` call on each
+   root syncs both directories, once: it writes the trampolines for the records and rewrites each
+   old one in `$UVM_ROOT/bin` in place, under the same path, so a job script that already ran the
+   tool keeps running it. That sync leaves a marker, `$UVM_ROOT/bin/.uv-manager-synced`, and while
+   it is there the test costs one `stat`. Each root has its own, so another root sharing `UVM_DATA`
+   that upgraded first does not stand in for this one, and a `UVM_DATA` that cannot be written costs
+   the one attempt, not one per call. Run `uv-manager doctor` once after upgrading, before that call
+   or after it: it writes a record for every tool installed before and the trampolines for them,
+   and writes nothing under `UVM_ROOT`, so the first call still rewrites the old trampolines. A
+   `$UVM_DATA/bin` removed by hand after that comes back at the next `uv tool` command,
+   `uv-manager trampolines`, doctor, or check under `UVM_REPAIR`. A `PATH` entry that names
+   `$UVM_ROOT/bin` by hand gains `$UVM_DATA/bin` ahead of it.
 
 3. **Provisions `uv` on first use for that architecture**, into a version-keyed directory, with
    `current` swapped atomically. Concurrent invocations serialize on an atomic `mkdir` lock that
@@ -147,8 +181,13 @@ On every invocation it:
 5. **Intercepts `uv self update`**, which cannot work for an unmanaged install, turning it into a
    re-provision.
 
-6. **Maintains architecture-neutral trampolines** so executables from `uv tool install` and
-   `uv python install` are reachable from a single `PATH` entry on every node type.
+6. **Maintains architecture-neutral trampolines** in `$UVM_DATA/bin` and `$UVM_ROOT/bin`, so
+   executables from `uv tool install` and `uv python install` are reachable from two `PATH` entries
+   that are right on every node type. With `UVM_REPAIR` off, a trampoline execs the tool and never starts the wrapper: one `sh`
+   start and no command substitution. Measured with a tool that does nothing, a call costs 8 ms
+   through the trampoline, 4 ms for the tool alone and 12 ms through an earlier release's
+   trampoline. With the knob set, the trampoline enters the wrapper, which runs the same check a
+   `uv` call runs and then the tool.
 
 `UV_UNMANAGED_INSTALL` is doing several jobs at once here. Reading
 [`install.sh`](https://astral.sh/uv/install.sh) confirms it sets `NO_MODIFY_PATH=1` and
@@ -183,7 +222,7 @@ Everything is ordinary `uv`. The additions live under `uv-manager`:
 | `uv-manager doctor` | Check for a partially purged or damaged tree. See below. |
 | `uv-manager versions` | List `uv` versions installed for this architecture. |
 | `uv-manager install [VER]` | Select a version, downloading it if absent. With no version, re-resolve latest from the network. |
-| `uv-manager trampolines` | Regenerate the neutral executable shims. |
+| `uv-manager trampolines` | Regenerate the trampolines in `$UVM_DATA/bin` and `$UVM_ROOT/bin`. |
 | `uv-manager clean [cache\|lock\|outcomes\|arch\|all] --yes` | Remove part of the tree. `lock` removes the provisioning lock and the repair lock and leaves the installed versions alone. `outcomes` removes the recorded repair outcomes, so each scope checks again. Without `--yes`, each prints what it would remove. |
 
 `uvm` is a short alias for `uv-manager`, so `uvm status` and `uvm doctor` work too.
@@ -204,8 +243,9 @@ export UV_PROJECT_ENVIRONMENT=".venv-$(uname -m)"
 
 **Scratch is purged, and `uv` will not notice.** See
 [below](#scratch-purges-and-what-uv-does-not-notice). This is the one remaining problem the
-wrapper cannot fully solve. Inside a Slurm job, `UVM_REPAIR=1` on the `uv` or `uvx` call repairs
-what it can detect before the command runs.
+wrapper cannot fully solve. Inside a Slurm job, `UVM_REPAIR=1` on a `uv` or `uvx` call, or on an
+installed tool run by its own name, repairs what it can detect and restores installed tools from
+their records before the command runs.
 
 ---
 
@@ -249,8 +289,12 @@ prepend_path("PATH", pathJoin(prefix, "bin"))
 if scratch ~= nil then
     local root = pathJoin(scratch, ".uv")
     setenv("UVM_ROOT", root)
-    prepend_path("PATH", pathJoin(root, "bin"))   -- neutral trampolines
+    prepend_path("PATH", pathJoin(root, "bin"))   -- this root's trampolines, second on PATH
 end
+
+local data = pathJoin(os.getenv("HOME"), ".local/share/uvm")   -- XDG_DATA_HOME/uvm when set
+setenv("UVM_DATA", data)
+prepend_path("PATH", pathJoin(data, "bin"))   -- recorded tools' trampolines, first on PATH
 ```
 
 **Every path this modulefile exports must be architecture-neutral.** Getting this wrong is the
@@ -262,8 +306,10 @@ be `aarch64`. Something like `setenv("UV_CACHE_DIR", scratch .. "/.uv/x86_64/cac
 wrong for every `aarch64` job, and would fail silently.
 
 `UVM_ROOT` is safe because the architecture is appended by the wrapper at exec time, on the node
-that is actually running. So is `$UVM_ROOT/bin`, which holds trampolines that re-resolve the
-platform key when invoked. Do not inline the `UV_*` variables into the modulefile.
+that is actually running. So are `UVM_DATA`, which names no architecture, and `$UVM_DATA/bin` and
+`$UVM_ROOT/bin`, which hold trampolines that re-resolve the platform key when invoked: the first for
+the recorded tools, the second for this root's managed interpreters and any tool without a record.
+Do not inline the `UV_*` variables into the modulefile.
 
 Two other deliberate omissions:
 
@@ -299,7 +345,7 @@ your mirror; the wrapper fetches `<base>/install.sh` or `<base>/<version>/instal
 
 ```bash
 module load uv
-uv-manager status                    # every path under scratch, none under $HOME
+uv-manager status                    # every path under scratch but UVM_DATA: records, their trampolines
 uv-manager doctor
 du -sh ~/.cache/uv ~/.local/share/uv 2>/dev/null   # should not exist
 
@@ -397,11 +443,12 @@ afterwards. It does not, and the failure is quiet. Tested directly against uv 0.
 
 | What is lost | What happens |
 | --- | --- |
-| Cache only | Fine. Re-downloads on next use. |
+| The whole cache | Fine. Re-downloads on next use. |
 | An entire tool environment | `uvx <tool>` works, since uv rebuilds it. But the executable left in `bin/shims` by `uv tool install` becomes a dangling symlink and is not repaired. |
 | A tool's `uv-receipt.toml` only | `uv tool list` warns `Ignoring malformed tool`; `uv tool run` quietly falls back to an ephemeral environment. |
 | **Individual files inside an environment** | uv performs no integrity check on an environment it believes is installed. It execs it, and the user gets a Python `ImportError` traceback. |
 | **Files inside a managed interpreter** | Same. Deleting `lib/python3.12/json` produced `ModuleNotFoundError: No module named 'json'` from uv's own interpreter probe, and broke the whole managed-Python subsystem. |
+| **Files inside uv's cache** | Same for the environments `uv run <script>` and `uvx <spec>` run from, which uv keeps in its cache: one missing a module or its dist-info files fails, and a script environment missing `pyvenv.cfg` runs on the managed interpreter and installs the script's dependencies into it. An unpacked wheel missing a file passes the damage to every environment built from it, or fails each build. uv rebuilds only an entry that is gone whole. Measured with uv 0.13.6. |
 
 Partial loss happens in practice, not just in principle. Because purge is keyed per file on access
 time, a hot module's `__init__.py` gets its atime refreshed on every run while `tests/`,
@@ -416,13 +463,17 @@ Mitigations, in order of effectiveness:
 
 1. **Put `UVM_ROOT` on non-purged storage.** On Anvil that means `$PROJECT`, which is what
    RCAC's documentation already recommends for long-lived Python environments. Scratch is still
-   fine for the cache alone if you want to split them.
+   fine for the cache alone if you want to split them, with `UVM_REPAIR` set in jobs: uv rebuilds
+   a cache that is gone whole, but not one that is partly gone.
 2. **`uv-manager doctor`** looks at every installed distribution and reports the damage uv ignores:
    dangling shims, a tool directory that lost its `pyvenv.cfg` or its receipt, a damaged managed
    interpreter, a distribution whose `RECORD` manifest is gone, and files a surviving manifest lists
-   that are no longer on disk. As advisories, it also reports a provisioning or repair lock left
-   standing, with the owner line it records, any staging copy an interrupted install left under
-   `versions/`, and a repair that failed (see [Repairing inside a job](#repairing-inside-a-job)).
+   that are no longer on disk. It checks the live entries of uv's cache the same way, by the files
+   each `RECORD` lists: the script environments `uv run <script>` runs from, the cached `uvx`
+   environments, and the unpacked wheels they were built from. As advisories, it also reports a
+   provisioning or repair lock left standing, with the owner line it records, any staging copy an
+   interrupted install left under `versions/`, and a repair that failed (see [Repairing inside a
+   job](#repairing-inside-a-job)).
    Each of those lines names what to remove and says the process that left it may still be running,
    because nothing on disk can tell. Failures set the exit status and advisories do not, so a job
    prologue can key on it. Its floor is whatever nothing on disk records. A distribution removed
@@ -430,11 +481,18 @@ Mitigations, in order of effectiveness:
    the 91 distributions uv resolved it to; a managed interpreter carries no manifest at all, so the
    check there is whether `import json, os, ssl` still succeeds, which it does with `email/`, `xml/` and
    `unittest/` gone. A clean report means nothing detectable is wrong, not that the tree is whole.
-3. **`UVM_REPAIR` in the job script.** Set on a `uv` or `uvx` call, it runs doctor's check and
-   repairs what it finds before the command runs. See [Repairing inside a
-   job](#repairing-inside-a-job).
-4. **Prefer `uvx` over `uv tool install`.** Ephemeral environments are keyed off the cache and
-   rebuild cleanly; installed ones accumulate damage.
+   First it writes a record for each installed tool that has none and regenerates the record
+   trampolines, under `UVM_DATA`; it writes nothing under `UVM_ROOT`. Writing a record runs `uv tool
+   list`, which recreates uv's lock file, `tools/.lock`, and a purge takes that idle, empty file, so
+   where it is missing doctor writes no record and names each tool without one; the next `uv tool`
+   command records them.
+3. **`UVM_REPAIR` in the job script.** Set on a `uv` or `uvx` call, or on an installed tool run by
+   its own name, it runs doctor's check and repairs what it finds before the command runs. See
+   [Repairing inside a job](#repairing-inside-a-job).
+4. **Install tools through the wrapper, so each has a record.** An ephemeral `uvx` environment is
+   keyed off the cache and rebuilds cleanly; an installed tool accumulates damage, and its record
+   under `UVM_DATA`, off scratch, is what restores it. A tool installed before records existed
+   gets one from `uv-manager doctor` or from the next `uv tool` command.
 5. **Watch inodes.** Anvil scratch allows 1,000,000 files and community scratch 2,000,000. A
    populated `uv` tree is a meaningful fraction of that. Run `uv cache prune` periodically.
 
@@ -444,9 +502,11 @@ Mitigations, in order of effectiveness:
 #SBATCH --nodes=2
 export UVM_REPAIR=1
 srun uv run --no-project analyse.py
+srun mytool --help
 ```
 
-With `UVM_REPAIR` set, a `uv` or `uvx` call checks the tree before it runs the command, on the node
+With `UVM_REPAIR` set, a `uv` or `uvx` call, or an installed tool run by its own name through its
+trampoline, checks the tree before it runs the command, on the node
 that runs it, so it checks the tree of that node's architecture. Unset, empty and `0` mean off. Any
 other value means on, `00` and `false` included. Off forks nothing and touches no file; what it
 costs is bash parsing the added code, about 0.6 ms per call.
@@ -473,7 +533,8 @@ A Slurm array task is one with `SLURM_ARRAY_TASK_ID` set.
 **What happens.** One call in the scope takes the repair lock, `$UVM_ROOT/<arch>/.repair.lock`, and
 runs the check `uv-manager doctor` runs. When a managed interpreter is damaged, a binary gone or its
 standard library failing to import, it reinstalls that interpreter, named by its directory under
-`python/`, at the patch version it already had. When a tool environment is damaged it then
+`python/`, at the patch version it already had. An installed tool with a record that lost what
+only its record rebuilds is restored next, below. When another tool environment is damaged it then
 reinstalls, into that environment alone, every distribution it holds at the version its
 `<name>-<version>.dist-info` directory names, with `uv pip install --reinstall --no-cache`. A purge
 takes files and leaves directories, so those names survive the manifests inside them. The tool keeps
@@ -487,10 +548,142 @@ where it was started. The receipt is read only to refuse a tool whose source an 
 cannot stand in for, below, and is never written. A repair restores what is installed and never
 applies the job's Python request: a `.python-version` in the working directory or above it, uv's
 global pin and `UV_PYTHON` all leave it unchanged. Interpreters go first because every tool runs on
-one, and the tool repair fails on an interpreter that cannot import its standard library. The call records the outcome under
-`$UVM_ROOT/<arch>/.repair/` and releases the lock. The other calls wait on the lock, see the
-outcome, and act on it. No call repairs when nothing is damaged. The uv version in use and `current`
-stay as they were. All repair output goes to stderr, and the exit status is the command's own.
+one, and the tool repair fails on an interpreter that cannot import its standard library.
+
+uv's cache comes last: the script environments `uv run <script>` runs from, the cached environments
+of `uvx <spec>` and `uv run --with`, and the unpacked wheels they are built from. A damaged
+environment that is still a virtualenv, with its `pyvenv.cfg` and a `bin/python` that runs, has its
+damaged distributions reinstalled in place, and no others: each one the check found a file, its
+`RECORD` or its `METADATA` missing from, at its dist-info version from the configured index or from
+the source its `direct_url.json` records, with `uv pip install --reinstall-package` and without the
+cache, so a damaged wheel never leaks back in. Every other distribution in the environment keeps
+its files byte for byte, and its source is never looked up. A process running from the environment
+imports from it again once the reinstall is done, and the calls waiting on the lock rebuild
+nothing. During the reinstall of an environment whose module files the purge took, a process
+importing from that same environment can briefly find a module missing, as it can during the tool
+repair.
+The rest are removed for uv to rebuild from the script or spec the next call names:
+
+- a cached environment's link, when the environment has lost `pyvenv.cfg` or its interpreter, or
+  holds a distribution not shown to come from the configured index, which its own spec rebuilds as
+  it was asked for: one from a URL, git or a path, its `direct_url.json` still there or listed in a
+  `RECORD` the purge left; one from a local file or a find-links directory, which uv marks with a
+  `uv_cache.json`; one whose dist-info directory lost its `RECORD`, which leaves nothing to tell
+  its source by; and one whose installed files the configured index's release of that version does
+  not match, as one from an index given on the command line can (below). So is the link of one
+  whose reinstall fails, or that is still damaged when it is checked again. The environment behind the link stays, for any
+  process running from it, until `uv cache prune`;
+- a script environment that has lost `pyvenv.cfg` or its interpreter, removed before any uv
+  command of the repair that could reach the managed interpreter, since uv would otherwise install
+  the script's dependencies into that interpreter itself. Only the release fetches below come
+  earlier, each run for an environment that is still a virtualenv, into a directory of its own. It is renamed aside first, so uv never sees half of one, and an aside that
+  cannot be removed whole is left, noted, for `uv cache prune`;
+- a damaged unpacked wheel, by its link and the pointer files beside it, so the next build downloads
+  it again.
+
+A script environment whose damaged distribution came from a URL, git or a path and lost its
+`direct_url.json`, or came from a local file or a find-links directory, fails the scope instead,
+and the reason names the distribution: nothing then records the source, a reinstall by version
+could replace a fork with upstream or a local package with a public one, and a script environment
+is not removed while a process may be running from it. uv marks a distribution from a local file
+or a find-links directory with a `uv_cache.json` in its dist-info directory, and the repair reads
+that mark on disk as well as in the `RECORD`, so a purge that takes only the `RECORD` still leaves
+it. A find-links requirement names only a version, so the index's release of that version satisfies
+it, and uv would never sync the environment back: the swap would be silent and would last. Putting
+the find-links directory in `uv.toml` changes nothing here, since the mark says where the
+distribution came from and not where the configuration points. The remedy is `uv-manager clean
+cache --yes`. It removes every environment and wheel in the cache, so the next call of each script
+and each spec builds its environment again and downloads every wheel it needs, and a process still
+running from the cache can find a module gone: run it when no job is using the cache.
+
+Every other damaged distribution would be reinstalled by version from the configured index, and
+nothing in the environment says that is where it came from: an index the script itself names in
+`[[tool.uv.index]]`, served over HTTP, leaves no mark, and neither does an index given on the
+command line. So before reinstalling any of them, the repair shows that the configured index
+serves that version. It fetches those versions in one call per environment, without their
+dependencies or the cache, into a temporary directory in the cache, from `/` under the same
+configuration as the reinstall; a version the index serves only as an sdist is built there, as the
+reinstall would build it.
+
+Only wheels are compared. uv writes a `uv_build.json` into the dist-info directory of every
+distribution it builds from an sdist, and into none it installs from a wheel. When the
+environment's dist-info directory or the fetched release's carries one, the repair compares no
+files, and the fetch succeeding is the whole check. A build from an sdist is not reproducible: its
+compiled extensions differ from one build to the next, so do its `METADATA` and `WHEEL` once the
+build backend has had a release, and a build backend can write a path of its temporary build
+environment into a `.py` file, as numpy's does, so a comparison would refuse the configured
+index's own sdists. The cost is a concession: a fork served as an sdist, from an index the script
+names, at a version the configured index also serves, is not seen, and is reinstalled from the
+configured index. So is a fork served as a wheel at a version the configured index serves only as
+an sdist.
+
+For a wheel, only source files are compared: the `.py` and `.pyi` files of the distribution,
+outside its dist-info directory and `bin/`. Where a distribution's `RECORD` survives, the sha256 it
+lists for each of them is compared with the one the release's `RECORD` lists for the same path;
+where the `RECORD` is gone, each source file of the release that the purge left in the environment
+is hashed and compared. A wheel's compiled extensions and packaging metadata are passed over for
+the same reason as above, so a fork that differs from the index's release only in a compiled
+extension or in its packaging metadata passes the check and is reinstalled from the index. So
+does a fork that lost its `RECORD` and every source file that differs from the index's release,
+since nothing is left to tell it by, and a distribution with no source file to compare passes as
+long as the fetch succeeds.
+
+A source file that differs, or a release the configured index does not serve, fails the scope as
+above, naming the distribution and `uv-manager clean cache --yes`. A release the index does not
+serve covers a version or a project the index lacks, and a version a uv setting such as
+`exclude-newer` filters out, which clearing the cache mends, since each environment is then built
+again under the same settings. A fetch that fails gets a reason of its own instead, `… could not
+fetch <name> <version> from the configured index to check its source (the index may be
+unreachable); the scope is not repaired`, which prescribes no `clean cache`, since that cannot
+help while the index is down or refuses the credentials; the next scope tries again. uv's exit
+status does not separate the two, so the repair reads uv's own words, with colour turned off for
+that one call, and counts a fetch as failed only on a sign of it: uv exiting with status 2,
+`Failed to fetch`, an offline run's `not found in the cache` or its hint that the network was
+disabled, or a hint naming `401 Unauthorized` or `403 Forbidden`. Any other failure counts as a
+release the index does not serve and names `clean cache`; that includes an sdist whose build
+fails, and a failed fetch that a later uv words differently. In a cached environment every one
+of these removes the link instead. The check adds one download per damaged environment to the
+repair, never to doctor or a healthy scope: on a workstation, 0.2 s for `tqdm` alone and 0.4 s
+for eleven distributions in one environment. A distribution built from an sdist is built once
+more for the check: numpy 2.1.3, which builds in about 35 s on a workstation, took about 110 s
+to repair.
+
+A removal that fails, or a script environment whose reinstall fails or that is still damaged when
+it is checked again after its reinstall, stops the scope, and the reason names the entry. A cached
+environment in either state loses its link, as above; a script environment is never removed while
+a process may be running from it, so it fails the scope instead. So does a script environment
+built with an index given only on the command line, whose name the configured index lacks, at the
+check above: clear the cache with `uv-manager clean cache --yes`. The tool repair makes the same
+concession for `uv tool install --index`.
+
+The same holds for a script environment with a distribution from an index the script itself names,
+an HTTP `[[tool.uv.index]]`, when the configured index lacks that build or serves a different one:
+a local version such as `1.16.0+hpc`, or a wheel of a version the configured index also has whose
+Python source differs (an sdist of such a version is not seen, as above). The
+repair cannot show where such a distribution came from, so with the knob set a damaged environment
+of that kind fails every call in the scope, unrelated calls included, until `uv-manager clean cache
+--yes` clears it. That loud failure is chosen over a swap: a reinstall from the configured index
+would run another build in its place, and uv would not sync it back.
+
+An entry the repair removes is rebuilt by the next call that needs it, not under the repair lock:
+a cached environment's link, a script environment without `pyvenv.cfg` or its interpreter, and an
+unpacked wheel. So is a script environment with a distribution reinstalled from the configured
+index where the script names a URL, git or path source for it: uv syncs it in place on the
+script's next run, after the lock is released. A distribution from a find-links directory or
+another index the script names is not reinstalled from the configured index in its place: uv would
+not sync it back, since a requirement by version is satisfied by the index's release, so the repair
+refuses it, as above.
+uv takes a `flock` on the cache entry while it builds one. Where `flock` holds
+across nodes, one call rebuilds the entry and the others wait for it and use it; where `flock` is
+node-local, the next call on each node rebuilds it, concurrently with the other nodes; where `flock`
+is absent, uv fails outright, as it does on any use of the cache (see [Filesystem semantics to
+verify before deploying](#filesystem-semantics-to-verify-before-deploying)). An environment
+reinstalled in place is whole when the lock is released, and no waiting call rebuilds it.
+
+The call records the outcome under `$UVM_ROOT/<arch>/.repair/` and releases the lock. The other
+calls wait on the lock, see the outcome, and act on it. No call repairs when nothing is damaged. The
+uv version in use and `current` stay as they were. All repair output goes to stderr, and the exit
+status is the command's own.
 
 **A failure stops the scope.** When the repair fails, the call records the reason, and that call and
 every other call in the scope exit non-zero with it and run nothing. Nobody retries within the
@@ -502,8 +695,84 @@ purge. `uv-manager clean outcomes --yes` removes them all. A holder that dies re
 waiters fail at `UVM_LOCK_TIMEOUT` naming the repair lock and its owner line; `uv-manager doctor`
 reports the lock, and `uv-manager clean lock --yes` removes it.
 
-**Three tool states fail the scope by design.** Each needs a human, and then a new job or a new
-value.
+**An installed tool comes back from its record.** Every `uv tool install`, `upgrade` and
+`uninstall` that exits 0 through the wrapper keeps a record of each tool it changed under
+`$UVM_DATA/tools/<name>/`, off scratch: the arguments as typed, every distribution pinned (one
+from git to its commit, one from a URL archive to that URL), the Python minor, the executables, and
+uv's receipt byte for byte. A recorded tool that has lost its whole directory, every file in it
+(which takes `pyvenv.cfg` and the receipt), its receipt alone, an executable or its interpreter
+link is restored by the call holding the repair lock, after the interpreters and before the
+in-place repair: `uv tool install --force` of the recorded request, with the record's pins as
+constraints and the recorded minor as `UV_PYTHON`, from `/` and without the cache. A recorded tool
+the in-place repair would refuse, one from git or a URL among them, is restored the same way. A
+tool that lost only files inside its environment keeps the in-place repair, which leaves its
+receipt byte for byte. A restored tool holds exactly the distributions, at exactly the versions, it
+held when its record was last written, and the record does not change. Pins are constraints, so
+they add no package and change no resolution: `uv.toml` and the `UV_` variables apply, as they do
+to the repair. Restoring three tools, one of them from git, held the lock for 3 to 4 seconds on a
+workstation's local disk. On a parallel filesystem, with nothing cached, one tool takes from a few
+seconds to tens of seconds, and the call holding the lock restores every damaged tool in turn, so
+the lock is held for the sum. A job that runs many recorded tools can find them all purged at once
+and hold the lock past the default `UVM_LOCK_TIMEOUT` of 180 seconds, and every call waiting on it
+then fails; raise `UVM_LOCK_TIMEOUT` for such a job.
+
+**A restore leaves nothing held where the tree is the same.** A replay writes its pins into uv's
+receipt, and uv then answers `uv tool upgrade` with "Nothing to upgrade" for a tool installed
+unpinned. So the restore puts the record's copy of the receipt back in place of the replay's when
+every `install-path` in it names this tree's `bin/shims`, and the tool upgrades as it did before
+the purge. A receipt that names another tree, because the tool was installed under another
+platform key or the root has moved since, is not put back: uv manages the executables at the paths
+it records. Such a tool stays at the restored versions; `uv-manager doctor` reports it as pinned by
+a restore, and `uv tool install --force` with its original arguments releases it.
+
+**What a record restores.** A tool from an index, from git at the recorded commit, or from a URL
+archive. A tool installed from a local path, a directory or an editable source, or with an option
+naming a local file (`--with-requirements`, `-c`, `--overrides`, `--build-constraints`), is
+recorded and not restored, since its source is outside anything the wrapper keeps; the scope
+fails, naming the tool and the option. A request typed with `--force` or `<name>@latest` replays
+without them, at the recorded pins. No credential given in a URL is recorded, so a replay
+authenticates as the install did, through `uv.toml`, netrc or the environment, and one whose only
+credential was in the URL fails. A tool with no record, installed before records existed or by a
+uv the wrapper did not run, is repaired or refused exactly as below. The call holding the repair
+lock, `uv-manager doctor` and every `uv tool` command that succeeds first write a record for each
+installed tool that has none and still has its receipt and `pyvenv.cfg`, pinned to what is
+installed, and the tool's trampolines in `$UVM_DATA/bin` with it; none of them rewrites a record.
+Such a record is built from what uv kept: its own rendering of the request in `uv tool list`, and
+the indexes the receipt records on one line: `index-url`, `extra-index-url`, the `index` entries
+uv writes for `--index` and `--default-index`, and `index-strategy`. Anything else the original
+command gave, `--find-links` among them, and an `index` entry with a setting beyond its URL, its
+name and whether it is the default, is not recorded, and the restore runs under the configuration
+in effect when it runs. A tool whose receipt names a git, URL or local source, for the tool or for
+a `--with` package, gets no record when a purge took that package's own `direct_url.json`, since
+nothing then says which commit or file to restore; a dependency's surviving `direct_url.json` does
+not stand in for it. The tool keeps the refusal below, and `uv-manager doctor` names it.
+
+**The check restores only tools with a trace here.** Several clusters or node types that share a
+home directory share `UVM_DATA`, so a tool installed on one has a record on all. A check restores
+only a recorded tool with a trace in the tree of the node running it: its directory, or a shim its
+record names, dangling or not. Every purge leaves one, so a purged tool comes back; a tool
+installed only for another architecture or cluster does not, since restoring every such tool in
+every job would install each on every node type. `uv-manager doctor` lists it as an advisory, never
+a failure.
+
+**A tool run by its own name comes back wherever it runs.** With `UVM_REPAIR` set, a tool whose
+shim is still missing after the check, because it was installed for another architecture, on
+another cluster sharing `UVM_DATA`, or removed by hand, is restored from its record by the call
+that runs it, that tool and no other, under the repair lock, and then runs. Calls running it beside
+that one wait on the lock. Success is the shim itself, so nothing is recorded for it. A failure is
+recorded for the scope and the tool, as `<scope>+tool-<tool>.failed` beside the scope's own record,
+so every waiting call fails at once with the reason, and every later call of that tool in the same
+job, or with the same value, fails the same way. `uv-manager doctor` reports one recorded under a
+value with its reason, and counts those under jobs with the rest. Pins recorded on one platform are
+constraints on another: they add no package, and a pinned version with no distribution for this
+platform fails the restore, naming the tool. The record's receipt names the other tree's
+executables, so it is not put back, and the tool stays at the restored versions; `uv-manager
+doctor` reports it as pinned by a restore. `uv tool install --force <request>` on that node, with
+`<request>` the arguments recorded in `$UVM_DATA/tools/<tool>/request`, releases it, and rewrites
+the shared record so that its receipt names this tree instead.
+
+**Three states of a tool with no record fail the scope by design.** Each needs a human, and then a
+new job or a new value.
 
 - A tool directory that has lost its `pyvenv.cfg` is no longer a virtualenv, and a reinstall aimed
   at it would install into the base interpreter, outside the tree, and still exit 0. The repair
@@ -525,7 +794,13 @@ Two cases are conceded. An index or find-links given only on one install's comma
 the index `uv.toml` and the environment configure, so a name from that other index can resolve
 from this one. And a tool whose purge took both records, its receipt and the `direct_url.json` of
 the distribution from another source, has a source that cannot be known, so the repair installs
-the release of that version from the configured index, `pypi.org` by default. A tool with no `uv-receipt.toml` is otherwise repaired like any other, since the repair
+the release of that version from the configured index, `pypi.org` by default. The cache repair
+checks the first case instead of conceding it: an environment built from a remote index given
+only on the command line records nothing of that index, so it is reinstalled from the configured
+index only where that index's release of the same version matches what the environment holds, and
+otherwise a script environment fails the scope and a cached one loses its link. Put the index in
+`uv.toml`, where the check and the reinstall both find it. A
+tool with no `uv-receipt.toml` is otherwise repaired like any other, since the repair
 needs nothing from it; `uv-manager doctor` still reports the missing receipt, which uv needs to count
 the tool as installed.
 
@@ -535,23 +810,47 @@ tool requires. A managed interpreter is checked only by whether its binary is th
 json, os, ssl` succeeds, so damage elsewhere in its standard library goes unseen. A purge that takes
 every file of an interpreter leaves its directories and links, so the shim uv points through the
 minor-version link, `python/cpython-3.12-<platform>`, still leads to the install, and the install is
-repaired. A shim whose whole tool or interpreter directory is gone is reported by doctor but not
-repaired, since uv no longer counts that tool or interpreter as installed; remove the shim, and
-install the tool or interpreter again if you still need it. Damage inside uv's cache is not checked or repaired. That
-cache holds the environment of a script with inline dependencies, so `uv run <script>` can still
-fail on a cache the repair never touches. A project's `.venv` lives outside the tree and is the
-user's.
+repaired. A shim whose whole tool directory is gone is restored when the tool has a record. Without
+one, and for an interpreter, it is reported by doctor but not repaired, since uv no longer counts
+that tool or interpreter as installed; remove the shim, and install the tool or interpreter again
+if you still need it. A project's `.venv` lives outside the tree and is the user's.
+
+Damage inside uv's cache is caught the same way, by the files each live entry's `RECORD` lists, and
+repaired as above. The cache layout the walk reads, the links under `environments-v2` and
+`wheels-v*` and the `.http` pointer beside a wheel's link, was verified against uv 0.13.x; a uv that
+lays its cache out otherwise makes the walk see less. A wheel whose link the purge took is still
+checked through the pointer beside it, which uv follows to the same archive. Four things in the
+cache go unseen: an environment's dist-info directory removed whole, which leaves no `RECORD` to
+read; packages that a
+run in a script environment without `pyvenv.cfg` already installed into the managed interpreter,
+which the interpreter check passes; an environment built under `UV_LINK_MODE=symlink`, whose files
+are links into the wheels, where the repair was not measured; and wheels uv built from source
+distributions, under `sdists-v*`, which the walk does not enter, though an environment built from a
+damaged one inherits the damage.
+
+The manual remedy for a damaged cache is `uv-manager clean cache --yes`, which removes the whole
+cache, for uv to rebuild what it needs as it needs it. `uv cache clean <package>` removes a damaged
+wheel and leaves the environments built from it, and `uv cache prune` removes the environments no
+longer in use and leaves the damaged wheel they are rebuilt from, so either alone leaves the
+failure in place.
 
 **Network.** The tool repair downloads every distribution of each damaged tool again, from
 `pypi.org` and `files.pythonhosted.org` or the index configured in `uv.toml` or the environment.
 With the cache bypassed, uv stages that download in its temporary directory under `TMPDIR`, which
 needs room for the whole of the tool's environment; a `TMPDIR` that is not writable or is full
-fails the scope with uv's reason. The interpreter reinstall downloads from `releases.astral.sh`, or
-the mirror the user configured. Where compute nodes have no egress, the repair fails as above.
+fails the scope with uv's reason. A restore downloads the same way, and fetches a git source from
+its host. The cache repair downloads each damaged distribution it reinstalls in the same way, and
+once more, into the repair's temporary directory, each one whose source it checks against the
+index; an entry it removes is downloaded again by the next call that needs it. The interpreter
+reinstall downloads from `releases.astral.sh`, or the mirror the user configured. Where compute
+nodes have no egress, the repair fails as above.
 
-**Reach.** The check runs on every call through `uv` or `uvx`, whatever the subcommand. It does not
-run when a tool is invoked by its own name, because the trampoline execs the tool directly and never
-enters the wrapper; use `uvx <tool>` in the job script. `uvx <script>.py` is not a uv form: uv
+**Reach.** `srun uvx <spec>` and `srun <tool>` are both job-script routes, under one contract. The
+check runs on every call through `uv` or `uvx`, whatever the subcommand, and on every call of an
+installed tool by its own name: with the knob set, the tool's trampoline enters the wrapper, which
+runs the same check under the same lock, outcome and failure contract, and then runs the tool,
+whose output and exit status are its own. A failed check runs nothing. With the knob off the
+trampoline runs the tool and never starts the wrapper. `uvx <script>.py` is not a uv form: uv
 refuses it and points at `uv run`, and with the knob set the wrapper would repair before uv refuses.
 
 **Many jobs at once.** Jobs submitted separately are separate scopes, and each one checks the tree
@@ -560,7 +859,15 @@ turn. If one check takes `w` seconds, the job in place `k` of that line waits ab
 seconds, and a job whose wait passes `UVM_LOCK_TIMEOUT` fails there, naming the repair lock, having
 run and changed nothing. So about `UVM_LOCK_TIMEOUT / w + 1` jobs that start within one check of
 each other get through. At the default 180 s and a check of 1.5 s that is about 120 jobs; at a
-5 s timeout, three or four. A job that fails this way can be resubmitted, and checks again. An array shares
+5 s timeout, three or four. The check includes the walk of uv's cache, which lists each live
+entry's files once and compares every path its `RECORD` lists against that listing, testing only
+the paths the listing lacks. For a cache holding a data-science stack, 41,043 files in 153 live
+entries and 40,185 `RECORD` lines, `uvm doctor` took 2.5-4.4 s on a Lustre scratch, where testing
+every path had taken 52-108 s, and 0.7 s on a workstation's local disk. The listing costs a
+directory read per directory of each entry, not a metadata round trip per `RECORD` line, so `w`
+grows with the directories the cache's live entries hold. A purge that damages many entries adds
+little: with 30% of the files under 231 dist-info directories in 21 script environments purged at
+random, doctor took 0.45 s on a workstation, against 0.33 s for the same tree whole. A job that fails this way can be resubmitted, and checks again. An array shares
 its successful check and does not queue this way once one task has made it. On NFS, a call that wins the
 lock can miss an outcome another node just recorded, which costs one redundant check.
 
@@ -625,10 +932,38 @@ rewrites `tools/` and `python/`. Sharing one lock would make a repair waiter fai
 unrelated slow download, and let a provisioning waiter past its timeout exec mid-repair. No call
 holds both: provisioning releases before the repair begins.
 
-**Architecture-neutral trampolines.** The only way to have one `PATH` entry that is correct on both
-node types. Each is a short `sh` script that re-resolves the platform key at exec time. They are
-generated for the union of names across all architectures, so invoking a tool on an architecture
-where it is not installed gives a useful message instead of `Exec format error`.
+**Architecture-neutral trampolines.** The only way to have a `PATH` entry that is correct on both
+node types. Each is a short `sh` script that re-resolves the platform key at exec time, generated
+for the union of names across all architectures, so invoking a tool on an architecture where it is
+not installed gives a useful message instead of `Exec format error`. There are two directories
+because there are two sources of names. The records name every installed tool's executables and
+are shared by every root that shares `UVM_DATA`, so their trampolines live there, off scratch, and a
+purge that takes a shim leaves its trampoline. A managed interpreter, or a tool installed without a
+record, is named only by a shim in one root, so its trampoline lives in that root's
+`$UVM_ROOT/bin`, and a sync on one root never removes another's: a home directory shared by two
+clusters would otherwise lose one cluster's interpreters to the other's next `uv tool list`. A
+release before 0.8.0 wrote its trampolines there; a sync rewrites each in place rather than remove
+it, because a job script's shell remembers the path of a command it has run, and a removed path
+fails the next call. The first call after an upgrade does that once per root, keyed on a marker
+that only that root's own sync writes: `$UVM_DATA/bin` is shared by every root, and doctor creates
+it while writing nothing under `UVM_ROOT`, so its presence says nothing about a root's old
+trampolines. A record and its trampoline are written together wherever a record is written, so a
+record never waits on a later sync for the trampoline a purge would leave. With the knob off a
+trampoline execs the shim and nothing else, because a tool run in a loop must not pay for a bash start; with it on, or the shim
+missing, or `UVM_ROOT` unset, it enters the wrapper through one internal entry, so the check, the
+root cascade and the messages live in one place. The root is read from the environment, never baked
+in, because two clusters sharing a home directory share `UVM_DATA` and have a root each; the wrapper
+exports `UVM_ROOT` and `UVM_DATA` to everything it runs for that reason.
+
+**What the user asked for lives outside the scratch tree.** The receipt, uv's one record of what was
+asked for, sits inside the tool directory it describes, so a purge takes the request with the
+environment, and an idle tool, whose every file ages together, loses both. The in-place repair can
+then only refuse. A record is a few KB per tool, names no architecture and changes only when a `uv
+tool` command does, so home quota, and home's backups, suit it. It is plain files, never TOML the
+wrapper would have to parse: the request as typed, pins read from dist-info names and
+`direct_url.json`, and uv's receipt kept as opaque bytes. The restore replays the request with the
+pins as constraints rather than rewriting the request, so the replayed request still reads as the
+user typed it, and puts uv's receipt back so a tool installed unpinned stays free to upgrade.
 
 **Not overriding `XDG_CONFIG_HOME`.** Storage is the wrapper's business; resolution is not.
 
@@ -636,7 +971,8 @@ where it is not installed gives a useful message instead of `Exec format error`.
 metadata operations. Measured, it is a fork, an exec, and — under GNU coreutils — one `EEXIST`-failing
 `mkdir(2)` per path component of every operand, to resolve six directories that already exist: roughly
 a quarter of the wrapper's own overhead, and more the deeper the scratch path, paid by every rank of
-every job. Six shell builtin tests replace it. A missing directory is still created, under
+every job. Builtin tests replace it, one per directory; the trampoline directories are not among
+them, since only a sync creates those. A missing directory is still created, under
 `umask 077`, which is what the unconditional call was really protecting.
 
 ---
@@ -717,9 +1053,10 @@ provisioning lock above. The difference is the timeout: a repair waiter never pr
 lock, so at `UVM_LOCK_TIMEOUT` it fails with "timed out … waiting for the repair lock", names the
 owner line, and runs nothing. A holder that was killed leaves the lock and no outcome, so every
 call with `UVM_REPAIR` set and no outcome for its scope fails this way until a human removes the
-lock. Once nothing is repairing that
-tree, `uv-manager doctor` reports the lock and `uv-manager clean lock --yes` removes it; the next
-call in the scope then checks and repairs.
+lock. A holder still restoring many tools from their records times its waiters out the same way
+while it runs, so a job that runs many recorded tools wants a larger `UVM_LOCK_TIMEOUT`. Once
+nothing is repairing that tree, `uv-manager doctor` reports the lock and `uv-manager clean lock
+--yes` removes it; the next call in the scope then checks and repairs.
 
 **"the repair for … failed"** means a call in this scope already tried the repair and recorded why
 it failed, so this call runs nothing and says the same. The reason follows the colon: a repair
@@ -730,9 +1067,29 @@ next job, or the array's next task, checks again. Under a value, the record stan
 changes: `uv-manager doctor` prints it as `repair failed for UVM_REPAIR=<value>`, and
 `uvm clean outcomes --yes` removes it.
 
+**"cannot run <tool> for …"** means a call in this scope already tried to restore that tool by
+name and recorded why it failed, as above for the repair; this call runs nothing. The reason follows
+the colon, and the failing call's log carries uv's own output. Inside a job, the next job tries
+again; under a value, the record stands until the value changes, and `uv-manager doctor` prints it
+as `restore of tool <tool> failed for UVM_REPAIR=<value>`.
+
 **A tool prints "is not installed for architecture 'aarch64'".** That is the trampoline working as
-intended. The quoted name is the platform key, which a site may have overridden; install the tool
-from a node that resolves to it.
+intended: no shim for the tool exists under this platform key and no record names it. The quoted
+name is the platform key, which a site may have overridden; install the tool from a node that
+resolves to it.
+
+**`uv-manager doctor` says a tool "has no record".** Nothing restores that tool after a purge, and a
+purged one is repaired or refused as for a tool installed before records existed. Where the line
+says `uv tool list` writes one, run it. Where it says the `direct_url.json` that pins the tool is
+gone, install the tool again from the source its receipt records.
+
+**A tool prints "is recorded but not installed for architecture 'aarch64'".** A record under
+`UVM_DATA` names the tool, but this architecture's tree has no shim for it, usually because a purge
+took it or it was installed on another architecture. The message names the remedy. It exits 127,
+having taken no lock and changed nothing.
+
+**A tool prints "needs uv-manager on PATH".** Its trampoline found no `uv-manager` on `PATH` and
+none where the wrapper that generated it lives. Load the uv module.
 
 **`ImportError` from something that used to work** is usually a partial purge. Run
 `uv-manager doctor`, or, inside a job, set `UVM_REPAIR=1` on the call to repair before it runs.
@@ -752,11 +1109,12 @@ precedes its own install directory. That is the arrangement we want.
 | Variable | Effect |
 | --- | --- |
 | `UVM_ROOT` | Base for per-user state. Architecture-neutral; the wrapper appends `<arch>`. |
+| `UVM_DATA` | Durable directory for the record of each installed tool, a few KB per tool, and the recorded tools' trampolines in its `bin/`, no architecture in any path. Default `${XDG_DATA_HOME:-$HOME/.local/share}/uvm`; `uv-manager status` names it and where it came from. |
 | `UVM_PIN` | `uv` version to provision and select. |
 | `UVM_PLATFORM` | Override the architecture key. Default `uname -m`. |
 | `UVM_INSTALL_URL` | Installer base URL, for mirrors. Default `https://astral.sh/uv`. |
 | `UVM_LOCK_TIMEOUT` | Seconds to wait for a lock. Past it, provisioning installs without the lock and a repair fails. Default 180. |
-| `UVM_REPAIR` | Repair what a purge removed before running the command, once per Slurm job, else once per value. Off when unset, empty or `0`; any other value is on. A value may be 194 bytes, each byte outside `a-z 0-9 . -`, an uppercase letter included, counting as three. See [Repairing inside a job](#repairing-inside-a-job). |
+| `UVM_REPAIR` | Repair what a purge removed before running the command, once per Slurm job, else once per value, and restore installed tools from their records; a tool run by its own name is restored even where it was never installed. Off when unset, empty or `0`; any other value is on. A value may be 194 bytes, each byte outside `a-z 0-9 . -`, an uppercase letter included, counting as three. See [Repairing inside a job](#repairing-inside-a-job). |
 
 `UVM_LOCK_TIMEOUT` is whole seconds, read as decimal. No call removes a lock it did not create, so
 there is no threshold after which a lock counts as abandoned.

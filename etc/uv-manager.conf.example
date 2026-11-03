@@ -48,6 +48,18 @@
 # OLCF (per-allocation rather than per-user):
 #export UVM_ROOT="${MEMBERWORK}/<projid>/.uv"
 
+# UVM_DATA is the durable counterpart: a record of what each installed tool
+# was installed from (its request, pins, Python minor, executables and uv's
+# receipt), a few KB per tool, written by every `uv tool install`, `upgrade`
+# and `uninstall` that exits 0. It belongs on storage that is not purged, and
+# it names no architecture, so one directory serves every node type. Its bin/
+# holds the trampolines that run recorded tools by name, which the modulefile
+# puts on PATH ahead of $UVM_ROOT/bin, where the managed interpreters' and any
+# unrecorded tool's trampolines stay. The default suits almost every site; set
+# it only to move the records off home, and move the modulefile's PATH entry
+# with it.
+#export UVM_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/uvm"
+
 
 # ===========================================================================
 # 2. Version policy
@@ -79,7 +91,10 @@
 # `uvm clean lock --yes` removes both the provisioning and the repair lock.
 # Until then a provisioning call whose request is not yet satisfied waits
 # until it is or until this timeout passes, and a repair call with no
-# outcome recorded for its scope fails at the timeout.
+# outcome recorded for its scope fails at the timeout. A repair that restores
+# tools from their records holds the lock for the sum of their restores, a
+# few seconds to tens of seconds each on a parallel filesystem with nothing
+# cached, so a job that runs many recorded tools wants a larger value.
 #export UVM_LOCK_TIMEOUT=180
 
 # Repair what a scratch purge removed before running the command. Normally
@@ -95,25 +110,49 @@
 # purge can take older tool files while the record survives, which reads as
 # clean on a damaged tree. Leave it unset on storage that is not purged. A
 # damaged managed interpreter is reinstalled first, at the version
-# installed, whatever Python the job asks for; then each damaged tool gets
-# every distribution in its environment reinstalled at the version its
-# dist-info directory names, so it keeps its versions, pinned or not, its
-# --with packages and its receipt, and no healthy tool is touched. A tool
-# directory that has lost its pyvenv.cfg, a tool whose interpreter is gone,
-# and a tool holding a distribution not from an index fail the call
-# instead: one whose direct_url.json records a URL, git or path source, or
-# whose receipt records a requirement, constraint or override from a
-# directory, path, editable, git or URL source. The receipt is read for
-# that alone and never written. The repair runs under uv.toml and the UV_
-# variables, so a configured index or mirror is in effect, and from /, so
-# the project configuration of the job's directory is not; an index or
-# find-links given only on one install's command line is not applied again,
-# so a name from it can resolve from the configured index instead. The
-# tool repair needs pypi.org and files.pythonhosted.org, or the configured
-# index, and room under TMPDIR for the tool's environment; the
+# installed, whatever Python the job asks for. An installed tool with a
+# record under UVM_DATA that lost its directory, pyvenv.cfg, receipt,
+# executable or interpreter link is restored next, from that record: the
+# install replayed with every distribution pinned, on the Python minor it
+# had, and uv's receipt put back where it names this tree. A tool installed
+# from a local source is recorded and not restored. Then each other damaged
+# tool gets every distribution in its environment reinstalled at the
+# version its dist-info directory names, so it keeps its versions, pinned
+# or not, its --with packages and its receipt, and no healthy tool is
+# touched. Without a record, a tool directory that has lost its pyvenv.cfg,
+# a tool whose interpreter is gone, and a tool holding a distribution not
+# from an index fail the call instead: one whose direct_url.json records a
+# URL, git or path source, or whose receipt records a requirement,
+# constraint or override from a directory, path, editable, git or URL
+# source. The receipt is read for that alone and never written. Last comes
+# uv's cache: a damaged environment that uv run <script> or uvx <spec> runs
+# from has its damaged distributions, and no others, reinstalled in place
+# the same way while it is still a virtualenv, and is otherwise removed, as
+# a damaged unpacked wheel is, for uv to rebuild from the script or spec the
+# next call names. A cached uvx environment holding a distribution not shown
+# to come from the configured index is removed too, and so is one whose
+# reinstall fails; a script environment fails the call instead when its
+# reinstall fails, when the source of a damaged distribution in it is not
+# recorded, or when one it would pin by version is a release the configured
+# index does not serve, an exclude-newer cutoff included, or a wheel whose
+# Python source differs from that index's release, as one from an index the
+# script itself names can, and uv-manager clean cache --yes, which rebuilds
+# the whole cache, is the remedy. Only wheels are compared: a distribution uv
+# built from an sdist is checked only for being served, so a fork served as
+# an sdist is not seen, nor is one that differs only in a compiled extension
+# or in its metadata. When the fetch fails, the index unreachable, offline or
+# refusing the credentials, the call fails saying so, with no remedy to run:
+# the next scope tries again. The repair runs under uv.toml
+# and the UV_ variables, so a configured index or mirror is in effect, and
+# from /, so the project configuration of the job's directory is not; an
+# index or find-links given only on one install's command line is not
+# applied again, so a name from it can resolve from the configured index
+# instead. The tool and cache repairs need pypi.org and
+# files.pythonhosted.org, or the configured index, and room under TMPDIR
+# for each environment; the
 # interpreter reinstall needs releases.astral.sh. It runs in `uv` and `uvx`
-# under any subcommand, not in a tool invoked by its own name. A failed
-# repair stops its scope: under a value the record stands until the value
+# under any subcommand, and in an installed tool run by its own name. A
+# failed repair stops its scope: under a value the record stands until the value
 # changes, and `uvm doctor` reports it with its reason.
 # `uvm clean outcomes --yes` removes every recorded outcome, which costs each
 # scope a fresh check, never a false clean. A value may be 194 bytes long,
